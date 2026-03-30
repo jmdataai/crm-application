@@ -1,115 +1,461 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* Digital Curator Design System Colors */
+  --primary: #004ac6;
+  --primary-container: #2563eb;
+  --surface: #faf8ff;
+  --surface-container-low: #f2f3ff;
+  --surface-container-lowest: #ffffff;
+  --surface-container-high: #e8e9f5;
+  --surface-container-highest: #dcdee8;
+  --on-surface: #131b2e;
+  --on-surface-variant: #434655;
+  --outline-variant: #c3c6d7;
+  --tertiary: #006243;
+  --tertiary-container: #007d57;
+  --amber: #f59e0b;
+  --error: #dc2626;
+  --error-container: #ffdad6;
+  
+  /* Shadows */
+  --ambient-shadow: 0px 4px 20px rgba(19, 27, 46, 0.06);
+  --ghost-border: rgba(195, 198, 215, 0.15);
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
-    margin: 0;
-    font-family:
-        -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
-        "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
-        sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--surface);
+  color: var(--on-surface);
+  line-height: 1.5;
 }
 
-code {
-    font-family:
-        source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
+/* Typography Scale */
+.display-lg {
+  font-size: 3.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.headline-sm {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+.title-sm {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.body-md {
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.label-sm {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+}
+
+/* Surface Containers */
+.surface {
+  background-color: var(--surface);
+}
+
+.surface-container-low {
+  background-color: var(--surface-container-low);
+}
+
+.surface-container-lowest {
+  background-color: var(--surface-container-lowest);
+}
+
+.surface-container-high {
+  background-color: var(--surface-container-high);
+}
+
+/* Ambient Shadow */
+.ambient-shadow {
+  box-shadow: var(--ambient-shadow);
+}
+
+/* Ghost Border */
+.ghost-border {
+  border: 1px solid var(--ghost-border);
+}
+
+/* Primary Button with Gradient */
+.btn-primary {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-container) 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-weight: 500;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  min-height: 44px;
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0px 6px 24px rgba(0, 74, 198, 0.25);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Secondary Button */
+.btn-secondary {
+  background: transparent;
+  color: var(--primary);
+  border: 1px solid var(--ghost-border);
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-weight: 500;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-height: 44px;
+}
+
+.btn-secondary:hover {
+  background-color: var(--surface-container-low);
+  border-color: rgba(195, 198, 215, 0.3);
+}
+
+/* Status Chips */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.chip-success {
+  background-color: var(--tertiary-container);
+  color: white;
+}
+
+.chip-pending {
+  background-color: var(--amber);
+  color: white;
+}
+
+.chip-error {
+  background-color: var(--error-container);
+  color: var(--error);
+}
+
+.chip-default {
+  background-color: var(--surface-container-high);
+  color: var(--on-surface-variant);
+}
+
+.chip-primary {
+  background-color: var(--primary);
+  color: white;
+}
+
+/* Card Widget */
+.card-widget {
+  background-color: var(--surface-container-lowest);
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: var(--ambient-shadow);
+}
+
+/* Sidebar */
+.sidebar {
+  background-color: var(--surface-container-low);
+  min-height: 100vh;
+  width: 260px;
+  position: fixed;
+  left: 0;
+  top: 0;
+  padding: 1.5rem 0;
+  z-index: 50;
+}
+
+.sidebar-sales .nav-item.active {
+  background-color: rgba(0, 74, 198, 0.1);
+  color: var(--primary);
+  border-right: 3px solid var(--primary);
+}
+
+.sidebar-recruitment .nav-item.active {
+  background-color: rgba(0, 98, 67, 0.1);
+  color: var(--tertiary);
+  border-right: 3px solid var(--tertiary);
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px;
+  color: var(--on-surface-variant);
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.2s;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.nav-item:hover {
+  background-color: var(--surface-container-high);
+  color: var(--on-surface);
+}
+
+/* Main Content */
+.main-content {
+  margin-left: 260px;
+  padding: 2rem;
+  min-height: 100vh;
+  background-color: var(--surface);
+}
+
+/* Table Styles - No Dividers */
+.data-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 4px;
+}
+
+.data-table th {
+  text-align: left;
+  padding: 12px 16px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+}
+
+.data-table td {
+  padding: 16px;
+  font-size: 0.875rem;
+  background-color: var(--surface-container-lowest);
+}
+
+.data-table tr td:first-child {
+  border-radius: 8px 0 0 8px;
+}
+
+.data-table tr td:last-child {
+  border-radius: 0 8px 8px 0;
+}
+
+.data-table tbody tr {
+  transition: all 0.2s;
+}
+
+.data-table tbody tr:hover td {
+  background-color: var(--surface-container-high);
+}
+
+/* Numbers right-aligned */
+.text-number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Input Styles */
+.input-field {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--ghost-border);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-family: 'Inter', sans-serif;
+  background-color: var(--surface-container-lowest);
+  color: var(--on-surface);
+  transition: all 0.2s;
+  min-height: 44px;
+}
+
+.input-field:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(0, 74, 198, 0.1);
+}
+
+.input-field::placeholder {
+  color: var(--on-surface-variant);
+}
+
+/* Glass Morphism for Modals */
+.glass-modal {
+  background: rgba(250, 248, 255, 0.8);
+  backdrop-filter: blur(20px);
+  border-radius: 16px;
+  box-shadow: var(--ambient-shadow);
+}
+
+/* Kanban Pipeline */
+.kanban-column {
+  background-color: var(--surface-container-low);
+  border-radius: 12px;
+  padding: 16px;
+  min-width: 280px;
+  max-width: 320px;
+}
+
+.kanban-card {
+  background-color: var(--surface-container-lowest);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 8px;
+  box-shadow: var(--ambient-shadow);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.kanban-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0px 8px 24px rgba(19, 27, 46, 0.1);
+}
+
+/* Scrollbar Styles */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--surface-container-low);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--outline-variant);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--on-surface-variant);
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-slideIn {
+  animation: slideIn 0.3s ease-out;
+}
+
+/* Activity Timeline */
+.timeline-item {
+  position: relative;
+  padding-left: 24px;
+  padding-bottom: 20px;
+}
+
+.timeline-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--primary);
+}
+
+.timeline-item::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 18px;
+  width: 2px;
+  height: calc(100% - 12px);
+  background-color: var(--outline-variant);
+}
+
+.timeline-item:last-child::after {
+  display: none;
+}
+
+/* Recruitment Mode Colors */
+.recruitment-mode .chip-success {
+  background-color: var(--tertiary-container);
+}
+
+.recruitment-mode .btn-primary {
+  background: linear-gradient(135deg, var(--tertiary) 0%, var(--tertiary-container) 100%);
+}
+
+.recruitment-mode .btn-primary:hover {
+  box-shadow: 0px 6px 24px rgba(0, 98, 67, 0.25);
+}
+
+/* Override Tailwind defaults for our design system */
+@layer base {
+  :root {
+    --background: 249 100% 99%;
+    --foreground: 222 35% 13%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 35% 13%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 35% 13%;
+    --primary: 217 100% 39%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 33% 97%;
+    --secondary-foreground: 222 35% 13%;
+    --muted: 240 33% 97%;
+    --muted-foreground: 230 7% 30%;
+    --accent: 240 33% 97%;
+    --accent-foreground: 222 35% 13%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 217 100% 39%;
+    --radius: 0.5rem;
+  }
 }
 
 @layer base {
-    :root {
-        --background: 0 0% 100%;
-        --foreground: 0 0% 3.9%;
-        --card: 0 0% 100%;
-        --card-foreground: 0 0% 3.9%;
-        --popover: 0 0% 100%;
-        --popover-foreground: 0 0% 3.9%;
-        --primary: 0 0% 9%;
-        --primary-foreground: 0 0% 98%;
-        --secondary: 0 0% 96.1%;
-        --secondary-foreground: 0 0% 9%;
-        --muted: 0 0% 96.1%;
-        --muted-foreground: 0 0% 45.1%;
-        --accent: 0 0% 96.1%;
-        --accent-foreground: 0 0% 9%;
-        --destructive: 0 84.2% 60.2%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 89.8%;
-        --input: 0 0% 89.8%;
-        --ring: 0 0% 3.9%;
-        --chart-1: 12 76% 61%;
-        --chart-2: 173 58% 39%;
-        --chart-3: 197 37% 24%;
-        --chart-4: 43 74% 66%;
-        --chart-5: 27 87% 67%;
-        --radius: 0.5rem;
-    }
-    .dark {
-        --background: 0 0% 3.9%;
-        --foreground: 0 0% 98%;
-        --card: 0 0% 3.9%;
-        --card-foreground: 0 0% 98%;
-        --popover: 0 0% 3.9%;
-        --popover-foreground: 0 0% 98%;
-        --primary: 0 0% 98%;
-        --primary-foreground: 0 0% 9%;
-        --secondary: 0 0% 14.9%;
-        --secondary-foreground: 0 0% 98%;
-        --muted: 0 0% 14.9%;
-        --muted-foreground: 0 0% 63.9%;
-        --accent: 0 0% 14.9%;
-        --accent-foreground: 0 0% 98%;
-        --destructive: 0 62.8% 30.6%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 14.9%;
-        --input: 0 0% 14.9%;
-        --ring: 0 0% 83.1%;
-        --chart-1: 220 70% 50%;
-        --chart-2: 160 60% 45%;
-        --chart-3: 30 80% 55%;
-        --chart-4: 280 65% 60%;
-        --chart-5: 340 75% 55%;
-    }
-}
-
-@layer base {
-    * {
-        @apply border-border;
-    }
-    body {
-        @apply bg-background text-foreground;
-    }
-}
-
-@layer base {
-    [data-debug-wrapper="true"] {
-        display: contents !important;
-    }
-
-    [data-debug-wrapper="true"] > * {
-        margin-left: inherit;
-        margin-right: inherit;
-        margin-top: inherit;
-        margin-bottom: inherit;
-        padding-left: inherit;
-        padding-right: inherit;
-        padding-top: inherit;
-        padding-bottom: inherit;
-        column-gap: inherit;
-        row-gap: inherit;
-        gap: inherit;
-        border-left-width: inherit;
-        border-right-width: inherit;
-        border-top-width: inherit;
-        border-bottom-width: inherit;
-        border-left-style: inherit;
-        border-right-style: inherit;
-        border-top-style: inherit;
-        border-bottom-style: inherit;
-        border-left-color: inherit;
-        border-right-color: inherit;
-        border-top-color: inherit;
-        border-bottom-color: inherit;
-    }
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
 }
