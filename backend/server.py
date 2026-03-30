@@ -42,12 +42,6 @@ app = FastAPI(title="CRM + ATS Platform")
 api_router = APIRouter(prefix="/api")
 
 # ==================== ENUMS ====================
-class UserRole(str, Enum):
-    ADMIN = "admin"
-    MANAGER = "manager"
-    SALES_REP = "sales_rep"
-    RECRUITER = "recruiter"
-
 class LeadStatus(str, Enum):
     NEW = "new"
     CONTACTED = "contacted"
@@ -85,13 +79,11 @@ class ActivityType(str, Enum):
 class UserBase(BaseModel):
     email: EmailStr
     name: str
-    role: UserRole = UserRole.SALES_REP
 
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
     name: str
-    role: UserRole = UserRole.SALES_REP
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -101,7 +93,6 @@ class UserResponse(BaseModel):
     id: str
     email: str
     name: str
-    role: str
     created_at: str
 
 class LeadCreate(BaseModel):
@@ -322,7 +313,6 @@ async def register(user_data: UserCreate, response: Response):
         "email": user_data.email.lower(),
         "password_hash": hash_password(user_data.password),
         "name": user_data.name,
-        "role": user_data.role.value,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     result = await db.users.insert_one(user_doc)
@@ -334,7 +324,7 @@ async def register(user_data: UserCreate, response: Response):
     response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=86400, path="/")
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
     
-    return {"id": user_id, "email": user_data.email, "name": user_data.name, "role": user_data.role.value}
+    return {"id": user_id, "email": user_data.email, "name": user_data.name}
 
 @api_router.post("/auth/login")
 async def login(user_data: UserLogin, response: Response):
@@ -351,7 +341,7 @@ async def login(user_data: UserLogin, response: Response):
     response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=86400, path="/")
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
     
-    return {"id": user_id, "email": user["email"], "name": user["name"], "role": user["role"]}
+    return {"id": user_id, "email": user["email"], "name": user["name"]}
 
 @api_router.post("/auth/logout")
 async def logout(response: Response):
