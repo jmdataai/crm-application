@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Sales Leads | Curator CRM</title>
+<!-- Google Fonts: Inter -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-secondary": "#ffffff",
+              "tertiary-fixed": "#85f8c4",
+              "on-primary-fixed-variant": "#003ea8",
+              "inverse-on-surface": "#eef0ff",
+              "on-surface-variant": "#434655",
+              "on-background": "#131b2e",
+              "surface-container": "#eaedff",
+              "inverse-primary": "#b4c5ff",
+              "on-primary": "#ffffff",
+              "surface": "#faf8ff",
+              "surface-container-lowest": "#ffffff",
+              "tertiary-container": "#007d57",
+              "primary-fixed": "#dbe1ff",
+              "surface-tint": "#0053db",
+              "on-secondary-container": "#57657a",
+              "inverse-surface": "#283044",
+              "on-tertiary": "#ffffff",
+              "outline-variant": "#c3c6d7",
+              "surface-dim": "#d2d9f4",
+              "on-secondary-fixed-variant": "#3a485b",
+              "on-secondary-fixed": "#0d1c2e",
+              "surface-container-high": "#e2e7ff",
+              "error-container": "#ffdad6",
+              "secondary-container": "#d5e3fc",
+              "secondary": "#515f74",
+              "on-tertiary-container": "#bdffdc",
+              "surface-bright": "#faf8ff",
+              "on-tertiary-fixed": "#002114",
+              "on-primary-container": "#eeefff",
+              "error": "#ba1a1a",
+              "secondary-fixed-dim": "#b9c7df",
+              "on-surface": "#131b2e",
+              "background": "#faf8ff",
+              "surface-container-low": "#f2f3ff",
+              "primary-fixed-dim": "#b4c5ff",
+              "on-tertiary-fixed-variant": "#005137",
+              "primary": "#004ac6",
+              "secondary-fixed": "#d5e3fc",
+              "on-error-container": "#93000a",
+              "tertiary": "#006243",
+              "on-error": "#ffffff",
+              "on-primary-fixed": "#00174b",
+              "surface-variant": "#dae2fd",
+              "surface-container-highest": "#dae2fd",
+              "outline": "#737686",
+              "tertiary-fixed-dim": "#68dba9",
+              "primary-container": "#2563eb"
+            },
+            fontFamily: {
+              "headline": ["Inter"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body { font-family: 'Inter', sans-serif; }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(20px);
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface antialiased">
+<!-- Side Navigation Shell -->
+<aside class="h-screen w-64 fixed left-0 top-0 z-40 bg-surface-container-low flex flex-col p-4 space-y-2">
+<div class="mb-8 px-2 py-4 flex items-center space-x-3">
+<div class="w-10 h-10 rounded-xl bg-primary flex items-center justify-center text-white shadow-lg">
+<span class="material-symbols-outlined" data-icon="token">token</span>
+</div>
+<div>
+<h2 class="font-semibold text-on-surface uppercase tracking-[0.05em] text-[0.6875rem]">The Digital Curator</h2>
+<p class="text-[0.6875rem] text-on-surface-variant">Enterprise Portal</p>
+</div>
+</div>
+<nav class="flex-1 space-y-1">
+<!-- Sales Mode Active -->
+<div class="bg-surface-container-lowest text-primary shadow-[0px_2px_8px_rgba(19,27,46,0.04)] rounded-xl font-semibold flex items-center px-4 py-3 cursor-pointer select-none transition-transform duration-200">
+<span class="material-symbols-outlined mr-3" data-icon="payments">payments</span>
+<span class="text-[0.875rem]">Sales Mode</span>
+</div>
+<div class="text-on-surface-variant hover:bg-surface-container-high/50 flex items-center px-4 py-3 rounded-xl cursor-pointer select-none hover:translate-x-1 transition-all duration-200">
+<span class="material-symbols-outlined mr-3" data-icon="group">group</span>
+<span class="text-[0.875rem]">Recruitment Mode</span>
+</div>
+<div class="text-on-surface-variant hover:bg-surface-container-high/50 flex items-center px-4 py-3 rounded-xl cursor-pointer select-none hover:translate-x-1 transition-all duration-200">
+<span class="material-symbols-outlined mr-3" data-icon="dashboard">dashboard</span>
+<span class="text-[0.875rem]">Dashboard</span>
+</div>
+<!-- Leads Highlighted for current context -->
+<div class="bg-surface-container-highest/30 text-primary-container font-medium flex items-center px-4 py-3 rounded-xl cursor-pointer select-none hover:translate-x-1 transition-all duration-200">
+<span class="material-symbols-outlined mr-3" data-icon="analytics">analytics</span>
+<span class="text-[0.875rem]">Leads/Candidates</span>
+</div>
+<div class="text-on-surface-variant hover:bg-surface-container-high/50 flex items-center px-4 py-3 rounded-xl cursor-pointer select-none hover:translate-x-1 transition-all duration-200">
+<span class="material-symbols-outlined mr-3" data-icon="settings">settings</span>
+<span class="text-[0.875rem]">Settings</span>
+</div>
+</nav>
+<div class="pt-4 mt-auto space-y-1">
+<button class="w-full bg-primary-container text-white py-3 rounded-xl text-sm font-semibold mb-6 shadow-md active:scale-95 transition-all">
+                Switch Module
+            </button>
+<div class="text-on-surface-variant hover:bg-surface-container-high/50 flex items-center px-4 py-3 rounded-xl cursor-pointer select-none transition-all">
+<span class="material-symbols-outlined mr-3" data-icon="help">help</span>
+<span class="text-[0.875rem]">Help Center</span>
+</div>
+<div class="text-on-surface-variant hover:bg-surface-container-high/50 flex items-center px-4 py-3 rounded-xl cursor-pointer select-none transition-all">
+<span class="material-symbols-outlined mr-3" data-icon="logout">logout</span>
+<span class="text-[0.875rem]">Logout</span>
+</div>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-64 min-h-screen">
+<!-- Top App Bar -->
+<header class="w-full sticky top-0 z-50 bg-surface shadow-[0px_4px_20px_rgba(19,27,46,0.06)] h-16 flex items-center justify-between px-8">
+<div class="flex items-center space-x-8">
+<span class="text-xl font-bold tracking-tighter text-on-background">Curator CRM</span>
+<nav class="hidden md:flex items-center space-x-6 text-sm font-medium">
+<a class="text-on-surface-variant hover:text-on-background transition-colors" href="#">Dashboard</a>
+<a class="text-primary font-semibold border-b-2 border-primary pb-1" href="#">Leads</a>
+<a class="text-on-surface-variant hover:text-on-background transition-colors" href="#">Candidates</a>
+<a class="text-on-surface-variant hover:text-on-background transition-colors" href="#">Tasks</a>
+</nav>
+</div>
+<div class="flex items-center space-x-4">
+<div class="relative group">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" data-icon="search">search</span>
+<input class="pl-10 pr-4 py-1.5 rounded-lg border-none bg-surface-container-low focus:ring-2 focus:ring-primary/20 text-sm w-64 transition-all" placeholder="Search leads..." type="text"/>
+</div>
+<button class="p-2 text-on-surface-variant hover:bg-surface-container-low rounded-lg transition-all" title="Help">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:bg-surface-container-low rounded-lg transition-all relative" title="Notifications">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-2 right-2 w-2 h-2 bg-error rounded-full"></span>
+</button>
+<div class="flex items-center space-x-3 ml-2 pl-4 border-l border-outline-variant/20">
+<img class="w-8 h-8 rounded-full object-cover shadow-sm" data-alt="close-up portrait of a professional man in a clean studio setting with soft natural lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBDsP0R-bZPDG_U1JXaRYrRxRRj8fApW_u58RH2QcDwyA3Ymh0xLUwoI8cyUzy2gxfP97Ehu--8SmCMqKP4js1wtvse_igtuxu3Ey6UWbte0eAWvZiF9ybF_VIjgQOYvHozZfB8z8nh9JqnZPiFacGUP0eGT7onqR7WD-lg07mbcHgsBRkBetNS6ZYTubBZpb6yDQROEqrhSU07UfvBOcu1aw___haV9CDV-qNZa1pIYTYN7KULxMr0bgLXABnIam2KMq0qf7Dbix7h"/>
+<div class="flex flex-col">
+<span class="text-xs font-bold leading-none">Marcus Reed</span>
+<span class="text-[10px] text-on-surface-variant leading-tight">Sales Lead</span>
+</div>
+</div>
+</div>
+</header>
+<!-- Content Area -->
+<section class="p-8 space-y-6">
+<!-- Header Section with CTAs -->
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+<div>
+<h1 class="text-2xl font-bold tracking-tight text-on-background mb-1">Sales Leads</h1>
+<p class="text-on-surface-variant text-sm">Manage and track your active sales pipeline leads.</p>
+</div>
+<div class="flex items-center gap-3">
+<button class="px-4 py-2 text-sm font-semibold text-primary bg-surface-container-lowest border border-outline-variant/30 rounded-lg hover:bg-surface-container-low transition-all active:scale-95 flex items-center">
+<span class="material-symbols-outlined mr-2 text-[18px]" data-icon="upload_file">upload_file</span>
+                        Import CSV/Excel
+                    </button>
+<button class="px-4 py-2 text-sm font-semibold text-white bg-gradient-to-br from-primary to-primary-container rounded-lg shadow-md hover:shadow-lg active:scale-95 transition-all flex items-center">
+<span class="material-symbols-outlined mr-2 text-[18px]" data-icon="person_add">person_add</span>
+                        Manual Lead Entry
+                    </button>
+</div>
+</div>
+<!-- Stats Bar - Bento Style -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+<div class="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant/10 shadow-sm">
+<p class="text-[0.6875rem] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Total Leads</p>
+<div class="flex items-baseline gap-2">
+<span class="text-2xl font-bold">1,284</span>
+<span class="text-[10px] text-tertiary font-bold">+12%</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant/10 shadow-sm">
+<p class="text-[0.6875rem] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Active Pipeline</p>
+<div class="flex items-baseline gap-2">
+<span class="text-2xl font-bold">452</span>
+<span class="text-[10px] text-primary font-bold">Sales Mode</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant/10 shadow-sm">
+<p class="text-[0.6875rem] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Conversion Rate</p>
+<div class="flex items-baseline gap-2">
+<span class="text-2xl font-bold">24.8%</span>
+<span class="text-[10px] text-on-surface-variant font-medium">Avg. 22d</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant/10 shadow-sm">
+<p class="text-[0.6875rem] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Lost Revenue</p>
+<div class="flex items-baseline gap-2">
+<span class="text-2xl font-bold text-error/80">$12,400</span>
+<span class="text-[10px] text-error font-bold">-5%</span>
+</div>
+</div>
+</div>
+<!-- Filter & Bulk Action Bar -->
+<div class="bg-surface-container-low p-3 rounded-xl flex flex-wrap items-center justify-between gap-4">
+<div class="flex flex-wrap items-center gap-2">
+<div class="flex items-center bg-surface-container-lowest px-3 py-2 rounded-lg border border-outline-variant/20">
+<span class="text-xs font-semibold text-on-surface-variant mr-3">Filters:</span>
+<div class="flex gap-2">
+<select class="text-xs border-none bg-transparent p-0 focus:ring-0 font-medium">
+<option>All Statuses</option>
+<option>Interested</option>
+<option>New</option>
+</select>
+<span class="text-outline-variant">|</span>
+<select class="text-xs border-none bg-transparent p-0 focus:ring-0 font-medium">
+<option>All Sources</option>
+<option>Apollo</option>
+<option>Manual</option>
+</select>
+<span class="text-outline-variant">|</span>
+<select class="text-xs border-none bg-transparent p-0 focus:ring-0 font-medium">
+<option>All Owners</option>
+<option>Me</option>
+<option>Team</option>
+</select>
+</div>
+</div>
+<div class="bg-surface-container-lowest px-3 py-2 rounded-lg border border-outline-variant/20 flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-on-surface-variant" data-icon="calendar_month">calendar_month</span>
+<span class="text-xs font-medium">Oct 1 - Oct 31, 2023</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-xs font-bold text-on-surface-variant mr-2">Bulk Actions:</span>
+<button class="bg-surface-container-lowest text-on-surface-variant px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-white transition-all border border-outline-variant/20 flex items-center">
+<span class="material-symbols-outlined text-[16px] mr-1" data-icon="edit_note">edit_note</span> Change Status
+                    </button>
+<button class="bg-surface-container-lowest text-on-surface-variant px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-white transition-all border border-outline-variant/20 flex items-center">
+<span class="material-symbols-outlined text-[16px] mr-1" data-icon="person_pin">person_pin</span> Assign
+                    </button>
+<button class="bg-surface-container-lowest text-on-surface-variant px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-white transition-all border border-outline-variant/20 flex items-center">
+<span class="material-symbols-outlined text-[16px] mr-1" data-icon="ios_share">ios_share</span> Export
+                    </button>
+</div>
+</div>
+<!-- Leads Data Table -->
+<div class="bg-surface-container-lowest rounded-xl overflow-hidden shadow-[0px_4px_20px_rgba(19,27,46,0.06)]">
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low/50">
+<th class="p-4 w-10">
+<input class="rounded border-outline-variant text-primary focus:ring-primary h-4 w-4" type="checkbox"/>
+</th>
+<th class="p-4 text-[0.6875rem] font-bold text-on-surface-variant uppercase tracking-[0.05em]">Full Name</th>
+<th class="p-4 text-[0.6875rem] font-bold text-on-surface-variant uppercase tracking-[0.05em]">Company</th>
+<th class="p-4 text-[0.6875rem] font-bold text-on-surface-variant uppercase tracking-[0.05em]">Job Title</th>
+<th class="p-4 text-[0.6875rem] font-bold text-on-surface-variant uppercase tracking-[0.05em]">Source</th>
+<th class="p-4 text-[0.6875rem] font-bold text-on-surface-variant uppercase tracking-[0.05em]">Owner</th>
+<th class="p-4 text-[0.6875rem] font-bold text-on-surface-variant uppercase tracking-[0.05em]">Status</th>
+<th class="p-4 text-[0.6875rem] font-bold text-on-surface-variant uppercase tracking-[0.05em]">Next Follow-up</th>
+<th class="p-4 text-[0.6875rem] font-bold text-on-surface-variant uppercase tracking-[0.05em]">Activity</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/10">
+<!-- Row 1 -->
+<tr class="hover:bg-surface-container-low/30 transition-colors group">
+<td class="p-4">
+<input class="rounded border-outline-variant text-primary focus:ring-primary h-4 w-4" type="checkbox"/>
+</td>
+<td class="p-4">
+<a class="text-sm font-semibold text-primary hover:underline" href="#">Alexandr Rivera</a>
+</td>
+<td class="p-4 text-sm font-medium">Vertex Solutions</td>
+<td class="p-4 text-sm text-on-surface-variant">Chief Tech Officer</td>
+<td class="p-4">
+<span class="px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container text-[10px] font-bold uppercase tracking-tight">Apollo</span>
+</td>
+<td class="p-4">
+<div class="flex items-center space-x-2">
+<img class="w-6 h-6 rounded-full object-cover" data-alt="professional male headshot with modern office background and shallow depth of field" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD2yQD_z8PUs1NATL3aDBmVv8j0i01947cIfZCpt20KYdH5Quw6hgkRolgLe53GFnjMwJ90uOEtsCWqocL-zj1BXhGhxcOlRYXG3lK8yNoiy47HJGSQSFX7ffKlGYn9nAgiNZehIi8AjhCi_w5BmuHSRzJ9HQ5AR896_hp24nDKdq2ZYBilRNCZ_QUAaPMnpv9lQYJG0aOk0dj7Rq8wfh9cUvrkFfxo3yHh7NaZhviCsq8OcG7V1DFKKbhkd6LmDfA0OiUA5a2ev685"/>
+<span class="text-xs font-medium">Marcus R.</span>
+</div>
+</td>
+<td class="p-4">
+<span class="px-2 py-1 rounded-md bg-tertiary-container/10 text-tertiary text-[10px] font-bold border border-tertiary/20">Interested</span>
+</td>
+<td class="p-4 text-sm font-medium">Oct 24, 2023</td>
+<td class="p-4">
+<button class="text-on-surface-variant hover:text-primary transition-colors" title="Last Activity: Call - 2h ago">
+<span class="material-symbols-outlined text-[20px]" data-icon="history">history</span>
+</button>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-surface-container-low/30 transition-colors group">
+<td class="p-4">
+<input class="rounded border-outline-variant text-primary focus:ring-primary h-4 w-4" type="checkbox"/>
+</td>
+<td class="p-4">
+<a class="text-sm font-semibold text-primary hover:underline" href="#">Sarah Jenkins</a>
+</td>
+<td class="p-4 text-sm font-medium">Global Pulse Inc.</td>
+<td class="p-4 text-sm text-on-surface-variant">Director of HR</td>
+<td class="p-4">
+<span class="px-2 py-0.5 rounded-full bg-surface-container text-on-secondary-container text-[10px] font-bold uppercase tracking-tight">Manual</span>
+</td>
+<td class="p-4">
+<div class="flex items-center space-x-2">
+<img class="w-6 h-6 rounded-full object-cover" data-alt="close up of a professional woman smiling in an outdoor urban setting with natural evening light" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD7GBJAjJ5z0KAnUvhtGEJmUGPCu1FMLGpXY_ntqlF94nR97IUpKMD_Eh28mahEJfs6hHRtLmnDgzPoUI7eYU0a-bwj_6puiwJxqJcXiOiZcpM15yqG3lmTHSpNg84VPRCVSXLcdkxILWS_atgfz4kOdg94K9rHJUc-R1edWNlNNLoPxWqQxI3UI1nQvv2preJRrxCyzA_jeVrKzS4-fF069bEMOLBBAbrhN85ysZbfi8eqGztBWo7jAcU0h54-ekABeEwfiZP-tic1"/>
+<span class="text-xs font-medium">Sarah L.</span>
+</div>
+</td>
+<td class="p-4">
+<span class="px-2 py-1 rounded-md bg-amber-100 text-amber-800 text-[10px] font-bold border border-amber-200">Follow-up Needed</span>
+</td>
+<td class="p-4 text-sm font-medium text-error">Oct 19, 2023</td>
+<td class="p-4">
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[20px]" data-icon="history">history</span>
+</button>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-surface-container-low/30 transition-colors group">
+<td class="p-4">
+<input class="rounded border-outline-variant text-primary focus:ring-primary h-4 w-4" type="checkbox"/>
+</td>
+<td class="p-4">
+<a class="text-sm font-semibold text-primary hover:underline" href="#">Michael Chen</a>
+</td>
+<td class="p-4 text-sm font-medium">Swift Logistics</td>
+<td class="p-4 text-sm text-on-surface-variant">Procurement Lead</td>
+<td class="p-4">
+<span class="px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container text-[10px] font-bold uppercase tracking-tight">Apollo</span>
+</td>
+<td class="p-4">
+<div class="flex items-center space-x-2">
+<img class="w-6 h-6 rounded-full object-cover" data-alt="professional portrait of man in corporate attire" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDzu7qLkJE_YdiQSh9fScrOceZ3fbjLQxKLLlRNa1phS3bpPMP1dTT_YJunPozdiOQWQw_oRkrZ-8aiusqO9BvpAoggrE4u9RcvRGu3rUaPho7clnOoo9nJNi94RQqGEB0W8bO54vQ86t_0tZ3lN11-_qAOyQ4_mEBk8oWMgcqK3-c6g6acINUJmn6nFXQpJPUROmihSRUXmubU2CJ1pSkoWljneAk1x024bou0xtiX8Lmq5IwvdmWsOIjrhbnLHAmBA68KolYHHTTf"/>
+<span class="text-xs font-medium">Marcus R.</span>
+</div>
+</td>
+<td class="p-4">
+<span class="px-2 py-1 rounded-md bg-surface-container-low text-on-surface-variant text-[10px] font-bold border border-outline-variant/30">New</span>
+</td>
+<td class="p-4 text-sm font-medium">Oct 28, 2023</td>
+<td class="p-4">
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[20px]" data-icon="history">history</span>
+</button>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-surface-container-low/30 transition-colors group">
+<td class="p-4">
+<input class="rounded border-outline-variant text-primary focus:ring-primary h-4 w-4" type="checkbox"/>
+</td>
+<td class="p-4">
+<a class="text-sm font-semibold text-primary hover:underline" href="#">Elena Gilbert</a>
+</td>
+<td class="p-4 text-sm font-medium">Mystic Media</td>
+<td class="p-4 text-sm text-on-surface-variant">Marketing Manager</td>
+<td class="p-4">
+<span class="px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container text-[10px] font-bold uppercase tracking-tight">Apollo</span>
+</td>
+<td class="p-4">
+<div class="flex items-center space-x-2">
+<img class="w-6 h-6 rounded-full object-cover" data-alt="professional male headshot against a blurred blue office background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAeAXbBb_Gbjcq0xqI3KMJotau9wc2pkq5chjkOEO_g2dtqYVcbJ6UBgTa4fReEuIDpTs02_EDCQCNmC_bWdqcE93y093V1u-PeSxm6eWXdIZS7QRVrSpXpwEWFToD9jCE0bpatzY7myad5Dy8oHERoGlNiW9EHJad_N4PvnOvGNP0qfir0buMybmIiuCyXjH-QhOFdOr3gvaMAYF8axIjEqU7c-P5DxP6ohFl2gI997xLYxmkAib9uuI5b65468Vrp5EDLIpIQ53H2"/>
+<span class="text-xs font-medium">Tom H.</span>
+</div>
+</td>
+<td class="p-4">
+<span class="px-2 py-1 rounded-md bg-primary-container/10 text-primary text-[10px] font-bold border border-primary/20">Called</span>
+</td>
+<td class="p-4 text-sm font-medium">Oct 25, 2023</td>
+<td class="p-4">
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[20px]" data-icon="history">history</span>
+</button>
+</td>
+</tr>
+<!-- Row 5 (Rejected State Example) -->
+<tr class="hover:bg-surface-container-low/30 transition-colors group opacity-75">
+<td class="p-4">
+<input class="rounded border-outline-variant text-primary focus:ring-primary h-4 w-4" type="checkbox"/>
+</td>
+<td class="p-4">
+<a class="text-sm font-semibold text-on-surface-variant hover:underline" href="#">Robert Paulson</a>
+</td>
+<td class="p-4 text-sm font-medium text-on-surface-variant">Paper St. Soap</td>
+<td class="p-4 text-sm text-on-surface-variant">Founder</td>
+<td class="p-4">
+<span class="px-2 py-0.5 rounded-full bg-surface-container text-on-secondary-container text-[10px] font-bold uppercase tracking-tight">Manual</span>
+</td>
+<td class="p-4">
+<div class="flex items-center space-x-2">
+<img class="w-6 h-6 rounded-full object-cover" data-alt="portrait of smiling man" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC8O_HfEKYSO2WdFN3nxadYm6fzAMX_ylZRpk5cDWwAUBwXKtP1hmHrH_Q72HH_KnWvHAOFnMrgPwZcXRXdDprt48Yni6OWm7xUQrGfDVR9Kio54XAs3rY0lPvRafgI_K-11zymtZoZLqtT4vQaxYm_5bZiJNujRFtAHvIuSqFpiI7sQpGyWwGNIcNgUiH9xE3ScutERgHyz7IbYevqQfFxfMYBFq3OHnUQkiTuus1xlWE9D-pbJweba9ju_28AidL_bdSmCLIkS8HI"/>
+<span class="text-xs font-medium">Marcus R.</span>
+</div>
+</td>
+<td class="p-4">
+<span class="px-2 py-1 rounded-md bg-error-container text-on-error-container text-[10px] font-bold border border-error/20">Rejected</span>
+</td>
+<td class="p-4 text-sm font-medium text-on-surface-variant">—</td>
+<td class="p-4">
+<button class="text-on-surface-variant">
+<span class="material-symbols-outlined text-[20px]" data-icon="history">history</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination -->
+<div class="p-4 border-t border-outline-variant/10 flex items-center justify-between">
+<span class="text-xs text-on-surface-variant font-medium">Showing 1-25 of 1,284 results</span>
+<div class="flex items-center gap-2">
+<button class="p-1 rounded hover:bg-surface-container-low transition-all disabled:opacity-30" disabled="">
+<span class="material-symbols-outlined" data-icon="chevron_left">chevron_left</span>
+</button>
+<div class="flex items-center gap-1">
+<button class="w-8 h-8 rounded bg-primary text-white text-xs font-bold">1</button>
+<button class="w-8 h-8 rounded hover:bg-surface-container-low text-xs font-bold transition-all">2</button>
+<button class="w-8 h-8 rounded hover:bg-surface-container-low text-xs font-bold transition-all">3</button>
+<span class="px-1">...</span>
+<button class="w-8 h-8 rounded hover:bg-surface-container-low text-xs font-bold transition-all">52</button>
+</div>
+<button class="p-1 rounded hover:bg-surface-container-low transition-all">
+<span class="material-symbols-outlined" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Contextual Help / Insights Card -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<div class="md:col-span-2 bg-gradient-to-r from-primary to-primary-container p-6 rounded-2xl text-white flex items-center justify-between relative overflow-hidden shadow-xl">
+<div class="relative z-10">
+<h3 class="text-lg font-bold mb-2">Automate Your Lead Sourcing</h3>
+<p class="text-sm opacity-90 max-w-md mb-4">Connect your Apollo account to automatically synchronize high-intent leads directly into your Sales Mode pipeline.</p>
+<button class="bg-white text-primary px-4 py-2 rounded-lg text-xs font-bold hover:bg-opacity-90 transition-all flex items-center">
+                            Explore Integrations <span class="material-symbols-outlined text-[16px] ml-1" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</div>
+<div class="absolute -right-10 -bottom-10 w-48 h-48 bg-white/10 rounded-full blur-3xl"></div>
+<span class="material-symbols-outlined text-[80px] opacity-20 relative z-0" data-icon="rocket_launch">rocket_launch</span>
+</div>
+<div class="bg-surface-container-highest p-6 rounded-2xl border border-primary/10">
+<h3 class="text-sm font-bold text-on-surface mb-3 flex items-center">
+<span class="material-symbols-outlined mr-2 text-primary" data-icon="trending_up">trending_up</span>
+                        Weekly Goal
+                    </h3>
+<div class="space-y-4">
+<div class="flex justify-between items-end mb-1">
+<span class="text-xs font-semibold text-on-surface-variant">Lead Conversion</span>
+<span class="text-xs font-bold">18/25</span>
+</div>
+<div class="w-full h-2 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-primary" style="width: 72%"></div>
+</div>
+<p class="text-[10px] text-on-surface-variant italic">7 more interested leads to reach your weekly milestone.</p>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Floating Action Button for Lead Entry -->
+<div class="fixed bottom-8 right-8 z-50">
+<button class="w-14 h-14 bg-primary text-white rounded-full shadow-2xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all group overflow-hidden relative">
+<span class="material-symbols-outlined text-[28px]" data-icon="add">add</span>
+<div class="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+</button>
+</div>
+</body></html>
