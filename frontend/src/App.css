@@ -1,0 +1,110 @@
+/* Digital Curator Design System */
+/* Additional styles and utilities */
+
+.App {
+  min-height: 100vh;
+}
+
+/* Animation utilities */
+.fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.slide-in {
+  animation: slideIn 0.3s ease-out;
+}
+
+/* Hover effects */
+.hover-lift {
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0px 8px 24px rgba(19, 27, 46, 0.1);
+}
+
+/* Text utilities */
+.text-primary {
+  color: var(--primary);
+}
+
+.text-tertiary {
+  color: var(--tertiary);
+}
+
+.text-muted {
+  color: var(--on-surface-variant);
+}
+
+/* Background utilities */
+.bg-primary {
+  background-color: var(--primary);
+}
+
+.bg-tertiary {
+  background-color: var(--tertiary);
+}
+
+.bg-surface {
+  background-color: var(--surface);
+}
+
+/* Focus states */
+input:focus,
+select:focus,
+textarea:focus,
+button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 74, 198, 0.15);
+}
+
+/* Selection */
+::selection {
+  background-color: rgba(0, 74, 198, 0.2);
+  color: var(--on-surface);
+}
+
+/* Transitions */
+* {
+  transition-property: color, background-color, border-color, box-shadow, transform, opacity;
+  transition-timing-function: ease-out;
+  transition-duration: 0.15s;
+}
+
+/* Reset transitions for specific properties */
+input,
+textarea,
+select {
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+/* Modal backdrop */
+.modal-backdrop {
+  background: rgba(19, 27, 46, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+/* Pipeline drag ghost */
+.dragging {
+  opacity: 0.5;
+  transform: rotate(2deg);
+}
+
+/* Toast customization */
+.sonner-toast {
+  font-family: 'Inter', sans-serif !important;
+}
+
+/* Print styles */
+@media print {
+  .sidebar,
+  .btn-primary,
+  .btn-secondary {
+    display: none !important;
+  }
+  
+  .main-content {
+    margin-left: 0 !important;
+  }
+}

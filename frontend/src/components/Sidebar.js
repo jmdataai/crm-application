@@ -1,0 +1,209 @@
+import React from 'react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+
+const Icon = ({ name }) => (
+  <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle' }}>{name}</span>
+);
+
+// ── Nav definitions ──────────────────────────────────────────
+const salesNav = [
+  { path: '/sales',           icon: 'dashboard',    label: 'Dashboard',    exact: true },
+  { path: '/sales/leads',     icon: 'group',         label: 'Leads' },
+  { path: '/sales/import',    icon: 'upload_file',   label: 'Import Leads', requiresPerm: 'canImport' },
+  { path: '/sales/tasks',     icon: 'task_alt',      label: 'Tasks' },
+  { path: '/sales/reminders', icon: 'notifications', label: 'Reminders' },
+];
+
+const recruitNav = [
+  { path: '/recruitment',             icon: 'dashboard',     label: 'Dashboard',  exact: true },
+  { path: '/recruitment/jobs',        icon: 'work',           label: 'Jobs' },
+  { path: '/recruitment/candidates',  icon: 'person_search',  label: 'Candidates' },
+  { path: '/recruitment/pipeline',    icon: 'account_tree',   label: 'Pipeline' },
+  { path: '/recruitment/interviews',  icon: 'event',          label: 'Interviews' },
+  { path: '/recruitment/tasks',       icon: 'task_alt',       label: 'Tasks' },
+];
+
+// ── Role badge ───────────────────────────────────────────────
+const RoleBadge = ({ role }) => {
+  const map = {
+    admin:  { label: 'Admin',    bg: 'rgba(0,74,198,0.1)',   color: 'var(--primary)' },
+    sales:  { label: 'Sales',    bg: 'rgba(0,98,67,0.1)',    color: 'var(--tertiary)' },
+    viewer: { label: 'Viewer',   bg: 'rgba(115,118,134,0.1)',color: 'var(--on-surface-variant)' },
+  };
+  const s = map[role] || map.viewer;
+  return (
+    <span style={{
+      fontSize: '0.625rem', fontWeight: 700, letterSpacing: '0.07em',
+      textTransform: 'uppercase', padding: '2px 7px', borderRadius: 99,
+      background: s.bg, color: s.color,
+    }}>
+      {s.label}
+    </span>
+  );
+};
+
+// ── Sidebar ──────────────────────────────────────────────────
+const Sidebar = () => {
+  const { user, logout, hasModule, can, isViewer } = useAuth();
+  const location  = useLocation();
+  const navigate  = useNavigate();
+  const isRecruit = location.pathname.startsWith('/recruitment');
+
+  // If sales user tries to access recruitment URL, redirect
+  const canSeeRecruit = hasModule('recruitment');
+  const canSeeSales   = hasModule('sales');
+
+  const currentMode   = isRecruit ? 'recruitment' : 'sales';
+  const accentColor   = isRecruit ? 'var(--tertiary)' : 'var(--primary)';
+  const initials      = (user?.name || 'U').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+
+  // Filter nav items by permission
+  const filterNav = (items) =>
+    items.filter(item => !item.requiresPerm || can(item.requiresPerm));
+
+  const navItems = isRecruit ? filterNav(recruitNav) : filterNav(salesNav);
+
+  return (
+    <aside className={`sidebar ${isRecruit ? 'sidebar-recruitment' : 'sidebar-sales'}`}>
+
+      {/* Logo */}
+      <div style={{ padding: '0 0.5rem', marginBottom: '1.75rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <div style={{
+          width: 40, height: 40, borderRadius: '0.75rem', flexShrink: 0,
+          background: `linear-gradient(135deg, ${accentColor}, ${isRecruit ? '#009966' : 'var(--primary-container)'})`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <Icon name="hub" />
+        </div>
+        <div>
+          <p style={{ fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--on-surface)' }}>Nexus CRM</p>
+          <p style={{ fontSize: '0.6875rem', color: 'var(--on-surface-variant)', opacity: 0.6 }}>
+            {isRecruit ? 'Recruitment' : 'Sales'} Portal
+          </p>
+        </div>
+      </div>
+
+      {/* Module switcher — only show tabs the user has access to */}
+      {(canSeeSales || canSeeRecruit) && (
+        <div style={{ marginBottom: '1.25rem' }}>
+          <div style={{
+            display: 'flex', gap: 4, padding: 4,
+            background: 'var(--surface-container-high)', borderRadius: '0.75rem',
+          }}>
+            {canSeeSales && (
+              <button onClick={() => navigate('/sales')} style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                gap: '0.375rem', padding: '0.5rem 0.75rem', borderRadius: '0.625rem',
+                border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                fontSize: '0.8125rem', fontWeight: !isRecruit ? 600 : 500,
+                background: !isRecruit ? 'var(--surface-container-lowest)' : 'transparent',
+                color: !isRecruit ? 'var(--primary)' : 'var(--on-surface-variant)',
+                boxShadow: !isRecruit ? 'var(--ambient-shadow)' : 'none',
+                transition: 'all 0.2s',
+              }}>
+                <Icon name="trending_up" /> Sales
+              </button>
+            )}
+            {canSeeRecruit && (
+              <button onClick={() => navigate('/recruitment')} style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                gap: '0.375rem', padding: '0.5rem 0.75rem', borderRadius: '0.625rem',
+                border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                fontSize: '0.8125rem', fontWeight: isRecruit ? 600 : 500,
+                background: isRecruit ? 'var(--surface-container-lowest)' : 'transparent',
+                color: isRecruit ? 'var(--tertiary)' : 'var(--on-surface-variant)',
+                boxShadow: isRecruit ? 'var(--ambient-shadow)' : 'none',
+                transition: 'all 0.2s',
+              }}>
+                <Icon name="people" /> Recruit
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Read-only banner for viewer */}
+      {isViewer && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '0.5rem',
+          padding: '0.5rem 0.75rem', marginBottom: '0.75rem',
+          background: 'rgba(115,118,134,0.08)', borderRadius: '0.625rem',
+          border: '1px solid rgba(195,198,215,0.2)',
+        }}>
+          <Icon name="visibility" />
+          <span style={{ fontSize: '0.75rem', color: 'var(--on-surface-variant)', fontWeight: 500 }}>
+            View-only access
+          </span>
+        </div>
+      )}
+
+      {/* Section label */}
+      <p className="label-sm" style={{ padding: '0 0.75rem', marginBottom: '0.5rem' }}>
+        {isRecruit ? 'Recruitment' : 'Sales'} Mode
+      </p>
+
+      {/* Navigation */}
+      <nav style={{ flex: 1 }}>
+        {navItems.map(item => (
+          <NavLink
+            key={item.path}
+            to={item.path}
+            end={item.exact}
+            className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+          >
+            <Icon name={item.icon} />
+            <span>{item.label}</span>
+          </NavLink>
+        ))}
+      </nav>
+
+      {/* Divider */}
+      <div className="divider" />
+
+      {/* Settings — admin and viewer only */}
+      {can('viewSettings') && (
+        <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <Icon name="settings" />
+          <span>Settings</span>
+        </NavLink>
+      )}
+
+      {/* User card */}
+      <div style={{
+        marginTop: '0.5rem', padding: '0.75rem',
+        borderRadius: '0.75rem', background: 'var(--surface-container)',
+        display: 'flex', alignItems: 'center', gap: '0.75rem',
+      }}>
+        <div className="avatar" style={{
+          width: 36, height: 36, fontSize: '0.75rem', fontWeight: 700,
+          background: `linear-gradient(135deg, ${accentColor}, ${isRecruit ? '#009966' : 'var(--primary-container)'})`,
+          color: '#fff',
+        }}>
+          {initials}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginBottom: '0.125rem' }}>
+            <p style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {user?.name || 'User'}
+            </p>
+            <RoleBadge role={user?.role} />
+          </div>
+          <p style={{ fontSize: '0.6875rem', color: 'var(--on-surface-variant)', opacity: 0.6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {user?.email || ''}
+          </p>
+        </div>
+        <button
+          onClick={logout}
+          className="btn-icon"
+          title="Logout"
+          style={{ color: 'var(--error)', flexShrink: 0 }}
+        >
+          <Icon name="logout" />
+        </button>
+      </div>
+    </aside>
+  );
+};
+
+export default Sidebar;
