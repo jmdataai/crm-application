@@ -42,10 +42,14 @@ export default function Settings() {
     setLoading(true);
     try {
       const res = await fetch(`${API}/api/users`, { credentials: 'include' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || 'Failed to load users');
+      }
       const data = await res.json();
-      setUsers(data);
-    } catch {
-      flash('Failed to load users', true);
+      setUsers(Array.isArray(data) ? data : []);
+    } catch (err) {
+      flash(err.message || 'Failed to load users', true);
     } finally {
       setLoading(false);
     }
@@ -68,7 +72,7 @@ export default function Settings() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || 'Failed to create user');
       flash(`User "${form.name}" created successfully`);
       setForm({ name: '', email: '', password: '', role: 'sales' });
@@ -90,7 +94,7 @@ export default function Settings() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: newRole }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || 'Failed to update role');
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
       setEditingRole(null);
@@ -108,7 +112,7 @@ export default function Settings() {
         method: 'DELETE',
         credentials: 'include',
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || 'Failed to delete user');
       setUsers(prev => prev.filter(u => u.id !== userId));
       flash(`User "${userName}" deleted`);
