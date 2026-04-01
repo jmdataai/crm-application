@@ -162,7 +162,7 @@ export default function LeadsList() {
   const [selected, setSelected] = useState(new Set());
   const [showAdd, setShowAdd]   = useState(false);
   const [page, setPage]         = useState(1);
-  const PER_PAGE = 8;
+  const [phonePopup, setPhonePopup] = useState(null);
 
   /* Filter + sort */
   const filtered = useMemo(() => {
