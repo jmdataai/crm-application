@@ -47,11 +47,11 @@ const pipeline = [
 ];
 
 const recentCandidates = [
-  { id:'c1', name:'Arjun Mehta',    role:'AI Engineer',         job:'Senior ML Engineer',   status:'interview_scheduled', updated:'Today' },
-  { id:'c2', name:'Sneha Iyer',     role:'Data Scientist',      job:'Lead Data Scientist',  status:'shortlisted',         updated:'Today' },
-  { id:'c3', name:'Karan Bose',     role:'Product Manager',     job:'Product Lead – AI',    status:'screened',            updated:'Yesterday' },
-  { id:'c4', name:'Divya Rao',      role:'ML Research',         job:'Research Scientist',   status:'selected',            updated:'Yesterday' },
-  { id:'c5', name:'Rohit Nair',     role:'Backend Engineer',    job:'Backend Engineer',     status:'rejected',            updated:'Mar 29' },
+  { id:'c1', name:'Arjun Mehta',    candidate_role:'AI Engineer',         job:'Senior ML Engineer',   status:'interview_scheduled', updated:'Today' },
+  { id:'c2', name:'Sneha Iyer',     candidate_role:'Data Scientist',      job:'Lead Data Scientist',  status:'shortlisted',         updated:'Today' },
+  { id:'c3', name:'Karan Bose',     candidate_role:'Product Manager',     job:'Product Lead – AI',    status:'screened',            updated:'Yesterday' },
+  { id:'c4', name:'Divya Rao',      candidate_role:'ML Research',         job:'Research Scientist',   status:'selected',            updated:'Yesterday' },
+  { id:'c5', name:'Rohit Nair',     candidate_role:'Backend Engineer',    job:'Backend Engineer',     status:'rejected',            updated:'Mar 29' },
 ];
 
 const upcomingInterviews = [
@@ -201,7 +201,7 @@ export default function RecruitmentDashboard() {
                         <div className="avatar" style={{ width:34, height:34, fontSize:'0.6875rem', background:'rgba(0,98,67,0.1)', color:'var(--tertiary)', fontWeight:700 }}>{initials}</div>
                         <div>
                           <p style={{ fontWeight:600, fontSize:'0.875rem' }}>{c.name}</p>
-                          <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>{c.role}</p>
+                          <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>{c.candidate_role}</p>
                         </div>
                       </div>
                     </td>

@@ -9,7 +9,7 @@ alter table users
   check (role in ('admin', 'sales', 'viewer'));
 
 -- 2. Set your developer/admin account (replace with your actual email)
-update users set role = 'admin'  where email = 'admin@yourcompany.com';
+update users set role = 'admin'  where email = 'ravi@jmdatatalent.com';  -- your admin email
 
 -- 3. Verify
 select id, email, name, role, created_at from users order by created_at;

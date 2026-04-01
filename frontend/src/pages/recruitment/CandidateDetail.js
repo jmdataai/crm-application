@@ -25,7 +25,7 @@ const ACT_COLOR = { note:'var(--amber)', call:'var(--primary)', email:'var(--ter
 const DB = {
   c1: {
     id:'c1', name:'Arjun Mehta', email:'arjun@gmail.com', phone:'+91 98765 11111',
-    role:'AI Engineer', job:'Senior ML Engineer', dept:'Engineering', exp:6,
+    candidate_role:'AI Engineer', job:'Senior ML Engineer', dept:'Engineering', exp:6,
     source:'LinkedIn', status:'interview_scheduled', applied:'2026-03-25',
     linkedin:'linkedin.com/in/arjunmehta', portfolio:'arjun.dev',
     skills:['Python','TensorFlow','MLOps','Docker','Kubernetes'],
@@ -45,7 +45,7 @@ const DB = {
   },
   c4: {
     id:'c4', name:'Divya Rao', email:'divya@gmail.com', phone:'+91 95432 44444',
-    role:'ML Research', job:'Research Scientist', dept:'AI Research', exp:4,
+    candidate_role:'ML Research', job:'Research Scientist', dept:'AI Research', exp:4,
     source:'Resume', status:'selected', applied:'2026-03-20',
     linkedin:'linkedin.com/in/divyarao', portfolio:'',
     skills:['NLP','Python','Research','Transformers','Statistics'],
@@ -63,7 +63,7 @@ const DB = {
 };
 
 const FALLBACK = (id) => ({
-  id, name:'Candidate', email:'', phone:'', role:'', job:'', dept:'', exp:0,
+  id, name:'Candidate', email:'', phone:'', candidate_role:'', job:'', dept:'', exp:0,
   source:'Manual', status:'sourced', applied:'2026-03-31',
   linkedin:'', portfolio:'', skills:[], notes:'', activities:[], interviews:[],
 });
@@ -183,7 +183,7 @@ export default function CandidateDetail() {
             <div className="avatar" style={{ width:68, height:68, fontSize:'1.5rem', fontWeight:700, background:'linear-gradient(135deg,var(--tertiary),#009966)', color:'#fff', margin:'0 auto 1rem' }}>{initials}</div>
             <h2 style={{ fontSize:'1.25rem', fontWeight:700, marginBottom:'0.25rem' }}>{candidate.name}</h2>
             <p style={{ color:'var(--on-surface-variant)', fontSize:'0.875rem', marginBottom:'0.75rem' }}>
-              {candidate.role}{candidate.role && candidate.job ? ' · ' : ''}{candidate.job}
+              {candidate.candidate_role}{candidate.candidate_role && candidate.job ? ' · ' : ''}{candidate.job}
             </p>
             <span style={{ display:'inline-flex', alignItems:'center', padding:'0.25rem 0.75rem', borderRadius:9999, fontSize:'0.75rem', fontWeight:700, background:sm.bg, color:sm.color }}>{sm.label}</span>
 
@@ -429,7 +429,7 @@ export default function CandidateDetail() {
                 { label:'Full Name *', key:'name',  type:'text',  span:2 },
                 { label:'Email',       key:'email', type:'email' },
                 { label:'Phone',       key:'phone', type:'tel' },
-                { label:'Current Role',key:'role',  type:'text' },
+                { label:'Current Role',key:'candidate_role',  type:'text' },
                 { label:'Applying For',key:'job',   type:'text' },
                 { label:'LinkedIn',    key:'linkedin',type:'text' },
                 { label:'Portfolio',   key:'portfolio',type:'text' },

@@ -1091,8 +1091,13 @@ async def startup():
             "email":         admin_email,
             "password_hash": hash_password(admin_password),
             "name":          admin_name,
+            "role":          "admin",
         }).execute())
         logger.info(f"Admin user created: {admin_email}")
+    else:
+        # Ensure existing admin always has the admin role (fixes missing role on older installs)
+        await run(lambda: sb("users").update({"role": "admin"}).eq("email", admin_email).execute())
+        logger.info(f"Admin role confirmed for: {admin_email}")
 
 
 # ============================================================

@@ -15,18 +15,18 @@ const COLUMNS = [
 ];
 
 const SEED_CARDS = [
-  { id:'c1',  name:'Arjun Mehta',   role:'AI Engineer',      job:'Senior ML Engineer',   stage:'interview_scheduled', exp:6,  avatar:'AM', source:'LinkedIn' },
-  { id:'c2',  name:'Sneha Iyer',    role:'Data Scientist',   job:'Lead Data Scientist',  stage:'shortlisted',         exp:5,  avatar:'SI', source:'Referral' },
-  { id:'c3',  name:'Karan Bose',    role:'Product Manager',  job:'Product Lead – AI',    stage:'screened',            exp:7,  avatar:'KB', source:'AngelList' },
-  { id:'c4',  name:'Divya Rao',     role:'ML Research',      job:'Research Scientist',   stage:'selected',            exp:4,  avatar:'DR', source:'Resume' },
-  { id:'c6',  name:'Prerna Shah',   role:'Product Designer', job:'Product Lead – AI',    stage:'interview_scheduled', exp:5,  avatar:'PS', source:'Portfolio' },
-  { id:'c7',  name:'Amit Gupta',    role:'DevOps',           job:'DevOps Lead',          stage:'interviewed',         exp:8,  avatar:'AG', source:'AngelList' },
-  { id:'c8',  name:'Ritu Verma',    role:'NLP Engineer',     job:'Research Scientist',   stage:'sourced',             exp:3,  avatar:'RV', source:'Campus' },
-  { id:'c9',  name:'Deepak Reddy',  role:'ML Engineer',      job:'Senior ML Engineer',   stage:'screened',            exp:4,  avatar:'DR', source:'LinkedIn' },
-  { id:'c11', name:'Varun Pillai',  role:'Data Analyst',     job:'Lead Data Scientist',  stage:'shortlisted',         exp:2,  avatar:'VP', source:'Referral' },
-  { id:'c12', name:'Isha Kapoor',   role:'Cloud Engineer',   job:'DevOps Lead',          stage:'interviewed',         exp:5,  avatar:'IK', source:'LinkedIn' },
-  { id:'c13', name:'Nisha Sharma',  role:'Full Stack',       job:'Frontend Engineer',    stage:'sourced',             exp:2,  avatar:'NS', source:'Campus' },
-  { id:'c14', name:'Ravi Teja',     role:'Data Engineer',    job:'Lead Data Scientist',  stage:'screened',            exp:3,  avatar:'RT', source:'Resume' },
+  { id:'c1',  name:'Arjun Mehta',   candidate_role:'AI Engineer',      job:'Senior ML Engineer',   stage:'interview_scheduled', exp:6,  avatar:'AM', source:'LinkedIn' },
+  { id:'c2',  name:'Sneha Iyer',    candidate_role:'Data Scientist',   job:'Lead Data Scientist',  stage:'shortlisted',         exp:5,  avatar:'SI', source:'Referral' },
+  { id:'c3',  name:'Karan Bose',    candidate_role:'Product Manager',  job:'Product Lead – AI',    stage:'screened',            exp:7,  avatar:'KB', source:'AngelList' },
+  { id:'c4',  name:'Divya Rao',     candidate_role:'ML Research',      job:'Research Scientist',   stage:'selected',            exp:4,  avatar:'DR', source:'Resume' },
+  { id:'c6',  name:'Prerna Shah',   candidate_role:'Product Designer', job:'Product Lead – AI',    stage:'interview_scheduled', exp:5,  avatar:'PS', source:'Portfolio' },
+  { id:'c7',  name:'Amit Gupta',    candidate_role:'DevOps',           job:'DevOps Lead',          stage:'interviewed',         exp:8,  avatar:'AG', source:'AngelList' },
+  { id:'c8',  name:'Ritu Verma',    candidate_role:'NLP Engineer',     job:'Research Scientist',   stage:'sourced',             exp:3,  avatar:'RV', source:'Campus' },
+  { id:'c9',  name:'Deepak Reddy',  candidate_role:'ML Engineer',      job:'Senior ML Engineer',   stage:'screened',            exp:4,  avatar:'DR', source:'LinkedIn' },
+  { id:'c11', name:'Varun Pillai',  candidate_role:'Data Analyst',     job:'Lead Data Scientist',  stage:'shortlisted',         exp:2,  avatar:'VP', source:'Referral' },
+  { id:'c12', name:'Isha Kapoor',   candidate_role:'Cloud Engineer',   job:'DevOps Lead',          stage:'interviewed',         exp:5,  avatar:'IK', source:'LinkedIn' },
+  { id:'c13', name:'Nisha Sharma',  candidate_role:'Full Stack',       job:'Frontend Engineer',    stage:'sourced',             exp:2,  avatar:'NS', source:'Campus' },
+  { id:'c14', name:'Ravi Teja',     candidate_role:'Data Engineer',    job:'Lead Data Scientist',  stage:'screened',            exp:3,  avatar:'RT', source:'Resume' },
 ];
 
 const SOURCE_COLOR = { LinkedIn:'var(--primary)', Referral:'var(--tertiary)', AngelList:'#7c3aed', Resume:'var(--amber)', Campus:'#d97706', Portfolio:'var(--secondary)' };
@@ -43,7 +43,7 @@ export default function Pipeline() {
 
   const filtered = cards.filter(c => {
     const q = search.toLowerCase();
-    const mQ = !q || c.name.toLowerCase().includes(q) || c.role.toLowerCase().includes(q) || c.job.toLowerCase().includes(q);
+    const mQ = !q || c.name.toLowerCase().includes(q) || c.candidate_role.toLowerCase().includes(q) || c.job.toLowerCase().includes(q);
     const mJ = jobFilter==='all' || c.job===jobFilter;
     return mQ && mJ;
   });
@@ -182,7 +182,7 @@ export default function Pipeline() {
                       <div className="avatar" style={{ width:32, height:32, fontSize:'0.6875rem', fontWeight:700, background:`${col.color}14`, color:col.color, flexShrink:0 }}>{card.avatar}</div>
                       <div style={{ flex:1, minWidth:0 }}>
                         <p style={{ fontWeight:600, fontSize:'0.875rem', color:'var(--on-surface)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{card.name}</p>
-                        <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{card.role}</p>
+                        <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{card.candidate_role}</p>
                       </div>
                     </div>
 

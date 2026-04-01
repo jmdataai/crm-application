@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { formatApiError } from '../services/api';
+
 import { Eye, EyeOff, ArrowRight } from 'lucide-react';
 
 const Login = () => {
@@ -22,7 +22,7 @@ const Login = () => {
       await login(email, password);
       navigate('/sales');
     } catch (err) {
-      setError(formatApiError(err));
+      setError(err.message || 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }

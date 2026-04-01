@@ -103,7 +103,7 @@ create table candidates (
   email                 text,
   phone                 text,
   current_company       text,
-  current_role          text,
+  candidate_role          text,
   experience_years      int,
   source                text,
   job_id                uuid references jobs(id) on delete set null,
@@ -129,7 +129,7 @@ create index idx_candidates_created_at on candidates(created_at desc);
 create index idx_candidates_fts on candidates using gin(
   to_tsvector('english',
     coalesce(full_name,'')      || ' ' ||
-    coalesce(current_role,'')   || ' ' ||
+    coalesce(candidate_role,'')   || ' ' ||
     coalesce(current_company,'')
   )
 );

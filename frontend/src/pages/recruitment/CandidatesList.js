@@ -22,18 +22,18 @@ const Chip = ({ status }) => {
 };
 
 const SEED = [
-  { id:'c1',  name:'Arjun Mehta',     email:'arjun@gmail.com',    phone:'+91 98765 11111', role:'AI Engineer',        job:'Senior ML Engineer',   dept:'Engineering', exp:6,  source:'LinkedIn',  status:'interview_scheduled', applied:'2026-03-25', notes:'Strong profile, 2 YOE in LLMs' },
-  { id:'c2',  name:'Sneha Iyer',      email:'sneha@yahoo.in',     phone:'+91 97654 22222', role:'Data Scientist',      job:'Lead Data Scientist',  dept:'AI Research',  exp:5,  source:'Referral',  status:'shortlisted',         applied:'2026-03-24', notes:'Referred by Meera, great stats background' },
-  { id:'c3',  name:'Karan Bose',      email:'karan@outlook.com',  phone:'+91 96543 33333', role:'Product Manager',     job:'Product Lead – AI',    dept:'Product',      exp:7,  source:'AngelList',  status:'screened',            applied:'2026-03-23', notes:'' },
-  { id:'c4',  name:'Divya Rao',       email:'divya@gmail.com',    phone:'+91 95432 44444', role:'ML Research',         job:'Research Scientist',   dept:'AI Research',  exp:4,  source:'Resume',    status:'selected',            applied:'2026-03-20', notes:'Excellent culture fit' },
-  { id:'c5',  name:'Rohit Nair',      email:'rohit@company.io',   phone:'+91 94321 55555', role:'Backend Engineer',    job:'Senior Backend',       dept:'Engineering',  exp:3,  source:'LinkedIn',  status:'rejected',            applied:'2026-03-18', notes:'Did not clear technical round' },
-  { id:'c6',  name:'Prerna Shah',     email:'prerna@gmail.com',   phone:'+91 93210 66666', role:'Product Designer',    job:'Product Lead – AI',    dept:'Product',      exp:5,  source:'Portfolio', status:'interview_scheduled', applied:'2026-03-17', notes:'Final round tomorrow' },
-  { id:'c7',  name:'Amit Gupta',      email:'amit@tech.in',       phone:'+91 92109 77777', role:'DevOps',              job:'DevOps Lead',          dept:'Platform',     exp:8,  source:'AngelList', status:'interviewed',         applied:'2026-03-15', notes:'Needs salary discussion' },
-  { id:'c8',  name:'Ritu Verma',      email:'ritu@gmail.com',     phone:'+91 91098 88888', role:'NLP Engineer',        job:'Research Scientist',   dept:'AI Research',  exp:3,  source:'Campus',    status:'sourced',             applied:'2026-03-14', notes:'Fresh from IIT Hyderabad' },
-  { id:'c9',  name:'Deepak Reddy',    email:'deepak@inbox.in',    phone:'+91 90987 99999', role:'ML Engineer',         job:'Senior ML Engineer',   dept:'Engineering',  exp:4,  source:'LinkedIn',  status:'screened',            applied:'2026-03-12', notes:'' },
-  { id:'c10', name:'Megha Sharma',    email:'megha@gmail.com',    phone:'+91 89876 00000', role:'Frontend Engineer',   job:'Frontend Engineer',    dept:'Engineering',  exp:2,  source:'Resume',    status:'onboarded',           applied:'2026-03-05', notes:'Joined Mar 20 ✓' },
-  { id:'c11', name:'Varun Pillai',    email:'varun@email.com',    phone:'+91 88765 11111', role:'Data Analyst',        job:'Lead Data Scientist',  dept:'AI Research',  exp:2,  source:'Referral',  status:'shortlisted',         applied:'2026-03-22', notes:'' },
-  { id:'c12', name:'Isha Kapoor',     email:'isha@corp.io',       phone:'+91 87654 22222', role:'Cloud Engineer',      job:'DevOps Lead',          dept:'Platform',     exp:5,  source:'LinkedIn',  status:'interviewed',         applied:'2026-03-19', notes:'AWS certified' },
+  { id:'c1',  name:'Arjun Mehta',     email:'arjun@gmail.com',    phone:'+91 98765 11111', candidate_role:'AI Engineer',        job:'Senior ML Engineer',   dept:'Engineering', exp:6,  source:'LinkedIn',  status:'interview_scheduled', applied:'2026-03-25', notes:'Strong profile, 2 YOE in LLMs' },
+  { id:'c2',  name:'Sneha Iyer',      email:'sneha@yahoo.in',     phone:'+91 97654 22222', candidate_role:'Data Scientist',      job:'Lead Data Scientist',  dept:'AI Research',  exp:5,  source:'Referral',  status:'shortlisted',         applied:'2026-03-24', notes:'Referred by Meera, great stats background' },
+  { id:'c3',  name:'Karan Bose',      email:'karan@outlook.com',  phone:'+91 96543 33333', candidate_role:'Product Manager',     job:'Product Lead – AI',    dept:'Product',      exp:7,  source:'AngelList',  status:'screened',            applied:'2026-03-23', notes:'' },
+  { id:'c4',  name:'Divya Rao',       email:'divya@gmail.com',    phone:'+91 95432 44444', candidate_role:'ML Research',         job:'Research Scientist',   dept:'AI Research',  exp:4,  source:'Resume',    status:'selected',            applied:'2026-03-20', notes:'Excellent culture fit' },
+  { id:'c5',  name:'Rohit Nair',      email:'rohit@company.io',   phone:'+91 94321 55555', candidate_role:'Backend Engineer',    job:'Senior Backend',       dept:'Engineering',  exp:3,  source:'LinkedIn',  status:'rejected',            applied:'2026-03-18', notes:'Did not clear technical round' },
+  { id:'c6',  name:'Prerna Shah',     email:'prerna@gmail.com',   phone:'+91 93210 66666', candidate_role:'Product Designer',    job:'Product Lead – AI',    dept:'Product',      exp:5,  source:'Portfolio', status:'interview_scheduled', applied:'2026-03-17', notes:'Final round tomorrow' },
+  { id:'c7',  name:'Amit Gupta',      email:'amit@tech.in',       phone:'+91 92109 77777', candidate_role:'DevOps',              job:'DevOps Lead',          dept:'Platform',     exp:8,  source:'AngelList', status:'interviewed',         applied:'2026-03-15', notes:'Needs salary discussion' },
+  { id:'c8',  name:'Ritu Verma',      email:'ritu@gmail.com',     phone:'+91 91098 88888', candidate_role:'NLP Engineer',        job:'Research Scientist',   dept:'AI Research',  exp:3,  source:'Campus',    status:'sourced',             applied:'2026-03-14', notes:'Fresh from IIT Hyderabad' },
+  { id:'c9',  name:'Deepak Reddy',    email:'deepak@inbox.in',    phone:'+91 90987 99999', candidate_role:'ML Engineer',         job:'Senior ML Engineer',   dept:'Engineering',  exp:4,  source:'LinkedIn',  status:'screened',            applied:'2026-03-12', notes:'' },
+  { id:'c10', name:'Megha Sharma',    email:'megha@gmail.com',    phone:'+91 89876 00000', candidate_role:'Frontend Engineer',   job:'Frontend Engineer',    dept:'Engineering',  exp:2,  source:'Resume',    status:'onboarded',           applied:'2026-03-05', notes:'Joined Mar 20 ✓' },
+  { id:'c11', name:'Varun Pillai',    email:'varun@email.com',    phone:'+91 88765 11111', candidate_role:'Data Analyst',        job:'Lead Data Scientist',  dept:'AI Research',  exp:2,  source:'Referral',  status:'shortlisted',         applied:'2026-03-22', notes:'' },
+  { id:'c12', name:'Isha Kapoor',     email:'isha@corp.io',       phone:'+91 87654 22222', candidate_role:'Cloud Engineer',      job:'DevOps Lead',          dept:'Platform',     exp:5,  source:'LinkedIn',  status:'interviewed',         applied:'2026-03-19', notes:'AWS certified' },
 ];
 
 const SOURCES = ['LinkedIn','Referral','AngelList','Resume','Campus','Portfolio'];
@@ -41,7 +41,7 @@ const STAGES  = Object.keys(STAGE_META);
 
 /* ── Add Candidate Modal ────────────────────────────── */
 const AddCandidateModal = ({ onClose, onAdd }) => {
-  const [form, setForm] = useState({ name:'', email:'', phone:'', role:'', job:'', exp:'', source:'LinkedIn', status:'sourced', notes:'' });
+  const [form, setForm] = useState({ name:'', email:'', phone:'', candidate_candidate_role:'', job:'', exp:'', source:'LinkedIn', status:'sourced', notes:'' });
   const set = (k,v) => setForm(f => ({ ...f, [k]: v }));
   const submit = () => {
     if (!form.name.trim()) return;
@@ -61,7 +61,7 @@ const AddCandidateModal = ({ onClose, onAdd }) => {
             { label:'Full Name *', key:'name',  type:'text',  span:2 },
             { label:'Email',       key:'email', type:'email' },
             { label:'Phone',       key:'phone', type:'tel' },
-            { label:'Current Role',key:'role',  type:'text' },
+            { label:'Current Role',key:'candidate_role',  type:'text' },
             { label:'Applying For',key:'job',   type:'text' },
           ].map(f => (
             <div key={f.key} style={{ gridColumn:f.span===2?'1/-1':undefined }}>
@@ -122,7 +122,7 @@ export default function CandidatesList() {
   const filtered = useMemo(() => {
     let out = candidates.filter(c => {
       const q = search.toLowerCase();
-      const mQ = !q || [c.name,c.role,c.job,c.email].some(f=>f?.toLowerCase().includes(q));
+      const mQ = !q || [c.name,c.candidate_role,c.job,c.email].some(f=>f?.toLowerCase().includes(q));
       const mS = stageFilter==='all' || c.status===stageFilter;
       const mSrc = sourceFilter==='all' || c.source===sourceFilter;
       return mQ && mS && mSrc;
@@ -287,7 +287,7 @@ export default function CandidatesList() {
                         <div className="avatar" style={{ width:34, height:34, fontSize:'0.6875rem', background:'rgba(0,98,67,0.1)', color:'var(--tertiary)', fontWeight:700 }}>{initials}</div>
                         <div>
                           <p style={{ fontWeight:600, fontSize:'0.875rem' }}>{c.name}</p>
-                          <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>{c.role}</p>
+                          <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>{c.candidate_role}</p>
                         </div>
                       </div>
                     </td>
