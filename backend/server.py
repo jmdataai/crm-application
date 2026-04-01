@@ -179,7 +179,7 @@ class CandidateCreate(BaseModel):
     email:            Optional[EmailStr] = None
     phone:            Optional[str]      = None
     current_company:  Optional[str]      = None
-    current_role:     Optional[str]      = None
+    candidate_role:     Optional[str]      = None
     experience_years: Optional[int]      = None
     source:           Optional[str]      = None
     job_id:           Optional[str]      = None
@@ -195,7 +195,7 @@ class CandidateUpdate(BaseModel):
     email:                Optional[EmailStr]          = None
     phone:                Optional[str]              = None
     current_company:      Optional[str]              = None
-    current_role:         Optional[str]              = None
+    candidate_role:         Optional[str]              = None
     experience_years:     Optional[int]              = None
     source:               Optional[str]              = None
     job_id:               Optional[str]              = None
@@ -800,7 +800,7 @@ async def create_candidate(candidate: CandidateCreate, request: Request):
         "email":                candidate.email,
         "phone":                candidate.phone,
         "current_company":      candidate.current_company,
-        "current_role":         candidate.current_role,
+        "candidate_role":         candidate.candidate_role,
         "experience_years":     candidate.experience_years,
         "source":               candidate.source,
         "job_id":               candidate.job_id,
@@ -843,7 +843,7 @@ async def get_candidates(
             f"full_name.ilike.%{search}%,"
             f"email.ilike.%{search}%,"
             f"current_company.ilike.%{search}%,"
-            f"current_role.ilike.%{search}%"
+            f"candidate_role.ilike.%{search}%"
         )
 
     res = await run(lambda: q.execute())

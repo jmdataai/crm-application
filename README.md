@@ -17,3 +17,5 @@ FastAPI backend for Nexus CRM. Connected to Supabase PostgreSQL.
 - `POST /api/auth/login` — login
 - `POST /api/auth/register` — register
 - Full API docs at `/docs`
+
+Need to add more document
