@@ -541,17 +541,58 @@ async def import_leads(file: UploadFile, request: Request):
     except Exception as e:
         raise HTTPException(400, f"Error reading file: {e}")
 
-    # Normalise column names
-    col_map = {
-        "name":"full_name","full name":"full_name","fullname":"full_name",
-        "email":"email","email address":"email",
-        "phone":"phone","mobile":"phone","phone number":"phone",
-        "company":"company","organization":"company","account":"company",
-        "title":"job_title","job title":"job_title","position":"job_title",
-        "source":"source","lead source":"source","channel":"source",
-    }
+    # Normalise column names — handles Apollo, LinkedIn, HubSpot, manual CSVs
     df.columns = df.columns.str.lower().str.strip()
+
+    col_map = {
+        # Name
+        "name": "full_name", "full name": "full_name", "fullname": "full_name",
+        "contact name": "full_name", "person name": "full_name",
+        # Apollo splits into first/last — handled below after rename
+        "first name": "_first_name", "firstname": "_first_name",
+        "last name": "_last_name", "lastname": "_last_name",
+        # Email
+        "email": "email", "email address": "email",
+        "work email": "email", "primary email": "email",
+        # Phone — Apollo has multiple phone columns, take first non-empty
+        "phone": "phone", "mobile": "phone", "mobile phone": "phone",
+        "phone number": "phone", "work direct phone": "phone",
+        "corporate phone": "_phone2", "other phone": "_phone3",
+        # Company
+        "company": "company", "organization": "company",
+        "account": "company", "company name": "company",
+        "company name for emails": "_company2",
+        # Job title
+        "title": "job_title", "job title": "job_title",
+        "position": "job_title", "role": "job_title",
+        # Source
+        "source": "source", "lead source": "source", "channel": "source",
+        # LinkedIn
+        "linkedin url": "linkedin_url", "linkedin": "linkedin_url",
+        "person linkedin url": "linkedin_url",
+        # Notes / extra
+        "stage": "_stage", "seniority": "_seniority",
+    }
     df = df.rename(columns=col_map)
+
+    # Combine First Name + Last Name → full_name (Apollo format)
+    if "full_name" not in df.columns and "_first_name" in df.columns:
+        first = df.get("_first_name", pd.Series([""] * len(df))).fillna("")
+        last  = df.get("_last_name",  pd.Series([""] * len(df))).fillna("")
+        df["full_name"] = (first + " " + last).str.strip()
+
+    # Fallback phone: if primary phone empty, use corporate/other
+    if "phone" in df.columns:
+        for fallback in ["_phone2", "_phone3"]:
+            if fallback in df.columns:
+                df["phone"] = df["phone"].fillna(df[fallback]).replace("", None)
+
+    # Fallback company: use company name for emails if company missing
+    if "_company2" in df.columns:
+        if "company" not in df.columns:
+            df["company"] = df["_company2"]
+        else:
+            df["company"] = df["company"].fillna(df["_company2"])
 
     import_id  = str(uuid.uuid4())
     successful = 0
@@ -578,7 +619,8 @@ async def import_leads(file: UploadFile, request: Request):
             "phone":            _clean(row, "phone"),
             "company":          _clean(row, "company"),
             "job_title":        _clean(row, "job_title"),
-            "source":           _clean(row, "source") or file.filename,
+            "source":           _clean(row, "source") or "Apollo",
+            "linkedin_url":     _clean(row, "linkedin_url"),
             "status":           "new",
             "assigned_owner_id":user["id"],
             "created_by":       user["id"],
