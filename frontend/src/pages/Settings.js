@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 const API = process.env.REACT_APP_API_URL || '';
@@ -38,7 +38,7 @@ export default function Settings() {
     else         { setSuccess(msg); setTimeout(() => setSuccess(''), 3000); }
   };
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`${API}/api/users`, { credentials: 'include' });
@@ -49,9 +49,9 @@ export default function Settings() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { fetchUsers(); }, []);
+  useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
   // ── Add user ────────────────────────────────────────────────
   const handleAdd = async () => {
