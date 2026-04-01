@@ -1,0 +1,31 @@
+name: Sync Backend to HuggingFace Space
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'backend/**'
+
+jobs:
+  sync-to-huggingface:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Push backend to HuggingFace Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git config --global user.email "ci@github.com"
+          git config --global user.name "GitHub Actions"
+          mkdir /tmp/hf_deploy
+          cp -r backend/. /tmp/hf_deploy/
+          cd /tmp/hf_deploy
+          git init
+          git checkout -b main
+          git add .
+          git commit -m "deploy: $(date +'%Y-%m-%d %H:%M:%S')"
+          git remote add hfspace https://freddy-jmdataai:$HF_TOKEN@huggingface.co/spaces/freddy-jmdataai/nexus-crm-backend
+          git push hfspace main --force
