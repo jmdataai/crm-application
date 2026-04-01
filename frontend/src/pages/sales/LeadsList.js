@@ -1,9 +1,44 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
 );
+
+/* ── Phone popup ───────────────────────────────────── */
+const PhonePopup = ({ phone, onClose }) => {
+  const [copied, setCopied] = useState(false);
+  const ref = useRef();
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+  const copy = () => {
+    navigator.clipboard.writeText(phone);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <div ref={ref} style={{
+      position:'absolute', zIndex:100, right:0, top:'calc(100% + 6px)',
+      background:'var(--surface-container-lowest)', border:'1px solid var(--outline-variant)',
+      borderRadius:'0.625rem', padding:'0.875rem 1rem', boxShadow:'0 4px 16px rgba(0,0,0,0.12)',
+      minWidth:200, display:'flex', flexDirection:'column', gap:'0.5rem',
+    }}>
+      <p style={{ fontSize:'0.7rem', fontWeight:600, color:'var(--on-surface-variant)', textTransform:'uppercase', letterSpacing:'0.05em', margin:0 }}>Phone Number</p>
+      <div style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
+        <span style={{ fontSize:'0.95rem', fontWeight:600, color:'var(--on-surface)' }}>{phone || '—'}</span>
+        {phone && (
+          <button onClick={copy} title="Copy" style={{ background:'none', border:'1px solid var(--outline-variant)', borderRadius:'0.375rem', padding:'0.2rem 0.5rem', cursor:'pointer', fontSize:'0.7rem', color:'var(--primary)', fontWeight:600 }}>
+            {copied ? '✓ Copied' : 'Copy'}
+          </button>
+        )}
+      </div>
+      {!phone && <p style={{ fontSize:'0.8rem', color:'var(--on-surface-variant)', margin:0 }}>No phone number on record</p>}
+    </div>
+  );
+};
 
 /* ── Status helpers ─────────────────────────────────── */
 const STATUS_MAP = {
@@ -351,8 +386,22 @@ export default function LeadsList() {
                         <button className="btn-icon" title="View" onClick={() => navigate(`/sales/leads/${lead.id}`)}>
                           <Icon name="open_in_new" style={{ fontSize:'1rem' }} />
                         </button>
-                        <button className="btn-icon" title="Log call"><Icon name="phone" style={{ fontSize:'1rem' }} /></button>
-                        <button className="btn-icon" title="Send email"><Icon name="mail" style={{ fontSize:'1rem' }} /></button>
+                        <div style={{ position:'relative' }}>
+                          <button className="btn-icon" title="Show phone number" onClick={(e) => { e.stopPropagation(); setPhonePopup(phonePopup === lead.id ? null : lead.id); }}>
+                            <Icon name="phone" style={{ fontSize:'1rem' }} />
+                          </button>
+                          {phonePopup === lead.id && <PhonePopup phone={lead.phone} onClose={() => setPhonePopup(null)} />}
+                        </div>
+                        {lead.email && (
+                          <a href={`mailto:${lead.email}`} className="btn-icon" title="Open email client" style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', textDecoration:'none' }} onClick={e => e.stopPropagation()}>
+                            <Icon name="mail" style={{ fontSize:'1rem' }} />
+                          </a>
+                        )}
+                        {!lead.email && (
+                          <button className="btn-icon" title="No email on record" disabled style={{ opacity:0.35 }}>
+                            <Icon name="mail" style={{ fontSize:'1rem' }} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

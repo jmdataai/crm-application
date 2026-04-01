@@ -10,6 +10,8 @@ import bcrypt
 import jwt
 import asyncio
 import resend
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron  import CronTrigger
 import pandas as pd
 import io
 import uuid
@@ -33,6 +35,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # ── Resend email ──────────────────────────────────────────────
 resend.api_key  = os.environ.get("RESEND_API_KEY", "")
 SENDER_EMAIL    = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
+scheduler       = AsyncIOScheduler()
 
 # ── JWT ───────────────────────────────────────────────────────
 JWT_SECRET    = os.environ.get("JWT_SECRET", "change_me_in_production")
@@ -1086,7 +1089,7 @@ async def send_reminder_email(reminder_id: str, request: Request):
     reminder_data = await safe_single(lambda: sb("reminders").select("*").eq("id", reminder_id).single().execute())
     if not reminder_data:
         raise HTTPException(404, "Reminder not found")
-    r = res.data
+    r = reminder_data
     html = f"""
     <div style="font-family:Inter,sans-serif;padding:24px;max-width:480px">
       <h2 style="color:#131b2e;margin-bottom:8px">⏰ {r['title']}</h2>
@@ -1098,6 +1101,117 @@ async def send_reminder_email(reminder_id: str, request: Request):
     result = await send_email(r.get("user_email", user["email"]), f"Reminder: {r['title']}", html)
     await run(lambda: sb("reminders").update({"email_sent": True}).eq("id", reminder_id).execute())
     return result
+
+
+
+# ============================================================
+# DAILY DIGEST EMAIL — sent every morning at 8 AM
+# ============================================================
+async def send_daily_digest():
+    """Runs at 8 AM daily. Sends each user a digest of today's tasks + reminders."""
+    today = datetime.date.today().isoformat()
+    logger.info(f"[digest] Running daily digest for {today}")
+
+    try:
+        users_res = await run(lambda: sb("users").select("id,email,name,role").execute())
+        users_list = users_res.data or []
+    except Exception as e:
+        logger.error(f"[digest] Failed to fetch users: {e}")
+        return
+
+    for u in users_list:
+        try:
+            # Tasks due today for this user
+            tasks_res = await run(lambda: sb("tasks")
+                .select("title,task_type,priority,due_time")
+                .eq("assigned_to", u["id"])
+                .eq("due_date", today)
+                .eq("completed", False)
+                .order("due_time")
+                .execute()
+            )
+            tasks_today = tasks_res.data or []
+
+            # Reminders due today for this user
+            reminders_res = await run(lambda: sb("reminders")
+                .select("title,due_time,note")
+                .eq("user_id", u["id"])
+                .eq("due_date", today)
+                .eq("dismissed", False)
+                .order("due_time")
+                .execute()
+            )
+            reminders_today = reminders_res.data or []
+
+            # Skip if nothing due today
+            if not tasks_today and not reminders_today:
+                logger.info(f"[digest] Nothing due for {u['email']} — skipping")
+                continue
+
+            total = len(tasks_today) + len(reminders_today)
+
+            # Build tasks rows
+            tasks_rows = ""
+            for t in tasks_today:
+                priority_color = {"high": "#dc2626", "medium": "#d97706", "low": "#16a34a"}.get(t.get("priority", "medium"), "#6b7280")
+                time_str = f" &middot; {t['due_time'][:5]}" if t.get("due_time") else ""
+                tasks_rows += (
+                    f'<tr><td style="padding:10px 0;border-bottom:1px solid #f1f5f9">'
+                    f'<span style="font-weight:600;color:#1e293b">{t["title"]}</span>'
+                    f'<span style="color:#94a3b8;font-size:13px">{time_str}</span></td>'
+                    f'<td style="padding:10px 0;border-bottom:1px solid #f1f5f9;text-align:right">'
+                    f'<span style="font-size:12px;font-weight:700;color:{priority_color};text-transform:uppercase">'
+                    f'{t.get("priority","")}</span></td></tr>'
+                )
+
+            # Build reminders rows
+            reminders_rows = ""
+            for r in reminders_today:
+                time_str = f" &middot; {r['due_time'][:5]}" if r.get("due_time") else ""
+                note_str = f'<br><span style="color:#94a3b8;font-size:12px">{r["note"]}</span>' if r.get("note") else ""
+                reminders_rows += (
+                    f'<tr><td colspan="2" style="padding:10px 0;border-bottom:1px solid #f1f5f9">'
+                    f'<span style="font-weight:600;color:#1e293b">&#9200; {r["title"]}</span>'
+                    f'<span style="color:#94a3b8;font-size:13px">{time_str}</span>{note_str}</td></tr>'
+                )
+
+            tasks_section = ""
+            if tasks_today:
+                tasks_section = (
+                    f'<h2 style="font-size:14px;font-weight:700;color:#475569;text-transform:uppercase;'
+                    f'letter-spacing:0.05em;margin:0 0 8px">Tasks ({len(tasks_today)})</h2>'
+                    f'<table style="width:100%;border-collapse:collapse;margin-bottom:24px">{tasks_rows}</table>'
+                )
+
+            reminders_section = ""
+            if reminders_today:
+                reminders_section = (
+                    f'<h2 style="font-size:14px;font-weight:700;color:#475569;text-transform:uppercase;'
+                    f'letter-spacing:0.05em;margin:0 0 8px">Reminders ({len(reminders_today)})</h2>'
+                    f'<table style="width:100%;border-collapse:collapse;margin-bottom:24px">{reminders_rows}</table>'
+                )
+
+            first_name = u["name"].split()[0]
+            subject = f"Your schedule for today \u2014 {total} item{'s' if total != 1 else ''}"
+
+            html = (
+                f'<div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:0 auto;padding:32px 24px">'
+                f'<div style="background:linear-gradient(135deg,#1e3a5f,#2563eb);border-radius:12px;padding:24px;margin-bottom:28px">'
+                f'<h1 style="color:#ffffff;margin:0;font-size:22px">Good morning, {first_name} &#128075;</h1>'
+                f'<p style="color:#bfdbfe;margin:8px 0 0;font-size:14px">Here\'s your schedule for today &mdash; '
+                f'<strong style="color:#ffffff">{total} item{"s" if total != 1 else ""}</strong> on your plate.</p>'
+                f'</div>'
+                f'{tasks_section}{reminders_section}'
+                f'<p style="font-size:12px;color:#94a3b8;text-align:center;margin-top:32px;'
+                f'border-top:1px solid #f1f5f9;padding-top:16px">Nexus CRM &nbsp;&middot;&nbsp; Automated daily digest</p>'
+                f'</div>'
+            )
+
+            result = await send_email(u["email"], subject, html)
+            logger.info(f"[digest] Sent to {u['email']}: {result.get('status')}")
+
+        except Exception as e:
+            logger.error(f"[digest] Failed for {u['email']}: {e}")
 
 
 # ============================================================
@@ -1113,6 +1227,13 @@ async def health():
 # ============================================================
 @app.on_event("startup")
 async def startup():
+    # Start daily digest scheduler
+    digest_time = os.environ.get("DIGEST_TIME", "08:00")
+    hour, minute = digest_time.split(":")
+    scheduler.add_job(send_daily_digest, CronTrigger(hour=int(hour), minute=int(minute)), id="daily_digest", replace_existing=True)
+    scheduler.start()
+    logger.info(f"[scheduler] Daily digest scheduled at {digest_time}")
+
     admin_email    = os.environ.get("ADMIN_EMAIL", "admin@nexuscrm.com")
     admin_password = os.environ.get("ADMIN_PASSWORD", "Admin123!")
     admin_name     = os.environ.get("ADMIN_NAME", "Admin")

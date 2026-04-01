@@ -23,6 +23,9 @@ xlrd==2.0.2
 # Email
 resend==2.26.0
 
+# Scheduler (daily digest emails)
+apscheduler==3.10.4
+
 # Validation
 pydantic==2.12.5
 pydantic[email]==2.12.5
