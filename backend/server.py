@@ -267,16 +267,16 @@ async def get_current_user(request: Request) -> dict:
     except jwt.InvalidTokenError:
         raise HTTPException(401, "Invalid token")
 
-    res = await asyncio.to_thread(
+    user = await safe_single(
         lambda: supabase.table("users")
-            .select("id,email,name,avatar_url,created_at")
+            .select("id,email,name,role,avatar_url,created_at")
             .eq("id", payload["sub"])
             .single()
             .execute()
     )
-    if not res.data:
+    if not user:
         raise HTTPException(401, "User not found")
-    return res.data
+    return user
 
 async def send_email(to: str, subject: str, html: str):
     if not resend.api_key:
@@ -298,6 +298,17 @@ def sb(table: str):
 async def run(fn):
     """Run a synchronous supabase call in a thread pool."""
     return await asyncio.to_thread(fn)
+
+async def safe_single(fn):
+    """Run a .single() query safely — returns None on 0 rows (PGRST116) instead of crashing."""
+    try:
+        res = await asyncio.to_thread(fn)
+        return res.data
+    except Exception as e:
+        err = str(e)
+        if "PGRST116" in err or "0 rows" in err or "406" in err:
+            return None
+        raise
 
 
 # ============================================================
@@ -325,17 +336,21 @@ async def register(data: UserCreate, response: Response):
 
 @api_router.post("/auth/login")
 async def login(data: UserLogin, response: Response):
-    res = await run(lambda: sb("users").select("*").eq("email", data.email.lower()).single().execute())
-    if not res.data:
+    user = await safe_single(lambda: sb("users").select("*").eq("email", data.email.lower()).single().execute())
+    if not user:
         raise HTTPException(401, "Invalid credentials")
-    user = res.data
     if not verify_password(data.password, user["password_hash"]):
         raise HTTPException(401, "Invalid credentials")
 
     access  = create_access_token(user["id"], user["email"])
     refresh = create_refresh_token(user["id"])
     _set_cookies(response, access, refresh)
-    return {"id": user["id"], "email": user["email"], "name": user["name"]}
+    return {
+        "id":    user["id"],
+        "email": user["email"],
+        "name":  user["name"],
+        "role":  user.get("role", "viewer"),   # include role for frontend permissions
+    }
 
 
 @api_router.post("/auth/logout")
@@ -351,7 +366,7 @@ async def get_me(request: Request):
 
 
 def _set_cookies(response: Response, access: str, refresh: str):
-    kw = dict(httponly=True, secure=False, samesite="lax", path="/")
+    kw = dict(httponly=True, secure=True, samesite="none", path="/")
     response.set_cookie("access_token",  access,  max_age=86400,   **kw)
     response.set_cookie("refresh_token", refresh, max_age=604800,  **kw)
 
@@ -425,10 +440,9 @@ async def get_leads(
 @api_router.get("/leads/{lead_id}")
 async def get_lead(lead_id: str, request: Request):
     await get_current_user(request)
-    res = await run(lambda: sb("leads").select("*, assigned_owner:assigned_owner_id(name)").eq("id", lead_id).single().execute())
-    if not res.data:
+    lead = await safe_single(lambda: sb("leads").select("*, assigned_owner:assigned_owner_id(name)").eq("id", lead_id).single().execute())
+    if not lead:
         raise HTTPException(404, "Lead not found")
-    lead = res.data
 
     acts = await run(lambda: sb("activities").select("*").eq("lead_id", lead_id).order("created_at", desc=True).execute())
     lead["activities"] = acts.data or []
@@ -442,10 +456,9 @@ async def get_lead(lead_id: str, request: Request):
 async def update_lead(lead_id: str, lead: LeadUpdate, request: Request):
     user = await get_current_user(request)
 
-    existing_res = await run(lambda: sb("leads").select("status").eq("id", lead_id).single().execute())
-    if not existing_res.data:
+    existing = await safe_single(lambda: sb("leads").select("status").eq("id", lead_id).single().execute())
+    if not existing:
         raise HTTPException(404, "Lead not found")
-    existing = existing_res.data
 
     patch = {k: v for k, v in lead.model_dump().items() if v is not None}
     if "status" in patch and isinstance(patch["status"], LeadStatus):
@@ -765,10 +778,9 @@ async def get_jobs(request: Request, is_active: Optional[bool] = None, search: O
 @api_router.get("/jobs/{job_id}")
 async def get_job(job_id: str, request: Request):
     await get_current_user(request)
-    res = await run(lambda: sb("jobs").select("*").eq("id", job_id).single().execute())
-    if not res.data:
+    job = await safe_single(lambda: sb("jobs").select("*").eq("id", job_id).single().execute())
+    if not job:
         raise HTTPException(404, "Job not found")
-    job = res.data
     cands = await run(lambda: sb("candidates").select("*").eq("job_id", job_id).execute())
     job["candidates"] = cands.data or []
     return job
@@ -865,8 +877,8 @@ async def get_pipeline(request: Request, job_id: Optional[str] = None):
 @api_router.get("/candidates/{candidate_id}")
 async def get_candidate(candidate_id: str, request: Request):
     await get_current_user(request)
-    res = await run(lambda: sb("candidates").select("*, job:job_id(title)").eq("id", candidate_id).single().execute())
-    if not res.data:
+    candidate_data = await safe_single(lambda: sb("candidates").select("*, job:job_id(title)").eq("id", candidate_id).single().execute())
+    if not candidate_data:
         raise HTTPException(404, "Candidate not found")
     cand = res.data
 
@@ -884,13 +896,13 @@ async def get_candidate(candidate_id: str, request: Request):
 @api_router.put("/candidates/{candidate_id}")
 async def update_candidate(candidate_id: str, candidate: CandidateUpdate, request: Request):
     user = await get_current_user(request)
-    existing_res = await run(lambda: sb("candidates").select("status").eq("id", candidate_id).single().execute())
-    if not existing_res.data:
+    existing = await safe_single(lambda: sb("candidates").select("status").eq("id", candidate_id).single().execute())
+    if not existing:
         raise HTTPException(404, "Candidate not found")
 
     patch = {k: v for k, v in candidate.model_dump().items() if v is not None}
     if "status" in patch and isinstance(patch["status"], CandidateStatus):
-        old_status = existing_res.data["status"]
+        old_status = existing["status"]
         new_status = patch["status"].value
         patch["status"] = new_status
         if old_status != new_status:
@@ -967,9 +979,9 @@ async def update_interview(interview_id: str, interview: InterviewUpdate, reques
 
     # If marked complete, advance candidate to interviewed
     if interview.completed:
-        iv_res = await run(lambda: sb("interviews").select("candidate_id").eq("id", interview_id).single().execute())
-        if iv_res.data:
-            cand_id = iv_res.data["candidate_id"]
+        iv_cand = await safe_single(lambda: sb("interviews").select("candidate_id").eq("id", interview_id).single().execute())
+        if iv_cand:
+            cand_id = iv_cand["candidate_id"]
             await run(lambda: sb("candidates").update({"status": "interviewed"}).eq("id", cand_id).execute())
             await _log_activity(candidate_id=cand_id, user=user, atype="interview",
                                  desc="Interview completed")
@@ -1039,8 +1051,8 @@ async def recruitment_dashboard(request: Request):
 @api_router.post("/reminders/{reminder_id}/send-email")
 async def send_reminder_email(reminder_id: str, request: Request):
     user = await get_current_user(request)
-    res  = await run(lambda: sb("reminders").select("*").eq("id", reminder_id).single().execute())
-    if not res.data:
+    reminder_data = await safe_single(lambda: sb("reminders").select("*").eq("id", reminder_id).single().execute())
+    if not reminder_data:
         raise HTTPException(404, "Reminder not found")
     r = res.data
     html = f"""
