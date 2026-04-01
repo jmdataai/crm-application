@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
-const API = process.env.REACT_APP_API_URL || '';
-
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', ...style }}>{name}</span>
 );
@@ -41,7 +39,7 @@ export default function Settings() {
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/api/users`, { credentials: 'include' });
+      const res = await fetch(`/api/users`, { credentials: 'include' });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || 'Failed to load users');
@@ -66,7 +64,7 @@ export default function Settings() {
     }
     setSaving(true);
     try {
-      const res = await fetch(`${API}/api/auth/register`, {
+      const res = await fetch(`/api/auth/register`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -88,7 +86,7 @@ export default function Settings() {
   // ── Change role ─────────────────────────────────────────────
   const handleRoleChange = async (userId, newRole) => {
     try {
-      const res = await fetch(`${API}/api/users/${userId}/role`, {
+      const res = await fetch(`/api/users/${userId}/role`, {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -108,7 +106,7 @@ export default function Settings() {
   const handleDelete = async (userId, userName) => {
     if (!window.confirm(`Delete user "${userName}"? This cannot be undone.`)) return;
     try {
-      const res = await fetch(`${API}/api/users/${userId}`, {
+      const res = await fetch(`/api/users/${userId}`, {
         method: 'DELETE',
         credentials: 'include',
       });
