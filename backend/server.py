@@ -385,8 +385,32 @@ def _set_cookies(response: Response, access: str, refresh: str):
 @api_router.get("/users")
 async def get_users(request: Request):
     await get_current_user(request)
-    res = await run(lambda: sb("users").select("id,email,name,avatar_url,created_at").execute())
+    res = await run(lambda: sb("users").select("id,email,name,role,avatar_url,created_at").execute())
     return res.data or []
+
+
+@api_router.put("/users/{user_id}/role")
+async def update_user_role(user_id: str, body: dict, request: Request):
+    caller = await get_current_user(request)
+    if caller.get("role") != "admin":
+        raise HTTPException(403, "Only admins can change user roles")
+    allowed_roles = {"admin", "sales", "viewer"}
+    role = body.get("role")
+    if role not in allowed_roles:
+        raise HTTPException(400, f"Role must be one of: {', '.join(allowed_roles)}")
+    await run(lambda: sb("users").update({"role": role}).eq("id", user_id).execute())
+    return {"id": user_id, "role": role}
+
+
+@api_router.delete("/users/{user_id}")
+async def delete_user(user_id: str, request: Request):
+    caller = await get_current_user(request)
+    if caller.get("role") != "admin":
+        raise HTTPException(403, "Only admins can delete users")
+    if caller["id"] == user_id:
+        raise HTTPException(400, "You cannot delete your own account")
+    await run(lambda: sb("users").delete().eq("id", user_id).execute())
+    return {"message": "User deleted"}
 
 
 # ============================================================

@@ -23,6 +23,7 @@ import Pipeline             from './pages/recruitment/Pipeline';
 import Interviews           from './pages/recruitment/Interviews';
 import RecruitmentTasks     from './pages/recruitment/RecruitmentTasks';
 
+import Settings from './pages/Settings';
 import './index.css';
 
 // Wrap a page: requires auth + optional module access
@@ -63,6 +64,9 @@ function AppRoutes() {
       <Route path="/recruitment/pipeline"         element={<Page module="recruitment"><Pipeline /></Page>} />
       <Route path="/recruitment/interviews"       element={<Page module="recruitment"><Interviews /></Page>} />
       <Route path="/recruitment/tasks"            element={<Page module="recruitment"><RecruitmentTasks /></Page>} />
+
+      {/* ── Settings (admin + viewer) ── */}
+      <Route path="/settings" element={<Page><Settings /></Page>} />
 
       {/* ── Default ── */}
       <Route path="/" element={<DefaultRedirect />} />
