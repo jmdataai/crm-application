@@ -21,9 +21,9 @@ export const PERMISSIONS = {
     readOnly:     false,
   },
   sales: {
-    modules:      ['sales'],         // recruitment tab hidden
+    modules:      ['sales', 'recruitment'], // sales + recruitment access
     canImport:    true,
-    canDelete:    false,
+    canDelete:    true,
     canEdit:      true,
     canManageUsers: false,
     viewSettings: false,

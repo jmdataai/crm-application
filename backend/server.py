@@ -88,6 +88,7 @@ class UserCreate(BaseModel):
     email:    EmailStr
     password: str
     name:     str
+    role:     str = "sales"   # default role for new users
 
 class UserLogin(BaseModel):
     email:    EmailStr
@@ -315,7 +316,16 @@ async def safe_single(fn):
 # AUTH
 # ============================================================
 @api_router.post("/auth/register")
-async def register(data: UserCreate, response: Response):
+async def register(data: UserCreate, request: Request):
+    # Only logged-in admins can create new users
+    caller = await get_current_user(request)
+    if caller.get("role") != "admin":
+        raise HTTPException(403, "Only admins can create new user accounts")
+
+    # Validate role value
+    allowed_roles = {"admin", "sales", "viewer"}
+    role = data.role if data.role in allowed_roles else "sales"
+
     existing = await run(lambda: sb("users").select("id").eq("email", data.email.lower()).execute())
     if existing.data:
         raise HTTPException(400, "Email already registered")
@@ -326,21 +336,19 @@ async def register(data: UserCreate, response: Response):
         "email":         data.email.lower(),
         "password_hash": hash_password(data.password),
         "name":          data.name,
+        "role":          role,
     }).execute())
 
-    access  = create_access_token(user_id, data.email)
-    refresh = create_refresh_token(user_id)
-    _set_cookies(response, access, refresh)
-    return {"id": user_id, "email": data.email, "name": data.name}
+    return {"id": user_id, "email": data.email, "name": data.name, "role": role}
 
 
 @api_router.post("/auth/login")
 async def login(data: UserLogin, response: Response):
     user = await safe_single(lambda: sb("users").select("*").eq("email", data.email.lower()).single().execute())
     if not user:
-        raise HTTPException(401, "Invalid credentials")
+        raise HTTPException(401, "Access not authorized. This email is not registered.")
     if not verify_password(data.password, user["password_hash"]):
-        raise HTTPException(401, "Invalid credentials")
+        raise HTTPException(401, "Incorrect password. Please try again.")
 
     access  = create_access_token(user["id"], user["email"])
     refresh = create_refresh_token(user["id"])
