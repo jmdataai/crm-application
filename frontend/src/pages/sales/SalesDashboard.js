@@ -55,6 +55,9 @@ export default function SalesDashboard() {
   const closedCount    = (stats.closed || 0) + (stats.completed || 0);
   const convRate       = totalLeads > 0 ? ((closedCount / totalLeads) * 100).toFixed(1) : '0';
 
+  const recentLeads = data?.recent_leads || [];
+  const todayTasks  = data?.today_tasks  || [];
+
   // Filter data by selected period
   const now   = new Date();
   const start = period === 'today'   ? new Date(now.toISOString().slice(0,10))
@@ -82,9 +85,6 @@ export default function SalesDashboard() {
     { label:'Interested', count: stats.interested || 0,  color:'var(--primary)' },
     { label:'Closed',     count: closedCount,            color:'var(--tertiary)' },
   ].map(s => ({ ...s, pct: Math.round((s.count / maxCount) * 100) }));
-
-  const recentLeads = data?.recent_leads || [];
-  const todayTasks  = data?.today_tasks  || [];
 
   const firstName = user?.name?.split(' ')[0] || 'there';
   const hour = new Date().getHours();

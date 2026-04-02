@@ -153,7 +153,7 @@ export default function CandidateDetail() {
     try {
       const res = await interviewsAPI.create({
         candidate_id: id,
-        job_id: cand.job_id || null,
+        job_id: candidate?.job_id || null,
         interview_type: iv.type,
         scheduled_at: `${iv.date}T${iv.time||'10:00'}:00`,
         interviewers: iv.interviewer ? [iv.interviewer] : [],
@@ -186,12 +186,12 @@ export default function CandidateDetail() {
   if (!candidate) return null;
 
   const sm = STAGE_META[candidate.status] || STAGE_META.sourced;
-  const initials = cand.full_name?.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase() || '??';
+  const initials = candidate.full_name?.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase() || '??';
   const stageIdx = STAGES_ORDER.indexOf(candidate.status);
   // Merge into shape the UI expects
-  const cand = { ...candidate, name: cand.full_name, candidate_role: cand.candidate_role||'',
-    job: cand.job?.title||'', dept: cand.job?.department||'', exp: cand.experience_years||0,
-    linkedin: cand.linkedin_url||'', portfolio: cand.portfolio_url||'',
+  const cand = { ...candidate, name: candidate.full_name, candidate_role: candidate.candidate_role||'',
+    job: candidate.job?.title||'', dept: candidate.job?.department||'', exp: candidate.experience_years||0,
+    linkedin: candidate.linkedin_url||'', portfolio: candidate.portfolio_url||'',
     activities, interviews, skills: candidate.skills||[], applied: candidate.created_at?.slice(0,10)||'' };
 
   const TABS = [
