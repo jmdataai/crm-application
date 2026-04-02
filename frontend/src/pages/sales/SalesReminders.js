@@ -102,7 +102,6 @@ const AddReminderModal = ({ onClose, onAdd }) => {
           </button>
         </div>
       </div>
-    </>
     </div>
   );
 };

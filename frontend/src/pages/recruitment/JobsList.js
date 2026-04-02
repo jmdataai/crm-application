@@ -396,7 +396,7 @@ export default function JobsList() {
       )}
 
       {showAdd && <AddJobModal onClose={() => setShowAdd(false)} onAdd={addJob} />}
-    </div>
+      </div>
     </div>
   );
 }

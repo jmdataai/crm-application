@@ -88,7 +88,6 @@ const AddTaskModal = ({ onClose, onAdd }) => {
           </button>
         </div>
       </div>
-    </>
     </div>
   );
 };

@@ -493,7 +493,7 @@ export default function CandidateDetail() {
       )}
 
       {showSchedule && <ScheduleModal onClose={() => setSchedule(false)} onAdd={addInterview} />}
-    </div>
+      </div>
     </div>
     </div>
   );

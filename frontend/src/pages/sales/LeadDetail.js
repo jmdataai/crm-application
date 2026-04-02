@@ -401,7 +401,7 @@ export default function LeadDetail() {
       )}
 
       {showLog && <LogActivityModal onClose={() => setShowLog(false)} onLog={logActivity} />}
-    </div>
+      </div>
     </div>
   );
 }

@@ -52,7 +52,6 @@ const FeedbackModal = ({ interview, onClose, onSave }) => {
           </button>
         </div>
       </div>
-    </>
     </div>
   );
 };
