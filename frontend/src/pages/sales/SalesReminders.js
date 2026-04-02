@@ -186,9 +186,34 @@ const ReminderCard = ({ reminder, onDismiss, onDelete, onToggleEmail }) => {
 /* ── Main ───────────────────────────────────────────── */
 export default function SalesReminders() {
   const [reminders, setReminders] = useState([]);
+  const [loading, setLoading]     = useState(true);
   const [showAdd, setShowAdd]     = useState(false);
   const [filter, setFilter]       = useState('active'); // active | today | overdue | dismissed | all
   const [emailAllEnabled, setEmailAllEnabled] = useState(true);
+
+  const fetchReminders = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await remindersAPI.getAll();
+      const rows = Array.isArray(res.data) ? res.data
+        : Array.isArray(res.data?.data) ? res.data.data : [];
+      setReminders(rows.map(r => ({
+        id: r.id,
+        title: r.title || 'Untitled reminder',
+        lead: r.lead_name || r.lead || '',
+        company: r.company || '',
+        due: r.due_date || r.due || today,
+        time: (r.due_time || '').slice(0,5),
+        emailAlert: r.email_alert ?? true,
+        dismissed: !!r.dismissed,
+        repeat: r.repeat_type || 'none',
+        note: r.note || '',
+      })));
+    } catch { /* show empty */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchReminders(); }, [fetchReminders]);
 
   const dismiss       = (id) => setReminders(rs => rs.map(r => r.id===id ? {...r, dismissed:true} : r));
   const del           = (id) => setReminders(rs => rs.filter(r => r.id!==id));

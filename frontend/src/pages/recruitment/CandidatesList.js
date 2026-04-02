@@ -151,6 +151,7 @@ export default function CandidatesList() {
     try {
       const res = await candidatesAPI.getAll({ limit: 200 });
       const data = Array.isArray(res.data) ? res.data
+        : Array.isArray(res.data?.candidates) ? res.data.candidates
         : Array.isArray(res.data?.data) ? res.data.data : [];
       setCandidates(data.map(normalise));
     } catch {

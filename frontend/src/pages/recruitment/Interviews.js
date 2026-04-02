@@ -130,8 +130,39 @@ const InterviewCard = ({ iv, onFeedback, onComplete }) => {
 /* ── Main ───────────────────────────────────────────── */
 export default function Interviews() {
   const [interviews, setInterviews] = useState([]);
+  const [loading, setLoading]       = useState(true);
   const [filter, setFilter]         = useState('upcoming');
   const [selectedIv, setSelectedIv] = useState(null);
+
+  const fetchInterviews = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await interviewsAPI.getAll();
+      const rows = Array.isArray(res.data) ? res.data
+        : Array.isArray(res.data?.data) ? res.data.data : [];
+      setInterviews(rows.map(iv => {
+        const scheduled = iv.scheduled_at || iv.date || '';
+        const date = scheduled ? String(scheduled).slice(0,10) : '';
+        const time = scheduled ? String(scheduled).slice(11,16) : '';
+        const interviewers = Array.isArray(iv.interviewers) ? iv.interviewers.join(', ') : (iv.interviewer || '');
+        return {
+          id: iv.id,
+          candidate: iv.candidate_name || iv.candidate?.full_name || iv.candidate || 'Candidate',
+          job: iv.job_title || iv.job?.title || '',
+          interviewer: interviewers,
+          type: iv.interview_type || iv.type || 'Interview',
+          date,
+          time,
+          rating: iv.rating,
+          feedback: iv.feedback || '',
+          completed: !!iv.completed,
+        };
+      }));
+    } catch { /* show empty */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchInterviews(); }, [fetchInterviews]);
 
   const complete = (id) => setInterviews(ivs => ivs.map(iv => iv.id===id ? {...iv, completed:true} : iv));
   const saveFeedback = (id, rating, feedback) => setInterviews(ivs => ivs.map(iv => iv.id===id ? {...iv, rating, feedback, completed:true} : iv));

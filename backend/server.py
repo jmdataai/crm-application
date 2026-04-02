@@ -957,7 +957,7 @@ async def get_candidate(candidate_id: str, request: Request):
     candidate_data = await safe_single(lambda: sb("candidates").select("*, job:job_id(title)").eq("id", candidate_id).single().execute())
     if not candidate_data:
         raise HTTPException(404, "Candidate not found")
-    cand = res.data
+    cand = candidate_data
 
     acts = await run(lambda: sb("activities").select("*").eq("candidate_id", candidate_id).order("created_at", desc=True).execute())
     cand["activities"] = acts.data or []

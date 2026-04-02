@@ -15,6 +15,7 @@ const TYPE_ICON  = { call:'phone', email:'mail', meeting:'video_call', note:'edi
 const TYPE_COLOR = { call:'var(--primary)', email:'var(--tertiary)', meeting:'#7c3aed', note:'var(--amber)', follow_up:'#d97706', demo:'var(--primary-container)' };
 
 const today = new Date().toISOString().slice(0,10);
+const tomorrow = new Date(Date.now()+86400000).toISOString().slice(0,10);
 
 // Tasks loaded from API
 
@@ -167,9 +168,34 @@ const TaskRow = ({ task, onToggle, onDelete }) => {
 /* ── Main ───────────────────────────────────────────── */
 export default function SalesTasks() {
   const [tasks, setTasks]   = useState([]);
+  const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [filter, setFilter] = useState('all');     // all | today | overdue | done
   const [priority, setPriority] = useState('all');
+
+  const fetchTasks = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await tasksAPI.getAll();
+      const rows = Array.isArray(res.data) ? res.data
+        : Array.isArray(res.data?.data) ? res.data.data : [];
+      setTasks(rows.map(t => ({
+        id: t.id,
+        title: t.title || 'Untitled task',
+        type: t.task_type || t.type || 'call',
+        priority: t.priority || 'medium',
+        due: t.due_date || today,
+        time: (t.due_time || '').slice(0,5),
+        lead: t.lead_name || t.lead || '',
+        company: t.company || '',
+        notes: t.notes || t.note || '',
+        done: t.completed ?? t.done ?? false,
+      })));
+    } catch { /* show empty */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
   const toggle = (id) => setTasks(ts => ts.map(t => t.id===id ? {...t, done:!t.done} : t));
   const del    = (id) => setTasks(ts => ts.filter(t => t.id!==id));
