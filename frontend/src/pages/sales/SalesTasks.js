@@ -88,6 +88,7 @@ const AddTaskModal = ({ onClose, onAdd }) => {
           </button>
         </div>
       </div>
+    </>
     </div>
   );
 };
@@ -296,5 +297,6 @@ export default function SalesTasks() {
 
       {showAdd && <AddTaskModal onClose={() => setShowAdd(false)} onAdd={addTask} />}
     </div>
+    </>
   );
 }

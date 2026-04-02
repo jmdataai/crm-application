@@ -102,6 +102,7 @@ const AddReminderModal = ({ onClose, onAdd }) => {
           </button>
         </div>
       </div>
+    </>
     </div>
   );
 };
@@ -371,5 +372,6 @@ export default function SalesReminders() {
 
       {showAdd && <AddReminderModal onClose={() => setShowAdd(false)} onAdd={add} />}
     </div>
+    </>
   );
 }

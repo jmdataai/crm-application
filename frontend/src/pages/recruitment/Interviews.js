@@ -52,6 +52,7 @@ const FeedbackModal = ({ interview, onClose, onSave }) => {
           </button>
         </div>
       </div>
+    </>
     </div>
   );
 };
@@ -292,5 +293,6 @@ export default function Interviews() {
 
       {selectedIv && <FeedbackModal interview={selectedIv} onClose={() => setSelectedIv(null)} onSave={saveFeedback} />}
     </div>
+    </>
   );
 }
