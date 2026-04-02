@@ -19,3 +19,8 @@ FastAPI backend for Nexus CRM. Connected to Supabase PostgreSQL.
 - Full API docs at `/docs`
 
 Need to add more document
+
+## Frontend Deployment Notes
+- In Vercel, leave REACT_APP_API_URL unset so the app uses /api with the rewrite.
+- Ensure ercel.json rewrites /api/:path* to the backend base URL.
+
