@@ -72,7 +72,7 @@ export const remindersAPI = {
   getAll: (params) => api.get('/reminders', { params }),
   create: (data) => api.post('/reminders', data),
   delete: (id) => api.delete(`/reminders/${id}`),
-  sendEmail: (id) => api.post(`/send-reminder-email?reminder_id=${id}`),
+  sendEmail: (id) => api.post(`/reminders/${id}/send-email`),
 };
 
 // Jobs APIs

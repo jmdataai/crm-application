@@ -182,7 +182,7 @@ export default function Settings() {
               )}
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.875rem', marginBottom:'0.875rem' }}>
                 {[
-                  { label:'Full Name',    key:'name',     type:'text',     placeholder:'e.g. Priya Sharma' },
+                  { label:'Full Name',    key:'name',     type:'text',     placeholder:'e.g. Rahul Sharma' },
                   { label:'Email',        key:'email',    type:'email',    placeholder:'priya@company.com' },
                   { label:'Password',     key:'password', type:'password', placeholder:'Min. 8 characters' },
                 ].map(f => (

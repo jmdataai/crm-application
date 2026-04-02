@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { tasksAPI } from '../../services/api';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
@@ -13,21 +14,9 @@ const PRIORITY_MAP = {
 const TYPE_ICON  = { call:'phone', email:'mail', meeting:'video_call', note:'edit_note', follow_up:'schedule', demo:'present_to_all' };
 const TYPE_COLOR = { call:'var(--primary)', email:'var(--tertiary)', meeting:'#7c3aed', note:'var(--amber)', follow_up:'#d97706', demo:'var(--primary-container)' };
 
-const today    = '2026-03-31';
-const tomorrow = '2026-04-01';
+const today = new Date().toISOString().slice(0,10);
 
-const SEED_TASKS = [
-  { id:'t1',  title:'Follow-up call with Priya Sharma',    type:'call',      priority:'high',   due:'2026-03-31', time:'10:00', lead:'Priya Sharma',    company:'Infosys Ltd',   done:false, notes:'Discuss Q2 budget and enterprise pricing' },
-  { id:'t2',  title:'Send proposal to Rahul Mehta',        type:'email',     priority:'high',   due:'2026-03-31', time:'12:00', lead:'Rahul Mehta',      company:'TCS',           done:true,  notes:'Attach updated deck with case studies' },
-  { id:'t3',  title:'Product demo — Wipro AI Suite',       type:'demo',      priority:'high',   due:'2026-03-31', time:'15:00', lead:'Anika Patel',      company:'Wipro',         done:false, notes:'Live demo of automation module' },
-  { id:'t4',  title:'Update CRM notes — HCL',              type:'note',      priority:'medium', due:'2026-03-31', time:'16:30', lead:'Vikram Singh',     company:'HCL Tech',      done:false, notes:'' },
-  { id:'t5',  title:'Schedule intro call — Capgemini',     type:'follow_up', priority:'medium', due:'2026-04-01', time:'09:30', lead:'Rajesh Gupta',     company:'Capgemini',     done:false, notes:'Met at AI Summit, high intent' },
-  { id:'t6',  title:'Discovery meeting — Accenture',       type:'meeting',   priority:'high',   due:'2026-04-01', time:'11:00', lead:'Meera Joshi',      company:'Accenture',     done:false, notes:'AI Labs team joining' },
-  { id:'t7',  title:'Send follow-up email — IBM India',    type:'email',     priority:'low',    due:'2026-04-01', time:'14:00', lead:'Kiran Desai',      company:'IBM India',     done:false, notes:'' },
-  { id:'t8',  title:'Proposal review — Oracle India',      type:'note',      priority:'medium', due:'2026-04-02', time:'10:00', lead:'Sunita Reddy',     company:'Oracle India',  done:false, notes:'Check rejection reason first' },
-  { id:'t9',  title:'Close deal follow-up — Mindtree',     type:'follow_up', priority:'high',   due:'2026-03-28', time:'09:00', lead:'Deepa Nair',       company:'Mindtree',      done:false, notes:'OVERDUE — urgent' },
-  { id:'t10', title:'Send contract — Tech Mahindra',       type:'email',     priority:'low',    due:'2026-04-03', time:'11:00', lead:'Arjun Kumar',      company:'Tech Mahindra', done:true,  notes:'Deal closed ✓' },
-];
+// Tasks loaded from API
 
 /* ── Add Task Modal ─────────────────────────────────── */
 const AddTaskModal = ({ onClose, onAdd }) => {
@@ -177,7 +166,7 @@ const TaskRow = ({ task, onToggle, onDelete }) => {
 
 /* ── Main ───────────────────────────────────────────── */
 export default function SalesTasks() {
-  const [tasks, setTasks]   = useState(SEED_TASKS);
+  const [tasks, setTasks]   = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [filter, setFilter] = useState('all');     // all | today | overdue | done
   const [priority, setPriority] = useState('all');
@@ -219,6 +208,8 @@ export default function SalesTasks() {
 
   return (
     <div className="fade-in">
+      {loading && <div style={{ textAlign:'center', padding:'4rem', color:'var(--on-surface-variant)' }}><Icon name="progress_activity" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.75rem' }} />Loading tasks…</div>}
+      {!loading && <>
       {/* Header */}
       <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem' }}>
         <div>

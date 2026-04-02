@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { candidatesAPI, activitiesAPI, interviewsAPI } from '../../services/api';
 import { useParams, useNavigate } from 'react-router-dom';
 
 const Icon = ({ name, style = {} }) => (
@@ -21,52 +22,8 @@ const STAGES_ORDER = ['sourced','screened','shortlisted','interview_scheduled','
 const ACT_ICON  = { note:'edit_note', call:'phone', email:'mail', interview:'video_call', status_change:'swap_horiz', task:'task_alt' };
 const ACT_COLOR = { note:'var(--amber)', call:'var(--primary)', email:'var(--tertiary)', interview:'#7c3aed', status_change:'var(--secondary)', task:'var(--primary)' };
 
-/* ── Seed ───────────────────────────────────────────── */
-const DB = {
-  c1: {
-    id:'c1', name:'Arjun Mehta', email:'arjun@gmail.com', phone:'+91 98765 11111',
-    candidate_role:'AI Engineer', job:'Senior ML Engineer', dept:'Engineering', exp:6,
-    source:'LinkedIn', status:'interview_scheduled', applied:'2026-03-25',
-    linkedin:'linkedin.com/in/arjunmehta', portfolio:'arjun.dev',
-    skills:['Python','TensorFlow','MLOps','Docker','Kubernetes'],
-    notes:'Strong profile. 2 YOE in LLMs. Cleared screening round with full marks.',
-    activities:[
-      { id:'a1', type:'status_change', text:'Moved to Interview Scheduled',         date:'2026-03-30 15:00', user:'Recruiter' },
-      { id:'a2', type:'interview',     text:'Cleared Technical Round 1 — Score 9/10', date:'2026-03-29 11:00', user:'Priya R.' },
-      { id:'a3', type:'email',         text:'Interview confirmation sent to candidate', date:'2026-03-28 10:00', user:'Recruiter' },
-      { id:'a4', type:'status_change', text:'Moved to Shortlisted',                 date:'2026-03-27 09:00', user:'Recruiter' },
-      { id:'a5', type:'call',          text:'Screening call — 20 min, strong culture fit', date:'2026-03-26 14:00', user:'Recruiter' },
-      { id:'a6', type:'note',          text:'Imported from LinkedIn campaign',       date:'2026-03-25 08:00', user:'System' },
-    ],
-    interviews:[
-      { id:'iv1', type:'Technical Round 1', date:'2026-03-29', time:'11:00 AM', interviewer:'Priya R.', rating:9, feedback:'Excellent problem solving. Strong in Python and TF.', completed:true },
-      { id:'iv2', type:'Technical Round 2', date:'2026-04-01', time:'10:00 AM', interviewer:'Karan D.', rating:null, feedback:'', completed:false },
-    ],
-  },
-  c4: {
-    id:'c4', name:'Divya Rao', email:'divya@gmail.com', phone:'+91 95432 44444',
-    candidate_role:'ML Research', job:'Research Scientist', dept:'AI Research', exp:4,
-    source:'Resume', status:'selected', applied:'2026-03-20',
-    linkedin:'linkedin.com/in/divyarao', portfolio:'',
-    skills:['NLP','Python','Research','Transformers','Statistics'],
-    notes:'Excellent culture fit. PhD from IISc. Recommended by three senior researchers.',
-    activities:[
-      { id:'a1', type:'status_change', text:'Selected — offer in progress',          date:'2026-03-30 16:00', user:'HR Lead' },
-      { id:'a2', type:'interview',     text:'Final HR round — Very positive',        date:'2026-03-29 14:00', user:'Anita K.' },
-      { id:'a3', type:'interview',     text:'Technical + Research panel — 10/10',   date:'2026-03-27 10:00', user:'Research Team' },
-    ],
-    interviews:[
-      { id:'iv1', type:'Research Panel', date:'2026-03-27', time:'10:00 AM', interviewer:'Research Team', rating:10, feedback:'Outstanding. Best candidate we have seen this cycle.', completed:true },
-      { id:'iv2', type:'HR Final Round', date:'2026-03-29', time:'2:00 PM',  interviewer:'Anita K.',      rating:9,  feedback:'Very positive. Ready for offer.',                   completed:true },
-    ],
-  },
-};
+// Data loaded from API
 
-const FALLBACK = (id) => ({
-  id, name:'Candidate', email:'', phone:'', candidate_role:'', job:'', dept:'', exp:0,
-  source:'Manual', status:'sourced', applied:'2026-03-31',
-  linkedin:'', portfolio:'', skills:[], notes:'', activities:[], interviews:[],
-});
 
 /* ── Schedule Interview Modal ───────────────────────── */
 const ScheduleModal = ({ onClose, onAdd }) => {
@@ -125,36 +82,117 @@ const ScheduleModal = ({ onClose, onAdd }) => {
 export default function CandidateDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [candidate, setCand] = useState(() => DB[id] || FALLBACK(id));
-  const [activeTab, setTab]  = useState('activity');
+  const [candidate, setCand]        = useState(null);
+  const [activities, setActivities] = useState([]);
+  const [interviews, setInterviews] = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [activeTab, setTab]         = useState('activity');
   const [showSchedule, setSchedule] = useState(false);
   const [editing, setEditing]       = useState(false);
-  const [editForm, setEditForm]     = useState({ ...candidate });
+  const [editForm, setEditForm]     = useState({});
   const [note, setNote]             = useState('');
 
-  const sm = STAGE_META[candidate.status] || STAGE_META.sourced;
-  const initials = candidate.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
-  const stageIdx = STAGES_ORDER.indexOf(candidate.status);
+  const fetchCandidate = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [cRes, aRes, iRes] = await Promise.all([
+        candidatesAPI.getOne(id),
+        activitiesAPI.getAll({ candidate_id: id }),
+        interviewsAPI.getAll({ candidate_id: id }),
+      ]);
+      const c = cRes.data;
+      setCand(c);
+      setEditForm({
+        full_name: c.full_name, email: c.email, phone: c.phone,
+        candidate_role: c.candidate_role, current_company: c.current_company,
+        experience_years: c.experience_years, source: c.source,
+        linkedin_url: c.linkedin_url, portfolio_url: c.portfolio_url,
+        notes: c.notes, skills: c.skills || [],
+      });
+      const acts = Array.isArray(aRes.data) ? aRes.data
+        : Array.isArray(aRes.data?.data) ? aRes.data.data : [];
+      setActivities(acts.map(a => ({
+        id:a.id, type:a.activity_type, text:a.description,
+        date:a.created_at?.slice(0,16).replace('T',' '), user:a.user_name||'You',
+      })));
+      const ivs = Array.isArray(iRes.data) ? iRes.data
+        : Array.isArray(iRes.data?.data) ? iRes.data.data : [];
+      setInterviews(ivs.map(iv => ({
+        id:iv.id, type:iv.interview_type,
+        date:iv.scheduled_at?.slice(0,10),
+        time:iv.scheduled_at?.slice(11,16),
+        interviewer:(iv.interviewers||[]).join(', '),
+        rating:iv.rating, feedback:iv.feedback||'', completed:iv.completed,
+      })));
+    } catch { navigate('/recruitment/candidates'); }
+    finally { setLoading(false); }
+  }, [id, navigate]);
 
-  const moveStage = (newStage) => {
-    const act = { id:`a${Date.now()}`, type:'status_change', text:`Moved to ${STAGE_META[newStage]?.label}`, date:new Date().toLocaleString(), user:'You' };
-    setCand(c => ({ ...c, status:newStage, activities:[act,...c.activities] }));
+  useEffect(() => { fetchCandidate(); }, [fetchCandidate]);
+
+  const moveStage = async (newStage) => {
+    const prev = candidate.status;
+    setCand(c => ({ ...c, status: newStage }));
+    try {
+      await candidatesAPI.update(id, { status: newStage });
+      const actText = `Moved to ${STAGE_META[newStage]?.label}`;
+      await activitiesAPI.create({ candidate_id: id, activity_type:'status_change', description:actText });
+      setActivities(prev => [{ id:`a${Date.now()}`, type:'status_change', text:actText, date:new Date().toLocaleString(), user:'You' }, ...prev]);
+    } catch { setCand(c => ({ ...c, status: prev })); }
   };
 
-  const logAct = (type, text) => {
-    const act = { id:`a${Date.now()}`, type, text, date:new Date().toLocaleString(), user:'You' };
-    setCand(c => ({ ...c, activities:[act,...c.activities] }));
+  const logAct = async (type, text) => {
+    if (!text.trim()) return;
+    try {
+      await activitiesAPI.create({ candidate_id: id, activity_type: type, description: text });
+      setActivities(prev => [{ id:`a${Date.now()}`, type, text, date:new Date().toLocaleString(), user:'You' }, ...prev]);
+    } catch {}
   };
 
-  const addInterview = (iv) => {
-    setCand(c => ({ ...c, interviews:[...c.interviews, iv] }));
-    logAct('interview', `${iv.type} scheduled for ${iv.date}`);
+  const addInterview = async (iv) => {
+    try {
+      const res = await interviewsAPI.create({
+        candidate_id: id,
+        job_id: cand.job_id || null,
+        interview_type: iv.type,
+        scheduled_at: `${iv.date}T${iv.time||'10:00'}:00`,
+        interviewers: iv.interviewer ? [iv.interviewer] : [],
+        notes: iv.notes || null,
+      });
+      const saved = res.data;
+      setInterviews(prev => [...prev, { id:saved.id, type:saved.interview_type, date:iv.date, time:iv.time||'10:00', interviewer:iv.interviewer, rating:null, feedback:'', completed:false }]);
+      logAct('interview', `${iv.type} scheduled for ${iv.date}`);
+    } catch (err) { alert(err?.response?.data?.detail || 'Failed to schedule interview'); }
   };
 
-  const addNote = () => { if(!note.trim()) return; logAct('note', note.trim()); setNote(''); };
+  const addNote = () => { if(note.trim()) { logAct('note', note.trim()); setNote(''); } };
 
   const set = (k,v) => setEditForm(f => ({ ...f, [k]: v }));
-  const saveEdit = () => { setCand(c => ({ ...c, ...editForm })); setEditing(false); };
+  const saveEdit = async () => {
+    try {
+      await candidatesAPI.update(id, editForm);
+      setCand(c => ({ ...c, ...editForm }));
+      setEditing(false);
+    } catch {}
+  };
+
+  if (loading) return (
+    <div style={{ textAlign:'center', padding:'4rem', color:'var(--on-surface-variant)' }}>
+      <Icon name="progress_activity" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.75rem' }} />
+      Loading candidate…
+    </div>
+  );
+
+  if (!candidate) return null;
+
+  const sm = STAGE_META[candidate.status] || STAGE_META.sourced;
+  const initials = cand.full_name?.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase() || '??';
+  const stageIdx = STAGES_ORDER.indexOf(candidate.status);
+  // Merge into shape the UI expects
+  const cand = { ...candidate, name: cand.full_name, candidate_role: cand.candidate_role||'',
+    job: cand.job?.title||'', dept: cand.job?.department||'', exp: cand.experience_years||0,
+    linkedin: cand.linkedin_url||'', portfolio: cand.portfolio_url||'',
+    activities, interviews, skills: candidate.skills||[], applied: candidate.created_at?.slice(0,10)||'' };
 
   const TABS = [
     { key:'activity',   label:'Activity',   icon:'history' },
@@ -170,7 +208,7 @@ export default function CandidateDetail() {
           <Icon name="arrow_back" style={{ fontSize:'1rem' }} /> Candidates
         </button>
         <Icon name="chevron_right" style={{ fontSize:'1rem', color:'var(--on-surface-variant)' }} />
-        <span style={{ fontSize:'0.875rem', fontWeight:600 }}>{candidate.name}</span>
+        <span style={{ fontSize:'0.875rem', fontWeight:600 }}>{cand.full_name}</span>
       </div>
 
       <div style={{ display:'grid', gridTemplateColumns:'5fr 7fr', gap:'1.25rem', alignItems:'start' }}>
@@ -181,9 +219,9 @@ export default function CandidateDetail() {
           {/* Profile hero */}
           <div className="card" style={{ textAlign:'center', padding:'2rem 1.5rem' }}>
             <div className="avatar" style={{ width:68, height:68, fontSize:'1.5rem', fontWeight:700, background:'linear-gradient(135deg,var(--tertiary),#009966)', color:'#fff', margin:'0 auto 1rem' }}>{initials}</div>
-            <h2 style={{ fontSize:'1.25rem', fontWeight:700, marginBottom:'0.25rem' }}>{candidate.name}</h2>
+            <h2 style={{ fontSize:'1.25rem', fontWeight:700, marginBottom:'0.25rem' }}>{cand.full_name}</h2>
             <p style={{ color:'var(--on-surface-variant)', fontSize:'0.875rem', marginBottom:'0.75rem' }}>
-              {candidate.candidate_role}{candidate.candidate_role && candidate.job ? ' · ' : ''}{candidate.job}
+              {cand.candidate_role}{cand.candidate_role && cand.job ? ' · ' : ''}{cand.job}
             </p>
             <span style={{ display:'inline-flex', alignItems:'center', padding:'0.25rem 0.75rem', borderRadius:9999, fontSize:'0.75rem', fontWeight:700, background:sm.bg, color:sm.color }}>{sm.label}</span>
 
@@ -257,14 +295,14 @@ export default function CandidateDetail() {
               </button>
             </div>
             {[
-              { icon:'mail',           label:'Email',       val: candidate.email   || '—' },
-              { icon:'phone',          label:'Phone',       val: candidate.phone   || '—' },
-              { icon:'work',           label:'Applying For',val: candidate.job     || '—' },
-              { icon:'corporate_fare', label:'Department',  val: candidate.dept    || '—' },
-              { icon:'schedule',       label:'Experience',  val: candidate.exp ? `${candidate.exp} years` : '—' },
-              { icon:'hub',            label:'Source',      val: candidate.source  || '—' },
-              { icon:'calendar_today', label:'Applied',     val: candidate.applied || '—' },
-              { icon:'link',           label:'LinkedIn',    val: candidate.linkedin|| '—' },
+              { icon:'mail',           label:'Email',       val: cand.email   || '—' },
+              { icon:'phone',          label:'Phone',       val: cand.phone   || '—' },
+              { icon:'work',           label:'Applying For',val: cand.job     || '—' },
+              { icon:'corporate_fare', label:'Department',  val: cand.dept    || '—' },
+              { icon:'schedule',       label:'Experience',  val: cand.exp ? `${cand.exp} years` : '—' },
+              { icon:'hub',            label:'Source',      val: cand.source  || '—' },
+              { icon:'calendar_today', label:'Applied',     val: cand.applied || '—' },
+              { icon:'link',           label:'LinkedIn',    val: cand.linkedin|| '—' },
             ].map(f => (
               <div key={f.label} style={{ display:'flex', gap:'0.75rem', alignItems:'flex-start', marginBottom:'0.75rem' }}>
                 <Icon name={f.icon} style={{ fontSize:'1rem', color:'var(--on-surface-variant)', marginTop:'0.125rem', flexShrink:0 }} />
@@ -276,11 +314,11 @@ export default function CandidateDetail() {
             ))}
 
             {/* Skills */}
-            {candidate.skills?.length > 0 && (
+            {cand.skills?.length > 0 && (
               <div style={{ marginTop:'0.25rem' }}>
                 <p className="label-sm" style={{ marginBottom:'0.5rem' }}>Skills</p>
                 <div style={{ display:'flex', gap:'0.375rem', flexWrap:'wrap' }}>
-                  {candidate.skills.map(s => (
+                  {cand.skills.map(s => (
                     <span key={s} style={{ fontSize:'0.8125rem', fontWeight:600, padding:'0.25rem 0.625rem', borderRadius:9999, background:'rgba(0,98,67,0.08)', color:'var(--tertiary)', border:'1px solid rgba(0,98,67,0.15)' }}>{s}</span>
                   ))}
                 </div>
@@ -305,7 +343,7 @@ export default function CandidateDetail() {
               }}>
                 <Icon name={t.icon} style={{ fontSize:'1rem', color:'inherit' }} />
                 {t.label}
-                {t.key==='interviews' && <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.1rem 0.375rem', borderRadius:9999, background:'rgba(0,98,67,0.12)', color:'var(--tertiary)' }}>{candidate.interviews.length}</span>}
+                {t.key==='interviews' && <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.1rem 0.375rem', borderRadius:9999, background:'rgba(0,98,67,0.12)', color:'var(--tertiary)' }}>{cand.interviews.length}</span>}
               </button>
             ))}
           </div>
@@ -321,8 +359,8 @@ export default function CandidateDetail() {
               </div>
               <div style={{ position:'relative', paddingLeft:'1.5rem' }}>
                 <div style={{ position:'absolute', left:'0.625rem', top:0, bottom:0, width:2, background:'var(--surface-container)', borderRadius:2 }} />
-                {candidate.activities.map((act, i) => (
-                  <div key={act.id} style={{ display:'flex', gap:'0.875rem', marginBottom: i<candidate.activities.length-1 ? '1.25rem' : 0, position:'relative' }}>
+                {cand.activities.map((act, i) => (
+                  <div key={act.id} style={{ display:'flex', gap:'0.875rem', marginBottom: i<cand.activities.length-1 ? '1.25rem' : 0, position:'relative' }}>
                     <div style={{
                       position:'absolute', left:'-1.1875rem', top:'0.25rem',
                       width:14, height:14, borderRadius:'50%',
@@ -352,15 +390,15 @@ export default function CandidateDetail() {
                 </button>
               </div>
 
-              {candidate.interviews.length === 0 && (
+              {cand.interviews.length === 0 && (
                 <div style={{ textAlign:'center', padding:'2rem', color:'var(--on-surface-variant)' }}>
                   <Icon name="video_call" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.5rem', opacity:0.25 }} />
                   No interviews scheduled yet.
                 </div>
               )}
 
-              {candidate.interviews.map((iv, i) => (
-                <div key={iv.id} style={{ padding:'1rem', background: iv.completed ? 'var(--surface-container-low)' : 'rgba(0,74,198,0.04)', borderRadius:'0.75rem', border:`1px solid ${iv.completed ? 'rgba(195,198,215,0.1)' : 'rgba(0,74,198,0.15)'}`, marginBottom: i < candidate.interviews.length-1 ? '0.875rem' : 0 }}>
+              {cand.interviews.map((iv, i) => (
+                <div key={iv.id} style={{ padding:'1rem', background: iv.completed ? 'var(--surface-container-low)' : 'rgba(0,74,198,0.04)', borderRadius:'0.75rem', border:`1px solid ${iv.completed ? 'rgba(195,198,215,0.1)' : 'rgba(0,74,198,0.15)'}`, marginBottom: i < cand.interviews.length-1 ? '0.875rem' : 0 }}>
                   <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:'0.625rem' }}>
                     <div style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
                       <div style={{ width:36, height:36, borderRadius:'0.5rem', background: iv.completed ? 'rgba(0,98,67,0.1)' : 'rgba(0,74,198,0.1)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
@@ -402,7 +440,7 @@ export default function CandidateDetail() {
             <div className="card slide-in">
               <h3 style={{ fontWeight:700, fontSize:'0.9375rem', marginBottom:'1rem' }}>Recruiter Notes</h3>
               <div style={{ background:'var(--surface-container-low)', borderRadius:'0.625rem', padding:'1rem', minHeight:80, marginBottom:'1rem' }}>
-                <p style={{ fontSize:'0.875rem', color: candidate.notes ? 'var(--on-surface)' : 'var(--on-surface-variant)', whiteSpace:'pre-wrap' }}>{candidate.notes || 'No notes yet.'}</p>
+                <p style={{ fontSize:'0.875rem', color: cand.notes ? 'var(--on-surface)' : 'var(--on-surface-variant)', whiteSpace:'pre-wrap' }}>{cand.notes || 'No notes yet.'}</p>
               </div>
               <div>
                 <label className="label">Add Note</label>
@@ -455,6 +493,8 @@ export default function CandidateDetail() {
       )}
 
       {showSchedule && <ScheduleModal onClose={() => setSchedule(false)} onAdd={addInterview} />}
+    </div>
+    </div>
     </div>
   );
 }

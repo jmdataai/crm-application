@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { leadsAPI, activitiesAPI } from '../../services/api';
 import { useParams, useNavigate } from 'react-router-dom';
 
 const Icon = ({ name, style = {} }) => (
@@ -20,35 +21,8 @@ const STATUS_MAP = {
 const ACTIVITY_ICON = { call:'phone', email:'mail', meeting:'video_call', note:'edit_note', status_change:'swap_horiz' };
 const ACTIVITY_COLOR = { call:'var(--primary)', email:'var(--tertiary)', meeting:'#7c3aed', note:'var(--amber)', status_change:'var(--secondary)' };
 
-/* ── Seed lead data (matches LeadsList seed IDs) ───── */
-const LEADS_DB = {
-  '1': {
-    id:'1', full_name:'Priya Sharma', email:'priya@infosys.com', phone:'+91 98765 43210',
-    company:'Infosys Ltd', job_title:'CTO', source:'Apollo', status:'interested',
-    next_follow_up:'2026-04-01', notes:'Strong interest in AI Suite. Mentioned Q2 budget approval. Needs enterprise pricing deck.',
-    created_at:'2026-03-25', assigned_owner:'Alex T.',
-    activities:[
-      { id:'a1', type:'status_change', text:'Status changed to Interested',         date:'2026-03-28 14:30', user:'Alex T.' },
-      { id:'a2', type:'call',          text:'30-min discovery call. Discussed AI automation roadmap.', date:'2026-03-27 11:00', user:'Alex T.' },
-      { id:'a3', type:'email',         text:'Sent enterprise product deck and pricing sheet.',          date:'2026-03-26 09:15', user:'Alex T.' },
-      { id:'a4', type:'note',          text:'Lead imported from Apollo campaign Q1-2026.',              date:'2026-03-25 08:00', user:'System' },
-    ],
-  },
-  '2': {
-    id:'2', full_name:'Rahul Mehta', email:'rahul@tcs.com', phone:'+91 99887 76655',
-    company:'TCS', job_title:'VP Sales', source:'CSV Import', status:'contacted',
-    next_follow_up:'2026-04-02', notes:'Sent initial deck. Waiting for response.',
-    created_at:'2026-03-24', assigned_owner:'Alex T.',
-    activities:[
-      { id:'a1', type:'email', text:'Sent cold outreach email with product overview.', date:'2026-03-24 10:00', user:'Alex T.' },
-    ],
-  },
-};
+// Lead data loaded from API
 
-const FALLBACK = (id) => ({
-  id, full_name:'Unknown Lead', email:'', phone:'', company:'', job_title:'', source:'Manual',
-  status:'new', next_follow_up:'', notes:'', created_at:'2026-03-31', assigned_owner:'You', activities:[],
-});
 
 /* ── Log Activity Modal ─────────────────────────────── */
 const LogActivityModal = ({ onClose, onLog }) => {
@@ -94,38 +68,83 @@ const LogActivityModal = ({ onClose, onLog }) => {
 export default function LeadDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [lead, setLead] = useState(() => LEADS_DB[id] || FALLBACK(id));
-  const [editing, setEditing] = useState(false);
-  const [editForm, setEditForm] = useState({ ...lead });
-  const [showLog, setShowLog] = useState(false);
-  const [note, setNote] = useState('');
+  const [lead, setLead]         = useState(null);
+  const [activities, setActs]   = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [editing, setEditing]   = useState(false);
+  const [editForm, setEditForm] = useState({});
+  const [showLog, setShowLog]   = useState(false);
+  const [note, setNote]         = useState('');
   const [activeTab, setActiveTab] = useState('activity');
+
+  const fetchLead = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [lRes, aRes] = await Promise.all([
+        leadsAPI.getOne(id),
+        activitiesAPI.getAll({ lead_id: id }),
+      ]);
+      const l = lRes.data;
+      setLead(l);
+      setEditForm({ ...l });
+      const acts = Array.isArray(aRes.data) ? aRes.data
+        : Array.isArray(aRes.data?.data) ? aRes.data.data : [];
+      setActs(acts.map(a => ({
+        id: a.id, type: a.activity_type, text: a.description,
+        date: a.created_at?.slice(0,16).replace('T',' '), user: a.user_name || 'You',
+      })));
+    } catch { navigate('/sales/leads'); }
+    finally { setLoading(false); }
+  }, [id, navigate]);
+
+  useEffect(() => { fetchLead(); }, [fetchLead]);
 
   const set = (k,v) => setEditForm(f => ({ ...f, [k]: v }));
 
-  const saveEdit = () => {
-    setLead(l => ({ ...l, ...editForm }));
-    setEditing(false);
+  const saveEdit = async () => {
+    try {
+      const res = await leadsAPI.update(id, editForm);
+      setLead(res.data);
+      setEditing(false);
+    } catch {}
   };
 
-  const logActivity = (type, text) => {
-    const act = { id:`a${Date.now()}`, type, text, date: new Date().toLocaleString(), user:'You' };
-    setLead(l => ({ ...l, activities: [act, ...l.activities] }));
+  const logActivity = async (type, text) => {
+    if (!text.trim()) return;
+    try {
+      await activitiesAPI.create({ lead_id: id, activity_type: type, description: text });
+      const act = { id:`a${Date.now()}`, type, text, date:new Date().toLocaleString(), user:'You' };
+      setActs(prev => [act, ...prev]);
+    } catch {}
   };
 
-  const addNote = () => {
-    if (!note.trim()) return;
-    logActivity('note', note.trim());
-    setNote('');
+  const addNote = () => { if (note.trim()) { logActivity('note', note); setNote(''); } };
+
+  const changeStatus = async (newStatus) => {
+    const prev = lead.status;
+    setLead(l => ({ ...l, status: newStatus }));
+    try {
+      await leadsAPI.update(id, { status: newStatus });
+      const actText = `Status changed to ${STATUS_MAP[newStatus]?.label || newStatus}`;
+      await activitiesAPI.create({ lead_id: id, activity_type: 'status_change', description: actText });
+      setActs(prev => [{ id:`a${Date.now()}`, type:'status_change', text:actText, date:new Date().toLocaleString(), user:'You' }, ...prev]);
+    } catch { setLead(l => ({ ...l, status: prev })); }
   };
 
-  const changeStatus = (newStatus) => {
-    const act = { id:`a${Date.now()}`, type:'status_change', text:`Status changed to ${STATUS_MAP[newStatus]?.label}`, date:new Date().toLocaleString(), user:'You' };
-    setLead(l => ({ ...l, status: newStatus, activities: [act, ...l.activities] }));
-  };
+  if (loading) return (
+    <div style={{ textAlign:'center', padding:'4rem', color:'var(--on-surface-variant)' }}>
+      <Icon name="progress_activity" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.75rem' }} />
+      Loading lead…
+    </div>
+  );
 
+  if (!lead) return null;
+
+  // Map activities to match what the UI expects (lead.activities was used before)
+  const lead_with_acts = { ...lead, activities: activities };
   const s = STATUS_MAP[lead.status] || { label: lead.status, cls: 'chip-new' };
-  const initials = lead.full_name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  const initials = lead.full_name?.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase() || '??';
+
 
   return (
     <div className="fade-in">
@@ -135,7 +154,7 @@ export default function LeadDetail() {
           <Icon name="arrow_back" style={{ fontSize:'1rem' }} /> Leads
         </button>
         <Icon name="chevron_right" style={{ fontSize:'1rem', color:'var(--on-surface-variant)' }} />
-        <span style={{ fontSize:'0.875rem', fontWeight:600, color:'var(--on-surface)' }}>{lead.full_name}</span>
+        <span style={{ fontSize:'0.875rem', fontWeight:600, color:'var(--on-surface)' }}>{lead?.full_name || 'Loading…'}</span>
       </div>
 
       <div style={{ display:'grid', gridTemplateColumns:'5fr 7fr', gap:'1.25rem', alignItems:'start' }}>
@@ -151,9 +170,9 @@ export default function LeadDetail() {
               color:'#fff', margin:'0 auto 1rem',
             }}>{initials}</div>
 
-            <h2 style={{ fontSize:'1.25rem', fontWeight:700, color:'var(--on-surface)', marginBottom:'0.25rem' }}>{lead.full_name}</h2>
+            <h2 style={{ fontSize:'1.25rem', fontWeight:700, color:'var(--on-surface)', marginBottom:'0.25rem' }}>{lead?.full_name || 'Loading…'}</h2>
             <p style={{ color:'var(--on-surface-variant)', fontSize:'0.875rem', marginBottom:'0.75rem' }}>
-              {lead.job_title}{lead.job_title && lead.company ? ' · ' : ''}{lead.company}
+              {lead?.job_title || ''}{lead?.job_title || '' && lead?.company || '' ? ' · ' : ''}{lead?.company || ''}
             </p>
             <span className={`chip ${s.cls}`} style={{ fontSize:'0.8125rem' }}>{s.label}</span>
 
@@ -182,14 +201,14 @@ export default function LeadDetail() {
             </div>
 
             {[
-              { icon:'mail',      label:'Email',       value: lead.email || '—' },
-              { icon:'phone',     label:'Phone',       value: lead.phone || '—' },
-              { icon:'business',  label:'Company',     value: lead.company || '—' },
-              { icon:'badge',     label:'Job Title',   value: lead.job_title || '—' },
-              { icon:'hub',       label:'Source',      value: lead.source || '—' },
-              { icon:'person',    label:'Owner',       value: lead.assigned_owner || '—' },
-              { icon:'schedule',  label:'Follow-up',   value: lead.next_follow_up || '—' },
-              { icon:'calendar_today', label:'Added',  value: lead.created_at || '—' },
+              { icon:'mail',      label:'Email',       value: lead?.email || '' || '—' },
+              { icon:'phone',     label:'Phone',       value: lead?.phone || '' || '—' },
+              { icon:'business',  label:'Company',     value: lead?.company || '' || '—' },
+              { icon:'badge',     label:'Job Title',   value: lead?.job_title || '' || '—' },
+              { icon:'hub',       label:'Source',      value: lead?.source || '' || '—' },
+              { icon:'person',    label:'Owner',       value: lead?.assigned_owner || '' || '—' },
+              { icon:'schedule',  label:'Follow-up',   value: lead?.next_follow_up || '' || '—' },
+              { icon:'calendar_today', label:'Added',  value: lead?.created_at?.slice(0,10) || '' || '—' },
             ].map(f => (
               <div key={f.label} style={{ display:'flex', gap:'0.75rem', alignItems:'flex-start', marginBottom:'0.75rem' }}>
                 <Icon name={f.icon} style={{ fontSize:'1rem', color:'var(--on-surface-variant)', marginTop:'0.125rem', flexShrink:0 }} />
@@ -264,11 +283,11 @@ export default function LeadDetail() {
               <div style={{ position:'relative', paddingLeft:'1.5rem' }}>
                 {/* Timeline line */}
                 <div style={{ position:'absolute', left:'0.625rem', top:0, bottom:0, width:2, background:'var(--surface-container)', borderRadius:2 }} />
-                {lead.activities.length === 0 && (
+                {lead_with_acts.activities.length === 0 && (
                   <p style={{ color:'var(--on-surface-variant)', textAlign:'center', padding:'2rem 0' }}>No activity yet.</p>
                 )}
-                {lead.activities.map((act, i) => (
-                  <div key={act.id} style={{ display:'flex', gap:'0.875rem', marginBottom: i < lead.activities.length-1 ? '1.25rem' : 0, position:'relative' }}>
+                {lead_with_acts.activities.map((act, i) => (
+                  <div key={act.id} style={{ display:'flex', gap:'0.875rem', marginBottom: i < lead_with_acts.activities.length-1 ? '1.25rem' : 0, position:'relative' }}>
                     {/* Dot */}
                     <div style={{
                       position:'absolute', left:'-1.1875rem', top:'0.25rem',
@@ -334,7 +353,7 @@ export default function LeadDetail() {
         <div className="modal-overlay scale-in" onClick={e => e.target === e.currentTarget && setEditing(false)}>
           <div className="modal modal-lg">
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.5rem' }}>
-              <h2 style={{ fontSize:'1.125rem', fontWeight:700 }}>Edit Lead — {lead.full_name}</h2>
+              <h2 style={{ fontSize:'1.125rem', fontWeight:700 }}>Edit Lead — {lead?.full_name || 'Loading…'}</h2>
               <button className="btn-icon" onClick={() => setEditing(false)}><Icon name="close" /></button>
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
@@ -382,6 +401,7 @@ export default function LeadDetail() {
       )}
 
       {showLog && <LogActivityModal onClose={() => setShowLog(false)} onLog={logActivity} />}
+    </div>
     </div>
   );
 }

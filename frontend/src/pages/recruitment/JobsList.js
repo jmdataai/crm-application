@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { jobsAPI } from '../../services/api';
 import { useNavigate } from 'react-router-dom';
 
 const Icon = ({ name, style = {} }) => (
@@ -8,16 +9,7 @@ const Icon = ({ name, style = {} }) => (
 const EMP_TYPES   = ['Full-time','Part-time','Contract','Internship'];
 const DEPARTMENTS = ['Engineering','AI Research','Product','Platform','Design','Operations','Sales'];
 
-const SEED_JOBS = [
-  { id:'j1',  title:'Senior ML Engineer',         dept:'Engineering',  location:'Hyderabad / Remote', type:'Full-time', apps:28, active:true,  urgent:true,  posted:'2026-03-20', desc:'Build and deploy ML models for AI products. Must have 5+ years experience with Python and TensorFlow/PyTorch.', skills:['Python','TensorFlow','MLOps','Docker'] },
-  { id:'j2',  title:'Lead Data Scientist',         dept:'AI Research',  location:'Hyderabad',          type:'Full-time', apps:19, active:true,  urgent:false, posted:'2026-03-18', desc:'Lead data science initiatives across product teams. Drive experimentation and model evaluation.', skills:['Python','Statistics','SQL','A/B Testing'] },
-  { id:'j3',  title:'Product Lead – AI',           dept:'Product',      location:'Bangalore / Remote', type:'Full-time', apps:14, active:true,  urgent:true,  posted:'2026-03-15', desc:'Own the AI product roadmap. Work closely with engineering and research to define features.', skills:['Product Strategy','Agile','AI/ML Concepts'] },
-  { id:'j4',  title:'DevOps Lead',                 dept:'Platform',     location:'Hyderabad',          type:'Full-time', apps:9,  active:true,  urgent:false, posted:'2026-03-12', desc:'Lead DevOps and platform infrastructure for scalable AI model deployments.', skills:['Kubernetes','AWS','Terraform','CI/CD'] },
-  { id:'j5',  title:'Research Scientist – NLP',    dept:'AI Research',  location:'Remote',             type:'Full-time', apps:22, active:true,  urgent:false, posted:'2026-03-10', desc:'Research and develop NLP systems. Publish results and work with product team to deploy models.', skills:['NLP','Python','Transformers','Research'] },
-  { id:'j6',  title:'Frontend Engineer – AI UX',   dept:'Engineering',  location:'Bangalore',          type:'Full-time', apps:11, active:true,  urgent:false, posted:'2026-03-08', desc:'Build exceptional user interfaces for AI-powered products. React, TypeScript, design systems.', skills:['React','TypeScript','CSS','Figma'] },
-  { id:'j7',  title:'AI Product Intern',            dept:'Product',      location:'Hyderabad',          type:'Internship',apps:34, active:true,  urgent:false, posted:'2026-03-05', desc:'6-month internship to support AI product development and competitive research.', skills:['Research','Excel','Communication'] },
-  { id:'j8',  title:'Senior Backend Engineer',      dept:'Engineering',  location:'Remote',             type:'Full-time', apps:7,  active:false, urgent:false, posted:'2026-02-20', desc:'Design and implement backend services for AI APIs and data pipelines.', skills:['Python','FastAPI','PostgreSQL','Redis'] },
-];
+// Jobs loaded from API
 
 /* ── Add Job Modal ──────────────────────────────────── */
 const AddJobModal = ({ onClose, onAdd }) => {
@@ -175,9 +167,23 @@ const JobPanel = ({ job, onClose, onToggle }) => (
 
 /* ── Main ───────────────────────────────────────────── */
 export default function JobsList() {
-  const [jobs, setJobs]       = useState(SEED_JOBS);
+  const [jobs, setJobs]       = useState([]);
+  const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState(null);
+
+  const fetchJobs = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await jobsAPI.getAll({ limit: 200 });
+      const data = Array.isArray(res.data) ? res.data
+        : Array.isArray(res.data?.data) ? res.data.data : [];
+      setJobs(data);
+    } catch { /* show empty */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchJobs(); }, [fetchJobs]);
   const [search, setSearch]   = useState('');
   const [deptFilter, setDept] = useState('all');
   const [typeFilter, setType] = useState('all');
@@ -391,5 +397,6 @@ export default function JobsList() {
 
       {showAdd && <AddJobModal onClose={() => setShowAdd(false)} onAdd={addJob} />}
     </div>
+  </div>
   );
 }

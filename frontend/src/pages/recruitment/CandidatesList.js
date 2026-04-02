@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { candidatesAPI } from '../../services/api';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
@@ -21,32 +22,33 @@ const Chip = ({ status }) => {
   return <span style={{ display:'inline-flex', alignItems:'center', padding:'0.2rem 0.625rem', borderRadius:9999, fontSize:'0.6875rem', fontWeight:700, background:s.bg, color:s.color, whiteSpace:'nowrap' }}>{s.label}</span>;
 };
 
-const SEED = [
-  { id:'c1',  name:'Arjun Mehta',     email:'arjun@gmail.com',    phone:'+91 98765 11111', candidate_role:'AI Engineer',        job:'Senior ML Engineer',   dept:'Engineering', exp:6,  source:'LinkedIn',  status:'interview_scheduled', applied:'2026-03-25', notes:'Strong profile, 2 YOE in LLMs' },
-  { id:'c2',  name:'Sneha Iyer',      email:'sneha@yahoo.in',     phone:'+91 97654 22222', candidate_role:'Data Scientist',      job:'Lead Data Scientist',  dept:'AI Research',  exp:5,  source:'Referral',  status:'shortlisted',         applied:'2026-03-24', notes:'Referred by Meera, great stats background' },
-  { id:'c3',  name:'Karan Bose',      email:'karan@outlook.com',  phone:'+91 96543 33333', candidate_role:'Product Manager',     job:'Product Lead – AI',    dept:'Product',      exp:7,  source:'AngelList',  status:'screened',            applied:'2026-03-23', notes:'' },
-  { id:'c4',  name:'Divya Rao',       email:'divya@gmail.com',    phone:'+91 95432 44444', candidate_role:'ML Research',         job:'Research Scientist',   dept:'AI Research',  exp:4,  source:'Resume',    status:'selected',            applied:'2026-03-20', notes:'Excellent culture fit' },
-  { id:'c5',  name:'Rohit Nair',      email:'rohit@company.io',   phone:'+91 94321 55555', candidate_role:'Backend Engineer',    job:'Senior Backend',       dept:'Engineering',  exp:3,  source:'LinkedIn',  status:'rejected',            applied:'2026-03-18', notes:'Did not clear technical round' },
-  { id:'c6',  name:'Prerna Shah',     email:'prerna@gmail.com',   phone:'+91 93210 66666', candidate_role:'Product Designer',    job:'Product Lead – AI',    dept:'Product',      exp:5,  source:'Portfolio', status:'interview_scheduled', applied:'2026-03-17', notes:'Final round tomorrow' },
-  { id:'c7',  name:'Amit Gupta',      email:'amit@tech.in',       phone:'+91 92109 77777', candidate_role:'DevOps',              job:'DevOps Lead',          dept:'Platform',     exp:8,  source:'AngelList', status:'interviewed',         applied:'2026-03-15', notes:'Needs salary discussion' },
-  { id:'c8',  name:'Ritu Verma',      email:'ritu@gmail.com',     phone:'+91 91098 88888', candidate_role:'NLP Engineer',        job:'Research Scientist',   dept:'AI Research',  exp:3,  source:'Campus',    status:'sourced',             applied:'2026-03-14', notes:'Fresh from IIT Hyderabad' },
-  { id:'c9',  name:'Deepak Reddy',    email:'deepak@inbox.in',    phone:'+91 90987 99999', candidate_role:'ML Engineer',         job:'Senior ML Engineer',   dept:'Engineering',  exp:4,  source:'LinkedIn',  status:'screened',            applied:'2026-03-12', notes:'' },
-  { id:'c10', name:'Megha Sharma',    email:'megha@gmail.com',    phone:'+91 89876 00000', candidate_role:'Frontend Engineer',   job:'Frontend Engineer',    dept:'Engineering',  exp:2,  source:'Resume',    status:'onboarded',           applied:'2026-03-05', notes:'Joined Mar 20 ✓' },
-  { id:'c11', name:'Varun Pillai',    email:'varun@email.com',    phone:'+91 88765 11111', candidate_role:'Data Analyst',        job:'Lead Data Scientist',  dept:'AI Research',  exp:2,  source:'Referral',  status:'shortlisted',         applied:'2026-03-22', notes:'' },
-  { id:'c12', name:'Isha Kapoor',     email:'isha@corp.io',       phone:'+91 87654 22222', candidate_role:'Cloud Engineer',      job:'DevOps Lead',          dept:'Platform',     exp:5,  source:'LinkedIn',  status:'interviewed',         applied:'2026-03-19', notes:'AWS certified' },
-];
+// Data loaded from API
 
 const SOURCES = ['LinkedIn','Referral','AngelList','Resume','Campus','Portfolio'];
 const STAGES  = Object.keys(STAGE_META);
 
 /* ── Add Candidate Modal ────────────────────────────── */
 const AddCandidateModal = ({ onClose, onAdd }) => {
-  const [form, setForm] = useState({ name:'', email:'', phone:'', candidate_candidate_role:'', job:'', exp:'', source:'LinkedIn', status:'sourced', notes:'' });
+  const [form, setForm] = useState({ full_name:'', email:'', phone:'', candidate_role:'', job:'', exp:'', source:'LinkedIn', status:'sourced', notes:'' });
   const set = (k,v) => setForm(f => ({ ...f, [k]: v }));
-  const submit = () => {
-    if (!form.name.trim()) return;
-    onAdd({ ...form, id:`c${Date.now()}`, exp:Number(form.exp)||0, applied:new Date().toISOString().slice(0,10), dept:'Engineering' });
-    onClose();
+  const submit = async () => {
+    if (!form.full_name.trim()) return;
+    try {
+      const res = await candidatesAPI.create({
+        full_name:        form.full_name,
+        email:            form.email || null,
+        phone:            form.phone || null,
+        candidate_role:   form.candidate_role || null,
+        experience_years: Number(form.exp) || 0,
+        source:           form.source,
+        status:           form.status,
+        notes:            form.notes || null,
+      });
+      onAdd(normalise(res.data));
+      onClose();
+    } catch (err) {
+      alert(err?.response?.data?.detail || 'Failed to add candidate');
+    }
   };
 
   return (
@@ -58,15 +60,15 @@ const AddCandidateModal = ({ onClose, onAdd }) => {
         </div>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
           {[
-            { label:'Full Name *', key:'name',  type:'text',  span:2 },
+            { label:'Full Name *', key:'full_name',  type:'text',  span:2 },
             { label:'Email',       key:'email', type:'email' },
             { label:'Phone',       key:'phone', type:'tel' },
-            { label:'Current Role',key:'candidate_role',  type:'text' },
+            { label:'Current Role',key:'candidate_role', type:'text' },
             { label:'Applying For',key:'job',   type:'text' },
           ].map(f => (
             <div key={f.key} style={{ gridColumn:f.span===2?'1/-1':undefined }}>
               <label className="label">{f.label}</label>
-              <input className="input" type={f.type} value={form[f.key]} onChange={e => set(f.key,e.target.value)} />
+              <input className="input" type={f.type} value={form[f.key] || ''} onChange={e => set(f.key,e.target.value)} />
             </div>
           ))}
           <div>
@@ -106,9 +108,33 @@ const AddCandidateModal = ({ onClose, onAdd }) => {
 };
 
 /* ── Main ───────────────────────────────────────────── */
+// Normalise API response to component shape
+const normalise = (c) => ({
+  id:             c.id,
+  name:           c.full_name,
+  email:          c.email,
+  phone:          c.phone,
+  candidate_role: c.candidate_role,
+  job:            c.job?.title || '',
+  dept:           c.job?.department || '',
+  exp:            c.experience_years || 0,
+  source:         c.source || 'Manual',
+  status:         c.status,
+  applied:        c.created_at?.slice(0,10),
+  notes:          c.notes,
+});
+
 export default function CandidatesList() {
   const navigate = useNavigate();
-  const [candidates, setCandidates] = useState(SEED);
+  const location = useLocation();
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const q = params.get('q');
+    if (q) setSearch(q);
+  }, [location.search]);
+  const [candidates, setCandidates] = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState('');
   const [search, setSearch]         = useState('');
   const [stageFilter, setStage]     = useState('all');
   const [sourceFilter, setSource]   = useState('all');
@@ -118,6 +144,23 @@ export default function CandidatesList() {
   const [sortDir, setSortDir]       = useState('desc');
   const [page, setPage]             = useState(1);
   const PER_PAGE = 9;
+
+  const fetchCandidates = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await candidatesAPI.getAll({ limit: 200 });
+      const data = Array.isArray(res.data) ? res.data
+        : Array.isArray(res.data?.data) ? res.data.data : [];
+      setCandidates(data.map(normalise));
+    } catch {
+      setError('Failed to load candidates. Please refresh.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchCandidates(); }, [fetchCandidates]);
 
   const filtered = useMemo(() => {
     let out = candidates.filter(c => {
@@ -156,6 +199,9 @@ export default function CandidatesList() {
 
   return (
     <div className="fade-in">
+      {loading && <div style={{ textAlign:'center', padding:'4rem', color:'var(--on-surface-variant)' }}><Icon name="progress_activity" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.75rem', animation:'spin 1s linear infinite' }} />Loading candidates…</div>}
+      {error && <div style={{ background:'var(--error-container)', color:'var(--error)', padding:'1rem', borderRadius:'0.5rem', marginBottom:'1rem' }}>{error}</div>}
+      {!loading && <>
       {/* Header */}
       <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem' }}>
         <div>
@@ -331,6 +377,7 @@ export default function CandidatesList() {
       </div>
 
       {showAdd && <AddCandidateModal onClose={() => setShowAdd(false)} onAdd={c => setCandidates(cs=>[c,...cs])} />}
+      </>}
     </div>
   );
 }

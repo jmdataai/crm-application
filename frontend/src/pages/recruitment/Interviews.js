@@ -1,24 +1,16 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { interviewsAPI } from '../../services/api';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
 );
 
-const today    = '2026-03-31';
-const tomorrow = '2026-04-01';
+const today = new Date().toISOString().slice(0,10);
+const tomorrow = new Date(Date.now()+86400000).toISOString().slice(0,10);
 
 const TYPE_COLOR = { 'Technical Round':'var(--primary)', 'HR Round':'var(--tertiary)', 'Final Round':'#7c3aed', 'Research Panel':'#d97706', 'Culture Fit':'var(--secondary)' };
 
-const SEED = [
-  { id:'iv1',  candidate:'Arjun Mehta',  job:'Senior ML Engineer',   type:'Technical Round 2', date:'2026-03-31', time:'10:00 AM', interviewer:'Karan D.',     completed:false, rating:null, feedback:'', dept:'Engineering' },
-  { id:'iv2',  candidate:'Sneha Iyer',   job:'Lead Data Scientist',  type:'HR Round',           date:'2026-03-31', time:'02:00 PM', interviewer:'Anita K.',     completed:false, rating:null, feedback:'', dept:'AI Research' },
-  { id:'iv3',  candidate:'Prerna Shah',  job:'Product Lead – AI',    type:'Final Round',        date:'2026-04-01', time:'11:00 AM', interviewer:'CEO + CTO',    completed:false, rating:null, feedback:'', dept:'Product' },
-  { id:'iv4',  candidate:'Amit Gupta',   job:'DevOps Lead',          type:'Technical Round',    date:'2026-04-02', time:'03:30 PM', interviewer:'Platform Team',completed:false, rating:null, feedback:'', dept:'Platform' },
-  { id:'iv5',  candidate:'Divya Rao',    job:'Research Scientist',   type:'Research Panel',     date:'2026-03-27', time:'10:00 AM', interviewer:'Research Team',completed:true,  rating:10,   feedback:'Outstanding. Best candidate we have seen this cycle.', dept:'AI Research' },
-  { id:'iv6',  candidate:'Divya Rao',    job:'Research Scientist',   type:'HR Round',           date:'2026-03-29', time:'02:00 PM', interviewer:'Anita K.',     completed:true,  rating:9,    feedback:'Very positive. Ready for offer.', dept:'AI Research' },
-  { id:'iv7',  candidate:'Arjun Mehta',  job:'Senior ML Engineer',   type:'Technical Round 1',  date:'2026-03-29', time:'11:00 AM', interviewer:'Priya R.',     completed:true,  rating:9,    feedback:'Excellent problem solving. Strong in Python and TF.', dept:'Engineering' },
-  { id:'iv8',  candidate:'Karan Bose',   job:'Product Lead – AI',    type:'Culture Fit',        date:'2026-04-03', time:'10:30 AM', interviewer:'Recruiter',    completed:false, rating:null, feedback:'', dept:'Product' },
-];
+// Interviews loaded from API
 
 /* ── Feedback Modal ─────────────────────────────────── */
 const FeedbackModal = ({ interview, onClose, onSave }) => {
@@ -137,7 +129,7 @@ const InterviewCard = ({ iv, onFeedback, onComplete }) => {
 
 /* ── Main ───────────────────────────────────────────── */
 export default function Interviews() {
-  const [interviews, setInterviews] = useState(SEED);
+  const [interviews, setInterviews] = useState([]);
   const [filter, setFilter]         = useState('upcoming');
   const [selectedIv, setSelectedIv] = useState(null);
 
@@ -185,6 +177,8 @@ export default function Interviews() {
 
   return (
     <div className="fade-in">
+      {loading && <div style={{ textAlign:'center', padding:'4rem', color:'var(--on-surface-variant)' }}><Icon name="progress_activity" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.75rem' }} />Loading interviews…</div>}
+      {!loading && <>
       {/* Header */}
       <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem' }}>
         <div>

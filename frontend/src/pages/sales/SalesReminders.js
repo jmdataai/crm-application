@@ -1,23 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { remindersAPI } from '../../services/api';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
 );
 
-const today = '2026-03-31';
+const today = new Date().toISOString().slice(0,10);
 
-const SEED = [
-  { id:'r1',  title:'Follow-up: Priya Sharma interested in AI Suite', lead:'Priya Sharma',  company:'Infosys Ltd',   due:'2026-03-31', time:'10:00', emailAlert:true,  dismissed:false, repeat:'none',  note:'She mentioned budget approval by Apr 1' },
-  { id:'r2',  title:'Send enterprise pricing to Rahul Mehta',         lead:'Rahul Mehta',   company:'TCS',           due:'2026-03-31', time:'12:00', emailAlert:true,  dismissed:false, repeat:'none',  note:'' },
-  { id:'r3',  title:'Check in — Anika Patel callback due',            lead:'Anika Patel',   company:'Wipro',         due:'2026-03-31', time:'15:30', emailAlert:false, dismissed:false, repeat:'none',  note:'She prefers afternoon calls' },
-  { id:'r4',  title:'Weekly pipeline review',                          lead:'',              company:'',              due:'2026-03-31', time:'09:00', emailAlert:true,  dismissed:true,  repeat:'weekly', note:'Every Monday 9am' },
-  { id:'r5',  title:'Follow-up: Deepa Nair — OVERDUE',                lead:'Deepa Nair',    company:'Mindtree',      due:'2026-03-28', time:'09:00', emailAlert:true,  dismissed:false, repeat:'none',  note:'Urgent — was interested last contact' },
-  { id:'r6',  title:'Discovery call reminder — Meera Joshi',          lead:'Meera Joshi',   company:'Accenture',     due:'2026-04-01', time:'11:00', emailAlert:true,  dismissed:false, repeat:'none',  note:'' },
-  { id:'r7',  title:'Proposal deadline — Rajesh Gupta',               lead:'Rajesh Gupta',  company:'Capgemini',     due:'2026-04-01', time:'17:00', emailAlert:true,  dismissed:false, repeat:'none',  note:'Needs proposal by EOD' },
-  { id:'r8',  title:'Monthly team sync',                               lead:'',              company:'',              due:'2026-04-02', time:'10:00', emailAlert:false, dismissed:false, repeat:'monthly', note:'' },
-  { id:'r9',  title:'Reconnect: Vikram Singh — 2-week check',         lead:'Vikram Singh',  company:'HCL Tech',      due:'2026-04-03', time:'14:00', emailAlert:true,  dismissed:false, repeat:'none',  note:'' },
-  { id:'r10', title:'Q2 outreach campaign kickoff',                    lead:'',              company:'',              due:'2026-04-05', time:'09:00', emailAlert:true,  dismissed:false, repeat:'none',  note:'Kick off new Apollo sequence' },
-];
+// Reminders loaded from API
 
 const REPEAT_LABEL = { none:'One-time', daily:'Daily', weekly:'Weekly', monthly:'Monthly' };
 
@@ -28,7 +18,21 @@ const AddReminderModal = ({ onClose, onAdd }) => {
     emailAlert:true, repeat:'none', note:'',
   });
   const set = (k,v) => setForm(f => ({ ...f, [k]: v }));
-  const submit = () => { if(!form.title.trim()) return; onAdd({ ...form, id:`r${Date.now()}`, dismissed:false }); onClose(); };
+  const submit = async () => {
+    if (!form.title.trim()) return;
+    try {
+      const res = await remindersAPI.create({
+        title: form.title, note: form.note || null,
+        due_date: form.due, due_time: form.time || null,
+        repeat_type: form.repeat, email_alert: form.emailAlert,
+      });
+      const r = res.data;
+      onAdd({ id:r.id, title:r.title, lead:'', company:'', due:r.due_date,
+        time:r.due_time?.slice(0,5)||'', emailAlert:r.email_alert,
+        dismissed:false, repeat:r.repeat_type||'none', note:r.note||'' });
+      onClose();
+    } catch (err) { alert(err?.response?.data?.detail || 'Failed to add reminder'); }
+  };
 
   return (
     <div className="modal-overlay scale-in" onClick={e => e.target===e.currentTarget && onClose()}>
@@ -181,7 +185,7 @@ const ReminderCard = ({ reminder, onDismiss, onDelete, onToggleEmail }) => {
 
 /* ── Main ───────────────────────────────────────────── */
 export default function SalesReminders() {
-  const [reminders, setReminders] = useState(SEED);
+  const [reminders, setReminders] = useState([]);
   const [showAdd, setShowAdd]     = useState(false);
   const [filter, setFilter]       = useState('active'); // active | today | overdue | dismissed | all
   const [emailAllEnabled, setEmailAllEnabled] = useState(true);
@@ -224,6 +228,8 @@ export default function SalesReminders() {
 
   return (
     <div className="fade-in">
+      {loading && <div style={{ textAlign:'center', padding:'4rem', color:'var(--on-surface-variant)' }}><Icon name="progress_activity" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.75rem' }} />Loading reminders…</div>}
+      {!loading && <>
       {/* Header */}
       <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem' }}>
         <div>
