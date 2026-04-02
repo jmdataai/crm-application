@@ -291,7 +291,7 @@ export default function Interviews() {
       </div>
 
       {selectedIv && <FeedbackModal interview={selectedIv} onClose={() => setSelectedIv(null)} onSave={saveFeedback} />}
+      </>}
     </div>
-    </>
   );
 }

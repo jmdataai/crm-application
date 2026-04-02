@@ -370,7 +370,7 @@ export default function SalesReminders() {
       </div>
 
       {showAdd && <AddReminderModal onClose={() => setShowAdd(false)} onAdd={add} />}
+      </>}
     </div>
-    </>
   );
 }

@@ -295,7 +295,7 @@ export default function SalesTasks() {
       </div>
 
       {showAdd && <AddTaskModal onClose={() => setShowAdd(false)} onAdd={addTask} />}
+      </>}
     </div>
-    </>
   );
 }
