@@ -225,7 +225,6 @@ export default function SalesDashboard() {
           </div>
         </>
       )}
-      </div>
     </div>
   );
 }
