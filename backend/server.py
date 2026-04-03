@@ -1151,7 +1151,7 @@ async def send_reminder_email(reminder_id: str, request: Request):
 # ============================================================
 async def send_daily_digest():
     """Runs at 8 AM daily. Sends each user a digest of today's tasks + reminders."""
-    today = datetime.date.today().isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
     logger.info(f"[digest] Running daily digest for {today}")
 
     try:
