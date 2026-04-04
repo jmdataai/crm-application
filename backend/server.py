@@ -1528,8 +1528,8 @@ async def delete_submission(submission_id: str, request: Request):
 @api_router.get("/dashboard/ceo")
 async def ceo_dashboard(request: Request):
     user = await get_current_user(request)
-    if user.get("role") != "admin":
-        raise HTTPException(403, "CEO dashboard is admin-only")
+    if user.get("role") not in ("admin", "viewer"):
+        raise HTTPException(403, "CEO dashboard is restricted to admin and CEO accounts")
 
     today     = datetime.now(timezone.utc).date().isoformat()
     week_ago  = (datetime.now(timezone.utc).date() - timedelta(days=7)).isoformat()
@@ -1618,8 +1618,8 @@ async def get_audit_logs(
     skip:        int = 0,
 ):
     caller = await get_current_user(request)
-    if caller.get("role") != "admin":
-        raise HTTPException(403, "Audit log is admin-only")
+    if caller.get("role") not in ("admin", "viewer"):
+        raise HTTPException(403, "Audit log is restricted to admin and CEO accounts")
 
     q = sb("audit_logs").select("*", count="exact").order("created_at", desc=True).range(skip, skip + limit - 1)
     if action:      q = q.eq("action", action)
@@ -1641,13 +1641,29 @@ async def health():
 # ============================================================
 # STARTUP — seed admin user
 # ============================================================
+
+# ============================================================
+# AUDIT LOG CLEANUP — keeps last 90 days, runs daily at 3 AM
+# ============================================================
+async def cleanup_audit_logs():
+    """Delete audit_logs older than 90 days to keep the DB lean."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+    try:
+        res = await run(lambda: sb("audit_logs").delete().lt("created_at", cutoff).execute())
+        deleted = len(res.data) if res.data else 0
+        logger.info(f"[audit-cleanup] Deleted {deleted} log entries older than 90 days (cutoff: {cutoff[:10]})")
+    except Exception as e:
+        logger.error(f"[audit-cleanup] Failed: {e}")
+
 @app.on_event("startup")
 async def startup():
     # Start daily digest scheduler
     digest_time = os.environ.get("DIGEST_TIME", "08:00")
     hour, minute = digest_time.split(":")
     scheduler.add_job(send_daily_digest, CronTrigger(hour=int(hour), minute=int(minute)), id="daily_digest", replace_existing=True)
+    scheduler.add_job(cleanup_audit_logs, CronTrigger(hour=3, minute=0), id="audit_cleanup", replace_existing=True)
     scheduler.start()
+    logger.info("[scheduler] Audit log cleanup scheduled at 03:00 daily (keeps 90 days)")
     logger.info(f"[scheduler] Daily digest scheduled at {digest_time}")
 
     admin_email    = os.environ.get("ADMIN_EMAIL", "admin@nexuscrm.com")

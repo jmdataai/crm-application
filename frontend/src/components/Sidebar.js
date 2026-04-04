@@ -10,8 +10,8 @@ const Icon = ({ name }) => (
 const salesNav = [
   { path: '/sales',           icon: 'dashboard',    label: 'Dashboard',    exact: true },
   { path: '/sales/leads',     icon: 'group',         label: 'Leads' },
-  { path: '/sales/import',    icon: 'upload_file',   label: 'Import Leads', requiresPerm: 'canImport' },
-  { path: '/sales/enrich',    icon: 'auto_fix_high', label: 'Enrich Leads', requiresPerm: 'canImport' },
+  { path: '/sales/import',    icon: 'upload_file',   label: 'Import Leads', requiresPerm: 'canViewImport' },
+  { path: '/sales/enrich',    icon: 'auto_fix_high', label: 'Enrich Leads', requiresPerm: 'canViewImport' },
   { path: '/sales/tasks',     icon: 'task_alt',      label: 'Tasks' },
   { path: '/sales/reminders', icon: 'notifications', label: 'Reminders' },
 ];
@@ -162,8 +162,8 @@ const Sidebar = () => {
       {/* Divider */}
       <div className="divider" />
 
-      {/* CEO Dashboard + Audit — admin only */}
-      {user?.role === 'admin' && (
+      {/* CEO Dashboard + Audit — admin and viewer (CEO) only, hidden from sales */}
+      {can('viewCEO') && (
         <>
           <NavLink to="/ceo" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <Icon name="analytics" />

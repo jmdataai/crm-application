@@ -12,31 +12,37 @@ export const useAuth = () => {
 // Each role lists what it CAN do. Anything not listed = blocked.
 export const PERMISSIONS = {
   admin: {
-    modules:      ['sales', 'recruitment'],
-    canImport:    true,
-    canDelete:    true,
-    canEdit:      true,
+    modules:        ['sales', 'recruitment'],
+    canImport:      true,
+    canViewImport:  true,
+    canDelete:      true,
+    canEdit:        true,
     canManageUsers: true,
-    viewSettings: true,
-    readOnly:     false,
+    viewSettings:   true,
+    viewCEO:        true,
+    readOnly:       false,
   },
   sales: {
-    modules:      ['sales', 'recruitment'], // sales + recruitment access
-    canImport:    true,
-    canDelete:    true,
-    canEdit:      true,
+    modules:        ['sales', 'recruitment'],
+    canImport:      true,
+    canViewImport:  true,
+    canDelete:      true,
+    canEdit:        true,
     canManageUsers: false,
-    viewSettings: false,
-    readOnly:     false,
+    viewSettings:   false,
+    viewCEO:        false,   // sales cannot see CEO dashboard or audit log
+    readOnly:       false,
   },
   viewer: {
-    modules:      ['sales', 'recruitment'], // sees everything
-    canImport:    false,
-    canDelete:    false,
-    canEdit:      false,
+    modules:        ['sales', 'recruitment'],
+    canImport:      false,   // cannot actually import — but page is visible (readOnly hides button)
+    canViewImport:  true,    // page shows in sidebar for CEO
+    canDelete:      false,
+    canEdit:        false,
     canManageUsers: false,
-    viewSettings: true,
-    readOnly:     true,             // no add/edit/delete buttons shown
+    viewSettings:   true,
+    viewCEO:        true,    // CEO dashboard + audit log visible
+    readOnly:       true,    // all add/edit/delete buttons hidden
   },
 };
 

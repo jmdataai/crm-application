@@ -37,12 +37,12 @@ export default function AuditLog() {
 
   useEffect(() => { fetchLogs(); }, [fetchLogs]);
 
-  if (user?.role !== 'admin') {
+  if (user?.role !== 'admin' && user?.role !== 'viewer') {
     return (
       <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'4rem', textAlign:'center' }}>
         <Icon name="lock" style={{ fontSize:'3rem', color:'var(--error)', display:'block', marginBottom:'1rem' }} />
         <h2 style={{ fontSize:'1.25rem', fontWeight:700, marginBottom:'0.5rem' }}>Access Restricted</h2>
-        <p style={{ color:'var(--on-surface-variant)' }}>The Audit Log is only visible to the admin account.</p>
+        <p style={{ color:'var(--on-surface-variant)' }}>The Audit Log is only visible to admin and CEO accounts.</p>
       </div>
     );
   }
