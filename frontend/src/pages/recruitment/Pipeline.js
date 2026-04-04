@@ -33,6 +33,7 @@ export default function Pipeline() {
     try {
       const res = await candidatesAPI.getAll({ limit: 500 });
       const data = Array.isArray(res.data) ? res.data
+        : Array.isArray(res.data?.candidates) ? res.data.candidates
         : Array.isArray(res.data?.data) ? res.data.data : [];
       setCards(data.map(c => ({
         id:     c.id,

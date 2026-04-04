@@ -184,7 +184,8 @@ export default function LeadsList() {
     try {
       const res = await leadsAPI.getAll({ limit:500 });
       const data = Array.isArray(res.data) ? res.data
-        : Array.isArray(res.data?.data) ? res.data.data : [];
+        : Array.isArray(res.data?.leads) ? res.data.leads
+        : Array.isArray(res.data?.data)  ? res.data.data : [];
       setLeads(data);
     } catch { /* show empty state */ }
     finally { setLoading(false); }
