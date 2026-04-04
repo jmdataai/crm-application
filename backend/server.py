@@ -18,7 +18,7 @@ import io
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from enum import Enum
 
 # ── Logging ──────────────────────────────────────────────────
@@ -102,16 +102,35 @@ class UserLogin(BaseModel):
 
 class LeadCreate(BaseModel):
     full_name:      str
-    email:          Optional[EmailStr] = None
+    email:          Optional[str]      = None
     phone:          Optional[str]      = None
     company:        Optional[str]      = None
     job_title:      Optional[str]      = None
     source:         Optional[str]      = None
-    status:         LeadStatus         = LeadStatus.NEW
+    status:         Optional[str]      = "new"   # coerced — invalid values default to "new"
     notes:          Optional[str]      = None
     next_follow_up: Optional[str]      = None   # ISO date string YYYY-MM-DD
     deal_value:     Optional[float]    = None   # expected contract value
     linkedin_url:   Optional[str]      = None
+
+    @field_validator('status', mode='before')
+    @classmethod
+    def coerce_status(cls, v):
+        valid = {"new","contacted","called","interested","closed","completed","rejected","lost","follow_up_needed"}
+        if not v or str(v).strip() not in valid:
+            return "new"
+        return str(v).strip()
+
+    @field_validator('email', mode='before')
+    @classmethod
+    def clean_email(cls, v):
+        if not v or not str(v).strip():
+            return None
+        val = str(v).strip()
+        # basic email check — reject obviously invalid values
+        if '@' not in val or '.' not in val.split('@')[-1]:
+            return None
+        return val
 
 class LeadUpdate(BaseModel):
     full_name:        Optional[str]       = None
@@ -488,22 +507,43 @@ async def delete_user(user_id: str, request: Request):
 @api_router.post("/leads")
 async def create_lead(lead: LeadCreate, request: Request):
     user = await get_current_user(request)
-    doc = {
-        "full_name":        lead.full_name,
-        "email":            lead.email,
-        "phone":            lead.phone,
-        "company":          lead.company,
-        "job_title":        lead.job_title,
-        "source":           lead.source,
-        "status":           lead.status.value,
-        "notes":            lead.notes,
-        "next_follow_up":   lead.next_follow_up,
-        "assigned_owner_id":user["id"],
-        "created_by":       user["id"],
-        "deal_value":       lead.deal_value,
-        "linkedin_url":     lead.linkedin_url,
+    doc_full = {
+        "full_name":         lead.full_name,
+        "email":             lead.email,
+        "phone":             lead.phone,
+        "company":           lead.company,
+        "job_title":         lead.job_title,
+        "source":            lead.source,
+        "status":            lead.status or "new",
+        "notes":             lead.notes,
+        "next_follow_up":    lead.next_follow_up,
+        "assigned_owner_id": user["id"],
+        "created_by":        user["id"],
+        "deal_value":        lead.deal_value,
+        "linkedin_url":      lead.linkedin_url,
     }
-    res = await run(lambda: sb("leads").insert(doc).execute())
+    # Strip None values — avoids inserting NULL for columns that may not exist yet
+    doc = {k: v for k, v in doc_full.items() if v is not None}
+
+    try:
+        res = await run(lambda: sb("leads").insert(doc).execute())
+    except Exception as e:
+        err_str = str(e)
+        # PGRST204 = column not found in schema cache (migration not yet applied)
+        # Retry after removing the offending column so other fields still save
+        if "PGRST204" in err_str:
+            import re as _re
+            col_match = _re.search(r"Could not find the '(\w+)' column", err_str)
+            if col_match:
+                bad_col = col_match.group(1)
+                logger.warning(f"[create_lead] Column '{bad_col}' missing in DB — skipping it. Run add_features_v2.sql to add it.")
+                doc.pop(bad_col, None)
+                res = await run(lambda: sb("leads").insert(doc).execute())
+            else:
+                raise
+        else:
+            raise
+
     lead_id = res.data[0]["id"]
     await _log_activity(lead_id=lead_id, user=user, atype="note", desc=f"Lead created by {user['name']}")
     return res.data[0]

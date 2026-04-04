@@ -104,7 +104,7 @@ const SYNONYMS = {
     'follow_up_date','next_contact_date','next_followup',
   ],
   status: [
-    'status','lead status','stage','pipeline stage','deal stage','state',
+    'status','lead status','stage','pipeline stage','deal stage',
     'phase','current status','contact stage','lead_status','deal_stage',
     'crm status','crm stage',
   ],
@@ -445,6 +445,8 @@ export default function ImportLeads() {
       if (!fullName) { errors.push({ row: row._rowNum, issues: ['No name found'] }); continue; }
 
       try {
+        const rawStatus = get('status');
+        const safeStatus = VALID_STATUSES.includes(rawStatus) ? rawStatus : 'new';
         await leadsAPI.create({
           full_name:      fullName,
           email:          get('email')          || null,
@@ -452,14 +454,26 @@ export default function ImportLeads() {
           company:        get('company')         || null,
           job_title:      get('job_title')       || null,
           source:         get('source')          || 'CSV Import',
-          status:         get('status')          || 'new',
+          status:         safeStatus,
           notes:          get('notes')           || null,
           next_follow_up: get('next_follow_up')  || null,
           linkedin_url:   get('linkedin_url')    || null,
         });
         successCount++;
       } catch (e) {
-        errors.push({ row: row._rowNum, issues: [e?.response?.data?.detail || 'API error'] });
+        // FastAPI 422 detail is an array of objects — extract the message properly
+        const detail = e?.response?.data?.detail;
+        let errMsg = 'API error';
+        if (Array.isArray(detail)) {
+          errMsg = detail.map(d => d?.msg || JSON.stringify(d)).join('; ');
+        } else if (typeof detail === 'string') {
+          errMsg = detail;
+        } else if (detail) {
+          errMsg = JSON.stringify(detail);
+        } else if (e?.message) {
+          errMsg = e.message;
+        }
+        errors.push({ row: row._rowNum, issues: [errMsg] });
       }
     }
 
