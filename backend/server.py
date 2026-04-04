@@ -403,25 +403,25 @@ async def register(data: UserCreate, request: Request):
 
 
 @api_router.post("/auth/login")
-async def login(data: UserLogin, response: Response):
+async def login(data: UserLogin, response: Response, request: Request):
     user = await safe_single(lambda: sb("users").select("*").eq("email", data.email.lower()).single().execute())
     if not user:
         await _audit("login_failed", entity_name=data.email,
-                     ip=request.headers.get("x-forwarded-for","").split(",")[0].strip() or (request.client.host if request.client else ""),
-                     ua=request.headers.get("user-agent",""))
+                     ip=_get_ip(request),
+                     ua=request.headers.get("user-agent", ""))
         raise HTTPException(401, "Access not authorized. This email is not registered.")
     if not verify_password(data.password, user["password_hash"]):
         await _audit("login_failed", entity_name=user["email"],
-                     ip=request.headers.get("x-forwarded-for","").split(",")[0].strip() or (request.client.host if request.client else ""),
-                     ua=request.headers.get("user-agent",""))
+                     ip=_get_ip(request),
+                     ua=request.headers.get("user-agent", ""))
         raise HTTPException(401, "Incorrect password. Please try again.")
 
     access  = create_access_token(user["id"], user["email"])
     refresh = create_refresh_token(user["id"])
     _set_cookies(response, access, refresh)
     await _audit("login", user=user,
-                 ip=request.headers.get("x-forwarded-for","").split(",")[0].strip() or (request.client.host if request.client else ""),
-                 ua=request.headers.get("user-agent",""))
+                 ip=_get_ip(request),
+                 ua=request.headers.get("user-agent", ""))
     return {
         "id":    user["id"],
         "email": user["email"],
