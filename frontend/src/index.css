@@ -647,3 +647,174 @@ body {
 ::-webkit-scrollbar-track  { background: transparent; }
 ::-webkit-scrollbar-thumb  { background: var(--outline-variant); border-radius: 9999px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--outline); }
+
+/* =============================================
+   MOBILE RESPONSIVE — sidebar drawer pattern
+   ============================================= */
+
+/* Hamburger menu button — hidden on desktop */
+.topbar-hamburger {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--on-surface);
+  padding: 0.375rem;
+  border-radius: 0.5rem;
+  margin-right: 0.5rem;
+  flex-shrink: 0;
+}
+
+.topbar-hamburger:hover {
+  background: var(--surface-container);
+}
+
+/* Sidebar overlay backdrop — hidden on desktop */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+  background: rgba(19, 27, 46, 0.45);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* Close button inside sidebar — hidden on desktop */
+.sidebar-close-btn {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--on-surface-variant);
+  padding: 0.375rem;
+  border-radius: 0.5rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.sidebar-close-btn:hover {
+  background: var(--surface-container);
+  color: var(--on-surface);
+}
+
+/* Tablet: tighten topbar search */
+@media (max-width: 1024px) {
+  .topbar .search-bar {
+    max-width: 220px !important;
+  }
+}
+
+/* Mobile breakpoint: ≤ 768px */
+@media (max-width: 768px) {
+  /* ── Sidebar: off-canvas drawer ── */
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                box-shadow 0.28s ease;
+    z-index: 50;
+    box-shadow: none;
+    width: 280px;
+  }
+
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+    box-shadow: 4px 0 32px rgba(19, 27, 46, 0.22);
+  }
+
+  /* Show overlay when sidebar is open */
+  .sidebar-overlay.sidebar-overlay-open {
+    display: block;
+  }
+
+  /* Show close button in sidebar header on mobile */
+  .sidebar-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* ── Topbar: full width + hamburger ── */
+  .topbar {
+    left: 0 !important;
+    padding: 0 1rem !important;
+  }
+
+  .topbar-hamburger {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Hide search bar text on very small screens, keep icon */
+  .topbar .search-bar {
+    max-width: 160px !important;
+  }
+
+  /* ── Main content: no left margin ── */
+  .main-content {
+    margin-left: 0 !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+    padding-top: 80px !important;
+  }
+
+  /* ── Quick Add button: label hidden on mobile ── */
+  .topbar-quickadd-label {
+    display: none;
+  }
+
+  /* ── Cards: reduce padding ── */
+  .card {
+    padding: 1rem !important;
+  }
+
+  /* ── Tables: horizontal scroll ── */
+  .table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── KPI grids: 2 columns max ── */
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* ── Page headings ── */
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 0.75rem;
+  }
+}
+
+/* Extra small: ≤ 480px */
+@media (max-width: 480px) {
+  .main-content {
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+  }
+
+  .topbar .search-bar {
+    display: none !important;
+  }
+
+  .kpi-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Topbar title — show app name when search hidden */
+  .topbar-title {
+    display: block !important;
+  }
+}
+
+/* Show topbar-title only on very small (hidden otherwise) */
+.topbar-title {
+  display: none;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--on-surface);
+  flex: 1;
+}

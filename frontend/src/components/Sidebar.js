@@ -45,11 +45,20 @@ const RoleBadge = ({ role }) => {
 };
 
 // ── Sidebar ──────────────────────────────────────────────────
-const Sidebar = () => {
+const Sidebar = ({ isOpen, onClose }) => {
   const { user, logout, hasModule, can, isViewer } = useAuth();
   const location  = useLocation();
   const navigate  = useNavigate();
   const isRecruit = location.pathname.startsWith('/recruitment');
+
+  // Close sidebar on route change (mobile)
+  const prevPath = React.useRef(location.pathname);
+  React.useEffect(() => {
+    if (prevPath.current !== location.pathname) {
+      prevPath.current = location.pathname;
+      if (onClose) onClose();
+    }
+  }, [location.pathname, onClose]);
 
   // If sales user tries to access recruitment URL, redirect
   const canSeeRecruit = hasModule('recruitment');
@@ -66,9 +75,9 @@ const Sidebar = () => {
   const navItems = isRecruit ? filterNav(recruitNav) : filterNav(salesNav);
 
   return (
-    <aside className={`sidebar ${isRecruit ? 'sidebar-recruitment' : 'sidebar-sales'}`}>
+    <aside className={`sidebar ${isRecruit ? 'sidebar-recruitment' : 'sidebar-sales'}${isOpen ? ' sidebar-open' : ''}`}>
 
-      {/* Logo */}
+      {/* Logo + mobile close button */}
       <div style={{ padding: '0 0.5rem', marginBottom: '1.75rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
         <div style={{
           width: 40, height: 40, borderRadius: '0.75rem', flexShrink: 0,
@@ -77,12 +86,16 @@ const Sidebar = () => {
         }}>
           <Icon name="hub" />
         </div>
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--on-surface)' }}>Nexus CRM</p>
           <p style={{ fontSize: '0.6875rem', color: 'var(--on-surface-variant)', opacity: 0.6 }}>
             {isRecruit ? 'Recruitment' : 'Sales'} Portal
           </p>
         </div>
+        {/* Close button — only visible on mobile via CSS */}
+        <button className="sidebar-close-btn" onClick={onClose} title="Close menu">
+          <Icon name="close" />
+        </button>
       </div>
 
       {/* Module switcher — only show tabs the user has access to */}

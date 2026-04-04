@@ -7,27 +7,46 @@ const Icon = ({ name, style = {} }) => (
 
 // Enrichment via /api/enrich/* — Apify key stored securely in HuggingFace env
 
-/* ── Robust CSV parser (handles quoted fields with commas) ── */
-function parseCSVLine(line) {
-  const result = []; let cur = '', inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (c === '"' && line[i+1] === '"') { cur += '"'; i++; continue; }
-    if (c === '"') { inQ = !inQ; continue; }
-    if (c === ',' && !inQ) { result.push(cur.trim()); cur = ''; continue; }
-    cur += c;
-  }
-  result.push(cur.trim());
-  return result;
-}
+/* ── Proper RFC 4180 CSV parser ──────────────────────────────
+   Handles: BOM, CRLF row separators, quoted commas,
+   AND embedded LF newlines inside quoted fields.        ── */
+function parseCSVRobust(text) {
+  const src = text.replace(/^\uFEFF/, '');
+  const records = [];
+  let field = '', row = [], inQ = false, i = 0;
 
-function parseCSV(text) {
-  const lines = text.replace(/^\uFEFF/, '').trim().split(/\r?\n/);
-  const headers = parseCSVLine(lines[0]);
-  const rows = lines.slice(1).filter(l => l.trim()).map(l => {
-    const vals = parseCSVLine(l);
+  while (i < src.length) {
+    const c = src[i];
+    if (inQ) {
+      if (c === '"') {
+        if (src[i + 1] === '"') { field += '"'; i += 2; continue; } // escaped ""
+        inQ = false; i++; continue;                                  // closing quote
+      }
+      field += c; i++; continue; // embedded newlines are part of field when in quotes
+    }
+    if (c === '"')  { inQ = true; i++; continue; }
+    if (c === ',')  { row.push(field.trim()); field = ''; i++; continue; }
+    if (c === '\r' && src[i + 1] === '\n') { // CRLF
+      row.push(field.trim()); field = '';
+      if (row.some(v => v !== '')) records.push(row);
+      row = []; i += 2; continue;
+    }
+    if (c === '\n') { // LF-only (Unix)
+      row.push(field.trim()); field = '';
+      if (row.some(v => v !== '')) records.push(row);
+      row = []; i++; continue;
+    }
+    field += c; i++;
+  }
+  if (field || row.length > 0) {
+    row.push(field.trim());
+    if (row.some(v => v !== '')) records.push(row);
+  }
+  if (records.length < 2) return { headers: [], rows: [] };
+  const headers = records[0].map(h => h.replace(/^"|"$/g, ''));
+  const rows = records.slice(1).map(r => {
     const obj = {};
-    headers.forEach((h, i) => { obj[h] = vals[i] || ''; });
+    headers.forEach((h, j) => { obj[h] = r[j] || ''; });
     return obj;
   });
   return { headers, rows };
@@ -127,7 +146,7 @@ export default function EnrichLeads() {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const { headers: hdrs, rows: rs } = parseCSV(e.target.result);
+        const { headers: hdrs, rows: rs } = parseCSVRobust(e.target.result);
         if (!hdrs.length || !rs.length) throw new Error('File appears empty or could not be parsed.');
         const detectedCols = detectAllCols(hdrs);
         setHeaders(hdrs);
@@ -393,10 +412,10 @@ export default function EnrichLeads() {
         <>
           {/* Stat cards — DYNAMIC based on actual data */}
           <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
-            <StatCard label="Total Rows"         value={rows.length}                    icon="group"   color="var(--primary)" />
-            <StatCard label="Have LinkedIn URL"  value={enrichableRows.length}          icon="link"    color="var(--primary)" />
-            <StatCard label="Missing Email"      value={missingEmail.length}            icon="mail_off" color="var(--amber)" />
-            <StatCard label="Missing Phone"      value={missingPhone.length}            icon="phone_disabled" color="var(--amber)" />
+            <StatCard label="Rows in File"        value={rows.length}                    icon="group"          color="var(--primary)" />
+            <StatCard label="Need Enrichment"     value={toEnrich.length}                icon="auto_fix_high"  color="var(--primary)" />
+            <StatCard label="Missing Email"       value={missingEmail.length}            icon="mail_off"       color="var(--amber)" />
+            <StatCard label="Missing Phone"       value={missingPhone.length}            icon="phone_disabled" color="var(--amber)" />
           </div>
 
           {/* Column detection */}

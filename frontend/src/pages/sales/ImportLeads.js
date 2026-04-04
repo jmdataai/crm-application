@@ -60,9 +60,7 @@ const SYNONYMS = {
     'email','email address','e-mail','e mail','work email','business email',
     'primary email','contact email','corporate email','email 1','email1',
     'person email','emailaddress','email_address','work_email','main email',
-    'lead email','prospect email',
-  ,
-    'personal_email',
+    'lead email','prospect email','personal_email',
   ],
   phone: [
     'phone','phone number','mobile','mobile phone','mobile number','work phone',
@@ -70,12 +68,7 @@ const SYNONYMS = {
     'contact number','primary phone','work mobile','business phone',
     'phone 1','phone1','phonenumber','phone_number','work_phone','direct dial',
     'office phone','hq phone','main phone','sanitized phone',
-  ,
-    'mobile_number',
-  ,
-    'mobile_phone',
-  ,
-    'contact_phone',
+    'mobile_number','mobile_phone','contact_phone',
   ],
   company: [
     'company','company name','organization','organisation','account',
@@ -87,15 +80,12 @@ const SYNONYMS = {
     'title','job title','position','role','designation','occupation','job',
     'function','job function','person title','work title','current title',
     'job_title','jobtitle','contact title','professional title','headline',
-  ,
     'functional_level',
   ],
   source: [
     'source','lead source','channel','origin','campaign','medium',
     'acquisition','how found','referred by','utm source','leadsource',
-    'traffic source','referral','list name','list',
-  ,
-    'industry',
+    'traffic source','referral','list name','list','industry',
   ],
   linkedin_url: [
     'linkedin','linkedin url','linkedin profile','linkedin link',
@@ -165,7 +155,7 @@ const levenshtein = (a, b) => {
     dp[i][j] = a[i-1]===b[j-1] ? dp[i-1][j-1] : 1+Math.min(dp[i-1][j],dp[i][j-1],dp[i-1][j-1]);
   return dp[m][n];
 };
-const strSim = (a, b) => { const mx = Math.max(a.length, b.length); return mx ? (mx - levenshtein(a, b)) / mx : 1; };
+const strSim = (a, b) => { if (!a || !b) return 0; const mx = Math.max(a.length, b.length); return mx ? (mx - levenshtein(a, b)) / mx : 1; };
 
 const detectMapping = (headers, rows) => {
   const result = {};
@@ -178,7 +168,7 @@ const detectMapping = (headers, rows) => {
     // Layer 1a — exact synonym
     let key = null, conf = 0, method = '';
     for (const [k, syns] of Object.entries(SYNONYMS)) {
-      if (syns.some(s => s === norm || s.replace(/[\s_\-]/g,'') === norm.replace(/\s/g,''))) {
+      if (syns.some(s => s && (s === norm || s.replace(/[\s_\-]/g,'') === norm.replace(/\s/g,'')))) {
         key = k; conf = 1.0; method = 'exact'; break;
       }
     }
@@ -187,7 +177,7 @@ const detectMapping = (headers, rows) => {
     if (!key) {
       let best = 0.60;
       for (const [k, syns] of Object.entries(SYNONYMS)) {
-        for (const s of syns) { const sc = strSim(norm, s); if (sc > best) { best = sc; key = k; conf = sc; method = 'fuzzy'; } }
+        for (const s of syns) { if (!s) continue; const sc = strSim(norm, s); if (sc > best) { best = sc; key = k; conf = sc; method = 'fuzzy'; } }
       }
     }
 
@@ -225,37 +215,64 @@ const detectMapping = (headers, rows) => {
 };
 
 /* ═══════════════════════════════════════════════════════
-   CSV PARSER — handles quoted commas, BOM, CRLF
+   CSV PARSER — proper RFC 4180 compliant parser
+   Handles: BOM, CRLF row separators, quoted commas,
+   AND embedded newlines (LF) inside quoted fields.
    Rows use direct properties: { _rowNum, [header]: value }
-   (same shape as Excel rows — no nested "cells" wrapper)
 ═══════════════════════════════════════════════════════ */
-const parseCSVLine = (line) => {
-  const result = []; let cur = '', inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (c === '"' && line[i+1] === '"') { cur += '"'; i++; continue; } // escaped quote
-    if (c === '"') { inQ = !inQ; continue; }
-    if (c === ',' && !inQ) { result.push(cur.trim()); cur = ''; continue; }
-    cur += c;
-  }
-  result.push(cur.trim());
-  return result;
-};
+const parseCSVRobust = (text) => {
+  // Strip BOM
+  const src = text.replace(/^\uFEFF/, '');
+  const records = [];
+  let field = '';
+  let row = [];
+  let inQ = false;
+  let i = 0;
 
-const parseCSV = (text) => {
-  const clean = text.replace(/^\uFEFF/, '').trim();
-  const lines = clean.split(/\r?\n/);
-  if (lines.length < 2) return { headers: [], rows: [] };
-  const headers = parseCSVLine(lines[0]);
-  const rows = lines.slice(1)
-    .filter(l => l.trim())        // skip blank lines
-    .slice(0, 2000)               // safety cap
-    .map((line, i) => {
-      const vals = parseCSVLine(line);
+  while (i < src.length) {
+    const c = src[i];
+
+    if (inQ) {
+      if (c === '"') {
+        if (src[i + 1] === '"') { field += '"'; i += 2; continue; } // escaped ""
+        inQ = false; i++; continue;                                  // closing quote
+      }
+      // Any character inside quotes (including \n, \r) is part of the field
+      field += c; i++; continue;
+    }
+
+    // Outside quotes
+    if (c === '"') { inQ = true; i++; continue; }
+    if (c === ',') { row.push(field.trim()); field = ''; i++; continue; }
+    if (c === '\r' && src[i + 1] === '\n') { // CRLF row separator
+      row.push(field.trim()); field = '';
+      if (row.some(v => v !== '')) records.push(row);
+      row = []; i += 2; continue;
+    }
+    if (c === '\n') { // LF-only row separator (Unix CSVs)
+      row.push(field.trim()); field = '';
+      if (row.some(v => v !== '')) records.push(row);
+      row = []; i++; continue;
+    }
+    field += c; i++;
+  }
+  // Flush last field/row
+  if (field || row.length > 0) {
+    row.push(field.trim());
+    if (row.some(v => v !== '')) records.push(row);
+  }
+
+  if (records.length < 2) return { headers: [], rows: [] };
+
+  const headers = records[0].map(h => h.replace(/^"|"$/g, ''));
+  const rows = records.slice(1)
+    .slice(0, 2000) // safety cap
+    .map((r, i) => {
       const obj = { _rowNum: i + 2 };
-      headers.forEach((h, j) => { obj[h] = vals[j] || ''; });
+      headers.forEach((h, j) => { obj[h] = r[j] || ''; });
       return obj;
     });
+
   return { headers, rows };
 };
 
@@ -330,11 +347,15 @@ export default function ImportLeads() {
       // CSV — read as text, parse normally
       const reader = new FileReader();
       reader.onload = (e) => {
-        const { headers, rows } = parseCSV(e.target.result);
-        if (!headers.length) { alert('Could not read CSV — check it has a header row'); return; }
-        setParsed({ headers, rows });
-        setDetections(detectMapping(headers, rows));
-        setStep(2);
+        try {
+          const { headers, rows } = parseCSVRobust(e.target.result);
+          if (!headers.length) { alert('Could not read CSV — check it has a header row'); return; }
+          setParsed({ headers, rows });
+          setDetections(detectMapping(headers, rows));
+          setStep(2);
+        } catch (err) {
+          alert('Error reading file: ' + (err.message || 'Unknown error') + '\n\nPlease check the file and try again.');
+        }
       };
       reader.readAsText(f);
     } else {

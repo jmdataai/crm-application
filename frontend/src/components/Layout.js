@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import { remindersAPI } from '../services/api';
@@ -133,7 +133,7 @@ const HelpPanel = ({ onClose }) => {
 };
 
 /* ── Top Bar ─────────────────────────────────────────── */
-const TopBar = () => {
+const TopBar = ({ onMenuClick }) => {
   const navigate  = useNavigate();
   const location  = useLocation();
   const isRecruit = location.pathname.startsWith('/recruitment');
@@ -152,6 +152,13 @@ const TopBar = () => {
 
   return (
     <header className="topbar">
+      {/* Hamburger — shown on mobile via CSS */}
+      <button className="topbar-hamburger" onClick={onMenuClick} title="Open menu" aria-label="Open navigation menu">
+        <span className="material-symbols-outlined" style={{ fontSize: '1.5rem' }}>menu</span>
+      </button>
+
+      {/* App title — shown on very small screens when search hidden */}
+      <span className="topbar-title">Nexus CRM</span>
       {/* Search */}
       <div className="search-bar" style={{ maxWidth: 340 }}>
         <Icon name="search" style={{ position:'absolute', left:'0.625rem', top:'50%', transform:'translateY(-50%)', color:'var(--on-surface-variant)', fontSize:'1.1rem' }} />
@@ -171,7 +178,7 @@ const TopBar = () => {
           onClick={() => navigate(isRecruit ? '/recruitment/candidates' : '/sales/leads')}
           style={{ fontSize:'0.8125rem', padding:'0.4rem 1rem' }}
         >
-          <Icon name="add" style={{ fontSize:'1rem', color:'#fff' }} /> Quick Add
+          <Icon name="add" style={{ fontSize:'1rem', color:'#fff' }} /> <span className="topbar-quickadd-label">Quick Add</span>
         </button>
 
         <div style={{ width:1, height:24, background:'var(--ghost-border)', margin:'0 0.25rem' }} />
@@ -197,14 +204,44 @@ const TopBar = () => {
 };
 
 /* ── Layout ──────────────────────────────────────────── */
-const Layout = ({ children }) => (
-  <div style={{ minHeight:'100vh', backgroundColor:'var(--surface)' }}>
-    <Sidebar />
-    <TopBar />
-    <main className="main-content">
-      {children}
-    </main>
-  </div>
-);
+const Layout = ({ children }) => {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const openSidebar  = useCallback(() => setSidebarOpen(true),  []);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+
+  // Close sidebar on Escape key
+  useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') closeSidebar(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [closeSidebar]);
+
+  // Prevent body scroll when sidebar is open on mobile
+  useEffect(() => {
+    if (sidebarOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [sidebarOpen]);
+
+  return (
+    <div style={{ minHeight:'100vh', backgroundColor:'var(--surface)' }}>
+      {/* Overlay backdrop — blocks content, closes sidebar on tap */}
+      <div
+        className={`sidebar-overlay${sidebarOpen ? ' sidebar-overlay-open' : ''}`}
+        onClick={closeSidebar}
+        aria-hidden="true"
+      />
+      <Sidebar isOpen={sidebarOpen} onClose={closeSidebar} />
+      <TopBar onMenuClick={openSidebar} />
+      <main className="main-content">
+        {children}
+      </main>
+    </div>
+  );
+};
 
 export default Layout;

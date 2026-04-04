@@ -1362,8 +1362,8 @@ async def send_daily_digest():
         except Exception as e:
             logger.error(f"[digest] Failed for {u['email']}: {e}")
 
-    # ── Weekly CEO summary — every Monday only ─────────────
-    if datetime.now(timezone.utc).weekday() == 0:  # 0 = Monday
+    # ── Weekly CEO summary — every Saturday only ─────────────
+    if datetime.now(timezone.utc).weekday() == 5:  # 5 = Saturday
         try:
             admin_users = [u for u in users_list if u.get("role") == "admin"]
             for admin in admin_users:
@@ -1385,7 +1385,7 @@ async def send_daily_digest():
                     f'<tr style="background:#fff"><td style="padding:12px;border:1px solid #e2e8f0;font-weight:600">✅ Deals Closed</td><td style="padding:12px;border:1px solid #e2e8f0;font-weight:700">{len(closed.data or [])} deals · ₹{closed_v:,.0f}</td></tr>'
                     f'<tr style="background:#f8fafc"><td style="padding:12px;border:1px solid #e2e8f0;font-weight:600">👤 Candidates Submitted</td><td style="padding:12px;border:1px solid #e2e8f0;font-weight:700">{subs.count or 0}</td></tr>'
                     f'</table>'
-                    f'<p style="color:#737686;font-size:12px;margin-top:24px">Nexus CRM · Auto-generated every Monday 8 AM</p>'
+                    f'<p style="color:#737686;font-size:12px;margin-top:24px">Nexus CRM · Auto-generated every Saturday 8 AM</p>'
                     f'</div>'
                 )
                 await send_email(admin["email"], f"📊 Weekly Summary — {today}", html_ceo)
@@ -1643,15 +1643,15 @@ async def health():
 # ============================================================
 
 # ============================================================
-# AUDIT LOG CLEANUP — keeps last 90 days, runs daily at 3 AM
+# AUDIT LOG CLEANUP — keeps last 180 days, runs daily at 3 AM
 # ============================================================
 async def cleanup_audit_logs():
-    """Delete audit_logs older than 90 days to keep the DB lean."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+    """Delete audit_logs older than 180 days to keep the DB lean."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=180)).isoformat()
     try:
         res = await run(lambda: sb("audit_logs").delete().lt("created_at", cutoff).execute())
         deleted = len(res.data) if res.data else 0
-        logger.info(f"[audit-cleanup] Deleted {deleted} log entries older than 90 days (cutoff: {cutoff[:10]})")
+        logger.info(f"[audit-cleanup] Deleted {deleted} log entries older than 180 days (cutoff: {cutoff[:10]})")
     except Exception as e:
         logger.error(f"[audit-cleanup] Failed: {e}")
 
@@ -1663,7 +1663,7 @@ async def startup():
     scheduler.add_job(send_daily_digest, CronTrigger(hour=int(hour), minute=int(minute)), id="daily_digest", replace_existing=True)
     scheduler.add_job(cleanup_audit_logs, CronTrigger(hour=3, minute=0), id="audit_cleanup", replace_existing=True)
     scheduler.start()
-    logger.info("[scheduler] Audit log cleanup scheduled at 03:00 daily (keeps 90 days)")
+    logger.info("[scheduler] Audit log cleanup scheduled at 03:00 daily (keeps 180 days)")
     logger.info(f"[scheduler] Daily digest scheduled at {digest_time}")
 
     admin_email    = os.environ.get("ADMIN_EMAIL", "admin@nexuscrm.com")
