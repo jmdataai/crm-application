@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
+import { leadsAPI } from '../../services/api';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
@@ -321,9 +322,50 @@ export default function ImportLeads() {
 
   const doImport = async () => {
     setImporting(true);
-    await new Promise(r => setTimeout(r, 1800));
-    setResults({ success: successCount, errors: errorRows.map((r,i) => ({ row: parsed.rows[i]._rowNum, issues: r.errors })) });
-    setImporting(false); setStep(3);
+    let successCount = 0;
+    const errors = [];
+
+    for (let i = 0; i < parsed.rows.length; i++) {
+      const row  = parsed.rows[i];
+      const errs = errorRows[i]?.errors || [];
+      if (errs.length > 0) { errors.push({ row: row._rowNum, issues: errs }); continue; }
+
+      // Build lead from mapping
+      const get = (key) => {
+        const col = Object.entries(detections).find(([,d]) => d.key === key)?.[0];
+        return col ? (row[col] || '').trim() : '';
+      };
+      // Handle split first+last name
+      let fullName = get('full_name');
+      if (!fullName) {
+        const fn = Object.entries(detections).find(([,d]) => d.key === '_first_name')?.[0];
+        const ln = Object.entries(detections).find(([,d]) => d.key === '_last_name')?.[0];
+        fullName = [fn ? row[fn]||'' : '', ln ? row[ln]||'' : ''].join(' ').trim();
+      }
+      if (!fullName) { errors.push({ row: row._rowNum, issues: ['No name found'] }); continue; }
+
+      try {
+        await leadsAPI.create({
+          full_name:      fullName,
+          email:          get('email')          || null,
+          phone:          get('phone')           || null,
+          company:        get('company')         || null,
+          job_title:      get('job_title')       || null,
+          source:         get('source')          || 'CSV Import',
+          status:         get('status')          || 'new',
+          notes:          get('notes')           || null,
+          next_follow_up: get('next_follow_up')  || null,
+          linkedin_url:   get('linkedin_url')    || null,
+        });
+        successCount++;
+      } catch (e) {
+        errors.push({ row: row._rowNum, issues: [e?.response?.data?.detail || 'API error'] });
+      }
+    }
+
+    setResults({ success: successCount, errors });
+    setImporting(false);
+    setStep(3);
   };
 
   const reset = () => { setStep(1); setFile(null); setParsed(null); setDetections({}); setResults(null); };

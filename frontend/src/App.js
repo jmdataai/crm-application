@@ -11,6 +11,7 @@ import SalesDashboard    from './pages/sales/SalesDashboard';
 import LeadsList         from './pages/sales/LeadsList';
 import LeadDetail        from './pages/sales/LeadDetail';
 import ImportLeads       from './pages/sales/ImportLeads';
+import EnrichLeads       from './pages/sales/EnrichLeads';
 import SalesTasks        from './pages/sales/SalesTasks';
 import SalesReminders    from './pages/sales/SalesReminders';
 
@@ -23,7 +24,9 @@ import Pipeline             from './pages/recruitment/Pipeline';
 import Interviews           from './pages/recruitment/Interviews';
 import RecruitmentTasks     from './pages/recruitment/RecruitmentTasks';
 
-import Settings from './pages/Settings';
+import Settings      from './pages/Settings';
+import CEODashboard  from './pages/CEODashboard';
+import AuditLog      from './pages/AuditLog';
 import './index.css';
 
 // Wrap a page: requires auth + optional module access
@@ -52,6 +55,7 @@ function AppRoutes() {
       <Route path="/sales/leads"        element={<Page module="sales"><LeadsList /></Page>} />
       <Route path="/sales/leads/:id"    element={<Page module="sales"><LeadDetail /></Page>} />
       <Route path="/sales/import"       element={<Page module="sales"><ImportLeads /></Page>} />
+      <Route path="/sales/enrich"       element={<Page module="sales"><EnrichLeads /></Page>} />
       <Route path="/sales/tasks"        element={<Page module="sales"><SalesTasks /></Page>} />
       <Route path="/sales/reminders"    element={<Page module="sales"><SalesReminders /></Page>} />
 
@@ -66,7 +70,9 @@ function AppRoutes() {
       <Route path="/recruitment/tasks"            element={<Page module="recruitment"><RecruitmentTasks /></Page>} />
 
       {/* ── Settings (admin + viewer) ── */}
-      <Route path="/settings" element={<Page><Settings /></Page>} />
+      <Route path="/settings"    element={<Page><Settings /></Page>} />
+      <Route path="/ceo"         element={<Page><CEODashboard /></Page>} />
+      <Route path="/audit-log"   element={<Page><AuditLog /></Page>} />
 
       {/* ── Default ── */}
       <Route path="/" element={<DefaultRedirect />} />

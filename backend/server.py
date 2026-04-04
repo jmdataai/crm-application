@@ -9,6 +9,7 @@ import logging
 import bcrypt
 import jwt
 import asyncio
+import httpx
 import resend
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron  import CronTrigger
@@ -35,6 +36,8 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # ── Resend email ──────────────────────────────────────────────
 resend.api_key  = os.environ.get("RESEND_API_KEY", "")
 SENDER_EMAIL    = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
+APIFY_API_KEY   = os.environ.get("APIFY_API_KEY", "")
+APIFY_ACTOR_ID  = "dev_fusion~linkedin-profile-scraper"
 scheduler       = AsyncIOScheduler()
 
 # ── JWT ───────────────────────────────────────────────────────
@@ -107,6 +110,8 @@ class LeadCreate(BaseModel):
     status:         LeadStatus         = LeadStatus.NEW
     notes:          Optional[str]      = None
     next_follow_up: Optional[str]      = None   # ISO date string YYYY-MM-DD
+    deal_value:     Optional[float]    = None   # expected contract value
+    linkedin_url:   Optional[str]      = None
 
 class LeadUpdate(BaseModel):
     full_name:        Optional[str]       = None
@@ -119,6 +124,8 @@ class LeadUpdate(BaseModel):
     notes:            Optional[str]       = None
     next_follow_up:   Optional[str]       = None
     assigned_owner_id:Optional[str]       = None
+    deal_value:       Optional[float]     = None
+    linkedin_url:     Optional[str]       = None
 
 class ActivityCreate(BaseModel):
     lead_id:       Optional[str]  = None
@@ -210,6 +217,16 @@ class CandidateUpdate(BaseModel):
     portfolio_url:        Optional[str]              = None
     skills:               Optional[List[str]]        = None
     assigned_recruiter_id:Optional[str]              = None
+
+class SubmissionCreate(BaseModel):
+    lead_id:      str
+    candidate_id: str
+    status:       str = "submitted"
+    notes:        Optional[str] = None
+
+class SubmissionUpdate(BaseModel):
+    status: Optional[str] = None
+    notes:  Optional[str] = None
 
 class InterviewCreate(BaseModel):
     candidate_id:   str
@@ -315,6 +332,46 @@ async def safe_single(fn):
         raise
 
 
+
+# ============================================================
+# AUDIT LOG HELPERS
+# ============================================================
+def _get_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+async def _audit(
+    action: str,
+    user: dict = None,
+    entity_type: str = None,
+    entity_id:   str = None,
+    entity_name: str = None,
+    old_value:   dict = None,
+    new_value:   dict = None,
+    ip:          str = None,
+    ua:          str = None,
+):
+    """Fire-and-forget audit log entry. Never raises."""
+    try:
+        await run(lambda: sb("audit_logs").insert({
+            "user_id":     user["id"]    if user else None,
+            "user_email":  user["email"] if user else None,
+            "user_name":   user["name"]  if user else None,
+            "action":      action,
+            "entity_type": entity_type,
+            "entity_id":   str(entity_id) if entity_id else None,
+            "entity_name": entity_name,
+            "old_value":   old_value,
+            "new_value":   new_value,
+            "ip_address":  ip,
+            "user_agent":  ua,
+        }).execute())
+    except Exception as e:
+        logger.warning(f"Audit log write failed: {e}")
+
+
 # ============================================================
 # AUTH
 # ============================================================
@@ -349,18 +406,27 @@ async def register(data: UserCreate, request: Request):
 async def login(data: UserLogin, response: Response):
     user = await safe_single(lambda: sb("users").select("*").eq("email", data.email.lower()).single().execute())
     if not user:
+        await _audit("login_failed", entity_name=data.email,
+                     ip=request.headers.get("x-forwarded-for","").split(",")[0].strip() or (request.client.host if request.client else ""),
+                     ua=request.headers.get("user-agent",""))
         raise HTTPException(401, "Access not authorized. This email is not registered.")
     if not verify_password(data.password, user["password_hash"]):
+        await _audit("login_failed", entity_name=user["email"],
+                     ip=request.headers.get("x-forwarded-for","").split(",")[0].strip() or (request.client.host if request.client else ""),
+                     ua=request.headers.get("user-agent",""))
         raise HTTPException(401, "Incorrect password. Please try again.")
 
     access  = create_access_token(user["id"], user["email"])
     refresh = create_refresh_token(user["id"])
     _set_cookies(response, access, refresh)
+    await _audit("login", user=user,
+                 ip=request.headers.get("x-forwarded-for","").split(",")[0].strip() or (request.client.host if request.client else ""),
+                 ua=request.headers.get("user-agent",""))
     return {
         "id":    user["id"],
         "email": user["email"],
         "name":  user["name"],
-        "role":  user.get("role", "viewer"),   # include role for frontend permissions
+        "role":  user.get("role", "viewer"),
     }
 
 
@@ -434,6 +500,8 @@ async def create_lead(lead: LeadCreate, request: Request):
         "next_follow_up":   lead.next_follow_up,
         "assigned_owner_id":user["id"],
         "created_by":       user["id"],
+        "deal_value":       lead.deal_value,
+        "linkedin_url":     lead.linkedin_url,
     }
     res = await run(lambda: sb("leads").insert(doc).execute())
     lead_id = res.data[0]["id"]
@@ -474,8 +542,8 @@ async def get_leads(
 
 @api_router.get("/leads/{lead_id}")
 async def get_lead(lead_id: str, request: Request):
-    await get_current_user(request)
-    lead = await safe_single(lambda: sb("leads").select("*, assigned_owner:assigned_owner_id(name)").eq("id", lead_id).single().execute())
+    user = await get_current_user(request)
+    lead = await safe_single(lambda: sb("leads").select("*, assigned_owner:assigned_owner_id(name), submissions:candidate_submissions(*, candidate:candidate_id(id,full_name,candidate_role,status))").eq("id", lead_id).single().execute())
     if not lead:
         raise HTTPException(404, "Lead not found")
 
@@ -484,6 +552,10 @@ async def get_lead(lead_id: str, request: Request):
 
     hist = await run(lambda: sb("lead_status_history").select("*").eq("lead_id", lead_id).order("created_at", desc=True).execute())
     lead["status_history"] = hist.data or []
+
+    asyncio.create_task(_audit("view", user=user, entity_type="lead", entity_id=lead_id,
+                                entity_name=lead.get("full_name"), ip=_get_ip(request),
+                                ua=request.headers.get("user-agent","")))
     return lead
 
 
@@ -512,14 +584,24 @@ async def update_lead(lead_id: str, lead: LeadUpdate, request: Request):
         await _log_activity(lead_id=lead_id, user=user, atype="status_change",
                             desc=f"Status changed from {old_status} to {new_status}")
 
+    old = await safe_single(lambda: sb("leads").select("*").eq("id", lead_id).single().execute())
     await run(lambda: sb("leads").update(patch).eq("id", lead_id).execute())
+    asyncio.create_task(_audit("update", user=user, entity_type="lead", entity_id=lead_id,
+                                entity_name=old.get("full_name") if old else None,
+                                old_value={k:old.get(k) for k in patch if old} if old else None,
+                                new_value=patch, ip=_get_ip(request),
+                                ua=request.headers.get("user-agent","")))
     return {"message": "Lead updated"}
 
 
 @api_router.delete("/leads/{lead_id}")
 async def delete_lead(lead_id: str, request: Request):
-    await get_current_user(request)
+    user = await get_current_user(request)
+    lead = await safe_single(lambda: sb("leads").select("full_name").eq("id", lead_id).single().execute())
     await run(lambda: sb("leads").delete().eq("id", lead_id).execute())
+    asyncio.create_task(_audit("delete", user=user, entity_type="lead", entity_id=lead_id,
+                                entity_name=lead.get("full_name") if lead else None,
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return {"message": "Lead deleted"}
 
 
@@ -953,7 +1035,7 @@ async def get_pipeline(request: Request, job_id: Optional[str] = None):
 
 @api_router.get("/candidates/{candidate_id}")
 async def get_candidate(candidate_id: str, request: Request):
-    await get_current_user(request)
+    user = await get_current_user(request)
     candidate_data = await safe_single(lambda: sb("candidates").select("*, job:job_id(title)").eq("id", candidate_id).single().execute())
     if not candidate_data:
         raise HTTPException(404, "Candidate not found")
@@ -1085,14 +1167,39 @@ async def sales_dashboard(request: Request):
     recent_leads = await run(lambda: sb("leads").select("*").order("created_at", desc=True).limit(10).execute())
     reminders    = await run(lambda: sb("reminders").select("*").eq("user_id", user["id"]).gte("due_date", today).eq("dismissed", False).order("due_date").limit(10).execute())
 
+    # Pipeline value
+    leads_res   = await run(lambda: sb("leads").select("id,status,deal_value,next_follow_up,full_name,company").execute())
+    all_leads   = leads_res.data or []
+    closed_s    = ["closed","completed","rejected","lost"]
+    pipeline_v  = sum(float(l.get("deal_value") or 0) for l in all_leads if l.get("status") not in closed_s)
+
+    # Urgent follow-ups: overdue or due today, sorted by date
+    urgent = [l for l in all_leads if l.get("next_follow_up") and l.get("next_follow_up") <= today
+              and l.get("status") not in closed_s]
+    urgent.sort(key=lambda l: l["next_follow_up"])
+
+    # Candidates awaiting feedback (interview completed, no result yet)
+    await_feedback = await run(lambda: sb("interviews").select(
+        "id,interview_type,scheduled_at,candidate:candidate_id(full_name),job:job_id(title)"
+    ).eq("completed", True).is_("rating", "null").order("scheduled_at", desc=True).limit(10).execute())
+
+    # Submissions pending response
+    subs_pending = await run(lambda: sb("candidate_submissions").select(
+        "*, candidate:candidate_id(full_name), lead:lead_id(full_name,company)"
+    ).eq("status", "submitted").order("created_at", desc=True).limit(10).execute())
+
     return {
-        "lead_stats":    lead_stats,
-        "total_leads":   total_res.count or 0,
-        "today_tasks":   tasks_today.data or [],
-        "overdue_tasks": overdue_tasks.data or [],
-        "today_followups": followups.data or [],
-        "recent_leads":  recent_leads.data or [],
-        "reminders":     reminders.data or [],
+        "lead_stats":       lead_stats,
+        "total_leads":      total_res.count or 0,
+        "pipeline_value":   pipeline_v,
+        "today_tasks":      tasks_today.data or [],
+        "overdue_tasks":    overdue_tasks.data or [],
+        "today_followups":  followups.data or [],
+        "urgent_followups": urgent[:3],
+        "recent_leads":     recent_leads.data or [],
+        "reminders":        reminders.data or [],
+        "awaiting_feedback": await_feedback.data or [],
+        "submissions_pending": subs_pending.data or [],
     }
 
 
@@ -1255,13 +1362,280 @@ async def send_daily_digest():
         except Exception as e:
             logger.error(f"[digest] Failed for {u['email']}: {e}")
 
+    # ── Weekly CEO summary — every Monday only ─────────────
+    if datetime.now(timezone.utc).weekday() == 0:  # 0 = Monday
+        try:
+            admin_users = [u for u in users_list if u.get("role") == "admin"]
+            for admin in admin_users:
+                week_ago  = (datetime.now(timezone.utc).date() - timedelta(days=7)).isoformat()
+                new_leads = await run(lambda: sb("leads").select("id", count="exact").gte("created_at", week_ago + "T00:00:00Z").execute())
+                closed    = await run(lambda: sb("leads").select("id,deal_value").in_("status", ["closed","completed"]).gte("updated_at", week_ago + "T00:00:00Z").execute())
+                subs      = await run(lambda: sb("candidate_submissions").select("id", count="exact").gte("created_at", week_ago + "T00:00:00Z").execute())
+                active    = await run(lambda: sb("leads").select("deal_value").not_.in_("status", ["closed","completed","rejected","lost"]).execute())
+                pipeline_v = sum(float(l.get("deal_value") or 0) for l in (active.data or []))
+                closed_v   = sum(float(l.get("deal_value") or 0) for l in (closed.data or []))
+
+                html_ceo = (
+                    f'<div style="font-family:Inter,sans-serif;padding:24px;max-width:560px;background:#f8fafc">'
+                    f'<h2 style="color:#131b2e;margin-bottom:4px">📊 Weekly Business Summary</h2>'
+                    f'<p style="color:#737686;font-size:13px;margin-bottom:20px">Week ending {today}</p>'
+                    f'<table style="width:100%;border-collapse:collapse">'
+                    f'<tr style="background:#fff"><td style="padding:12px;border:1px solid #e2e8f0;font-weight:600">🆕 New Leads</td><td style="padding:12px;border:1px solid #e2e8f0;font-weight:700">{new_leads.count or 0}</td></tr>'
+                    f'<tr style="background:#f8fafc"><td style="padding:12px;border:1px solid #e2e8f0;font-weight:600">💰 Active Pipeline</td><td style="padding:12px;border:1px solid #e2e8f0;font-weight:700">₹{pipeline_v:,.0f}</td></tr>'
+                    f'<tr style="background:#fff"><td style="padding:12px;border:1px solid #e2e8f0;font-weight:600">✅ Deals Closed</td><td style="padding:12px;border:1px solid #e2e8f0;font-weight:700">{len(closed.data or [])} deals · ₹{closed_v:,.0f}</td></tr>'
+                    f'<tr style="background:#f8fafc"><td style="padding:12px;border:1px solid #e2e8f0;font-weight:600">👤 Candidates Submitted</td><td style="padding:12px;border:1px solid #e2e8f0;font-weight:700">{subs.count or 0}</td></tr>'
+                    f'</table>'
+                    f'<p style="color:#737686;font-size:12px;margin-top:24px">Nexus CRM · Auto-generated every Monday 8 AM</p>'
+                    f'</div>'
+                )
+                await send_email(admin["email"], f"📊 Weekly Summary — {today}", html_ceo)
+                logger.info(f"[digest] CEO weekly summary sent to {admin['email']}")
+        except Exception as ce:
+            logger.error(f"[digest] CEO weekly summary failed: {ce}")
+
+
+# ============================================================
+# LEAD ENRICHMENT — Apify LinkedIn scraper
+# ============================================================
+class EnrichRequest(BaseModel):
+    linkedin_urls: List[str]
+
+@api_router.post("/enrich/start")
+async def enrich_start(body: EnrichRequest, request: Request):
+    """Start an Apify enrichment run. Returns run_id to poll."""
+    await get_current_user(request)   # must be logged in
+
+    if not APIFY_API_KEY:
+        raise HTTPException(503, "Apify API key not configured on server. Contact admin.")
+    if not body.linkedin_urls:
+        raise HTTPException(400, "No LinkedIn URLs provided.")
+
+    urls = [u.strip().rstrip("/") for u in body.linkedin_urls if u.strip()]
+    if not urls:
+        raise HTTPException(400, "All LinkedIn URLs were empty.")
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"https://api.apify.com/v2/acts/{APIFY_ACTOR_ID}/runs?token={APIFY_API_KEY}",
+            json={"profileUrls": urls},
+            headers={"Content-Type": "application/json"},
+        )
+    if resp.status_code not in (200, 201):
+        detail = resp.json().get("error", {}).get("message", resp.text[:200])
+        raise HTTPException(502, f"Apify error: {detail}")
+
+    run_id = resp.json().get("data", {}).get("id")
+    if not run_id:
+        raise HTTPException(502, "Apify did not return a run ID.")
+
+    return {"run_id": run_id, "total": len(urls)}
+
+
+@api_router.get("/enrich/status/{run_id}")
+async def enrich_status(run_id: str, request: Request):
+    """Poll Apify run status. Returns results when SUCCEEDED."""
+    await get_current_user(request)
+
+    if not APIFY_API_KEY:
+        raise HTTPException(503, "Apify API key not configured.")
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        status_resp = await client.get(
+            f"https://api.apify.com/v2/actor-runs/{run_id}?token={APIFY_API_KEY}"
+        )
+
+    if status_resp.status_code != 200:
+        raise HTTPException(502, "Could not check Apify run status.")
+
+    data   = status_resp.json().get("data", {})
+    status = data.get("status", "UNKNOWN")
+    stats  = data.get("stats", {})
+
+    if status == "SUCCEEDED":
+        async with httpx.AsyncClient(timeout=30) as client:
+            items_resp = await client.get(
+                f"https://api.apify.com/v2/actor-runs/{run_id}/dataset/items"
+                f"?token={APIFY_API_KEY}&format=json"
+            )
+        items = items_resp.json() if items_resp.status_code == 200 else []
+
+        # Normalise results: linkedin_url -> { email, phone }
+        results = {}
+        for item in (items if isinstance(items, list) else []):
+            url = (item.get("profileUrl") or item.get("linkedinUrl") or item.get("url") or "")
+            url = url.strip().rstrip("/").lower()
+            if url:
+                results[url] = {
+                    "email": item.get("email") or (item.get("emails") or [None])[0],
+                    "phone": item.get("phone") or (item.get("phoneNumbers") or [None])[0]
+                             or (item.get("phones") or [None])[0],
+                }
+        return {"status": status, "results": results}
+
+    return {
+        "status": status,
+        "processed": stats.get("itemsFinished", 0),
+    }
+
+
+
+# ============================================================
+# CANDIDATE SUBMISSIONS (Lead ↔ Candidate link)
+# ============================================================
+@api_router.post("/submissions")
+async def create_submission(body: SubmissionCreate, request: Request):
+    user = await get_current_user(request)
+    doc = {
+        "lead_id":      body.lead_id,
+        "candidate_id": body.candidate_id,
+        "status":       body.status,
+        "notes":        body.notes,
+        "created_by":   user["id"],
+    }
+    res = await run(lambda: sb("candidate_submissions").upsert(doc, on_conflict="lead_id,candidate_id").execute())
+    await _log_activity(lead_id=body.lead_id, user=user, atype="note",
+                        desc=f"Candidate submission created/updated")
+    return res.data[0] if res.data else {}
+
+@api_router.get("/submissions")
+async def get_submissions(request: Request, lead_id: Optional[str] = None, candidate_id: Optional[str] = None):
+    await get_current_user(request)
+    q = sb("candidate_submissions").select(
+        "*, candidate:candidate_id(id,full_name,candidate_role,status,email), lead:lead_id(id,full_name,company,status)"
+    ).order("created_at", desc=True)
+    if lead_id:      q = q.eq("lead_id", lead_id)
+    if candidate_id: q = q.eq("candidate_id", candidate_id)
+    res = await run(lambda: q.execute())
+    return res.data or []
+
+@api_router.put("/submissions/{submission_id}")
+async def update_submission(submission_id: str, body: SubmissionUpdate, request: Request):
+    await get_current_user(request)
+    patch = {k: v for k, v in body.model_dump().items() if v is not None}
+    await run(lambda: sb("candidate_submissions").update(patch).eq("id", submission_id).execute())
+    return {"message": "Updated"}
+
+@api_router.delete("/submissions/{submission_id}")
+async def delete_submission(submission_id: str, request: Request):
+    await get_current_user(request)
+    await run(lambda: sb("candidate_submissions").delete().eq("id", submission_id).execute())
+    return {"message": "Deleted"}
+
+
+# ============================================================
+# CEO DASHBOARD
+# ============================================================
+@api_router.get("/dashboard/ceo")
+async def ceo_dashboard(request: Request):
+    user = await get_current_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(403, "CEO dashboard is admin-only")
+
+    today     = datetime.now(timezone.utc).date().isoformat()
+    week_ago  = (datetime.now(timezone.utc).date() - timedelta(days=7)).isoformat()
+    month_ago = (datetime.now(timezone.utc).date() - timedelta(days=30)).isoformat()
+    stale_cutoff = (datetime.now(timezone.utc).date() - timedelta(days=5)).isoformat()
+
+    # Pipeline value (non-closed leads)
+    closed_statuses = ["closed", "completed", "rejected", "lost"]
+    active_leads_res = await run(lambda: sb("leads").select("id,full_name,company,status,deal_value,next_follow_up,created_at").execute())
+    all_leads = active_leads_res.data or []
+    pipeline_leads = [l for l in all_leads if l.get("status") not in closed_statuses]
+    closed_leads   = [l for l in all_leads if l.get("status") in ["closed", "completed"]]
+    pipeline_value = sum(float(l.get("deal_value") or 0) for l in pipeline_leads)
+    closed_value   = sum(float(l.get("deal_value") or 0) for l in closed_leads)
+
+    # Leads by stage
+    stage_counts = {}
+    for l in all_leads:
+        s = l.get("status", "new")
+        stage_counts[s] = stage_counts.get(s, 0) + 1
+
+    # Candidates
+    total_cands = await run(lambda: sb("candidates").select("id", count="exact").execute())
+
+    # Submissions this month
+    submissions_res = await run(lambda: sb("candidate_submissions").select("id,status,created_at").gte("created_at", month_ago + "T00:00:00Z").execute())
+    submissions = submissions_res.data or []
+
+    # Stale leads (no activity in 5+ days, not closed)
+    # Get max activity date per lead
+    acts_res = await run(lambda: sb("activities").select("lead_id,created_at").order("created_at", desc=True).execute())
+    acts = acts_res.data or []
+    last_act = {}
+    for a in acts:
+        lid = a["lead_id"]
+        if lid and lid not in last_act:
+            last_act[lid] = a["created_at"][:10]  # just date
+
+    stale_leads = []
+    for l in pipeline_leads:
+        lid = l["id"]
+        last = last_act.get(lid)
+        if not last or last < stale_cutoff:
+            days_stale = (datetime.now(timezone.utc).date() - (
+                datetime.fromisoformat(last).date() if last else
+                datetime.fromisoformat(l["created_at"][:10]).date()
+            )).days
+            stale_leads.append({**l, "days_stale": days_stale, "last_activity": last})
+
+    stale_leads.sort(key=lambda x: x["days_stale"], reverse=True)
+
+    # Recent audit log
+    recent_audit = await run(lambda: sb("audit_logs").select("*").order("created_at", desc=True).limit(20).execute())
+
+    # This week's activity
+    leads_this_week = [l for l in all_leads if l.get("created_at","")[:10] >= week_ago]
+    subs_this_week  = [s for s in submissions if s.get("created_at","")[:10] >= week_ago]
+
+    return {
+        "pipeline_value":    pipeline_value,
+        "closed_value":      closed_value,
+        "total_leads":       len(all_leads),
+        "pipeline_leads":    len(pipeline_leads),
+        "closed_leads":      len(closed_leads),
+        "stage_counts":      stage_counts,
+        "total_candidates":  total_cands.count or 0,
+        "submissions_month": len(submissions),
+        "submissions_week":  len(subs_this_week),
+        "stale_leads":       stale_leads[:10],
+        "stale_count":       len(stale_leads),
+        "leads_this_week":   len(leads_this_week),
+        "recent_audit":      recent_audit.data or [],
+    }
+
+
+# ============================================================
+# AUDIT LOG — read-only, admin only
+# ============================================================
+@api_router.get("/audit-logs")
+async def get_audit_logs(
+    request:     Request,
+    action:      Optional[str] = None,
+    entity_type: Optional[str] = None,
+    user_id:     Optional[str] = None,
+    limit:       int = 100,
+    skip:        int = 0,
+):
+    caller = await get_current_user(request)
+    if caller.get("role") != "admin":
+        raise HTTPException(403, "Audit log is admin-only")
+
+    q = sb("audit_logs").select("*", count="exact").order("created_at", desc=True).range(skip, skip + limit - 1)
+    if action:      q = q.eq("action", action)
+    if entity_type: q = q.eq("entity_type", entity_type)
+    if user_id:     q = q.eq("user_id", user_id)
+
+    res = await run(lambda: q.execute())
+    return {"logs": res.data or [], "total": res.count or 0}
+
 
 # ============================================================
 # HEALTH CHECK
 # ============================================================
-@api_router.get("/health")
+@api_router.api_route("/health", methods=["GET", "HEAD"])
 async def health():
-    return {"status": "ok", "service": "Nexus CRM + ATS"}
+    return {"status": "ok", "service": "Nexus CRM + ATS", "version": "2.0.0"}
 
 
 # ============================================================
@@ -1298,6 +1672,10 @@ async def startup():
 # ============================================================
 # WIRE UP
 # ============================================================
+@app.api_route("/health", methods=["GET", "HEAD"])
+async def root_health():
+    return {"status": "ok", "service": "Nexus CRM + ATS", "version": "2.0.0"}
+
 app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,

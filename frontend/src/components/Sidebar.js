@@ -11,6 +11,7 @@ const salesNav = [
   { path: '/sales',           icon: 'dashboard',    label: 'Dashboard',    exact: true },
   { path: '/sales/leads',     icon: 'group',         label: 'Leads' },
   { path: '/sales/import',    icon: 'upload_file',   label: 'Import Leads', requiresPerm: 'canImport' },
+  { path: '/sales/enrich',    icon: 'auto_fix_high', label: 'Enrich Leads', requiresPerm: 'canImport' },
   { path: '/sales/tasks',     icon: 'task_alt',      label: 'Tasks' },
   { path: '/sales/reminders', icon: 'notifications', label: 'Reminders' },
 ];
@@ -160,6 +161,20 @@ const Sidebar = () => {
 
       {/* Divider */}
       <div className="divider" />
+
+      {/* CEO Dashboard + Audit — admin only */}
+      {user?.role === 'admin' && (
+        <>
+          <NavLink to="/ceo" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <Icon name="analytics" />
+            <span>CEO Dashboard</span>
+          </NavLink>
+          <NavLink to="/audit-log" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <Icon name="policy" />
+            <span>Audit Log</span>
+          </NavLink>
+        </>
+      )}
 
       {/* Settings — admin and viewer only */}
       {can('viewSettings') && (

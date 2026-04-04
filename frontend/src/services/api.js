@@ -113,3 +113,21 @@ export const importsAPI = {
 };
 
 export default api;
+
+// Candidate Submissions APIs
+export const submissionsAPI = {
+  getAll:  (params) => api.get('/submissions', { params }),
+  create:  (data)   => api.post('/submissions', data),
+  update:  (id,data)=> api.put(`/submissions/${id}`, data),
+  delete:  (id)     => api.delete(`/submissions/${id}`),
+};
+
+// CEO Dashboard API
+export const ceoDashboardAPI = {
+  get: () => api.get('/dashboard/ceo'),
+};
+
+// Audit Logs API
+export const auditLogsAPI = {
+  getAll: (params) => api.get('/audit-logs', { params }),
+};

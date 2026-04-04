@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { leadsAPI, activitiesAPI } from '../../services/api';
+import { leadsAPI, activitiesAPI, submissionsAPI, candidatesAPI } from '../../services/api';
 import { useParams, useNavigate } from 'react-router-dom';
 
 const Icon = ({ name, style = {} }) => (
@@ -80,13 +80,18 @@ export default function LeadDetail() {
   const fetchLead = useCallback(async () => {
     setLoading(true);
     try {
-      const [lRes, aRes] = await Promise.all([
+      const [lRes, aRes, cRes, sRes] = await Promise.all([
         leadsAPI.getOne(id),
         activitiesAPI.getAll({ lead_id: id }),
+        candidatesAPI.getAll({ limit:500 }),
+        submissionsAPI.getAll({ lead_id: id }),
       ]);
       const l = lRes.data;
+      const candData = Array.isArray(cRes.data) ? cRes.data : Array.isArray(cRes.data?.candidates) ? cRes.data.candidates : [];
+      setCandidates(candData);
+      setSubmissions(Array.isArray(sRes.data) ? sRes.data : []);
       setLead(l);
-      setEditForm({ ...l });
+      setEditForm({ ...l, deal_value: l.deal_value || '' });
       const acts = Array.isArray(aRes.data) ? aRes.data
         : Array.isArray(aRes.data?.data) ? aRes.data.data : [];
       setActs(acts.map(a => ({
@@ -129,6 +134,26 @@ export default function LeadDetail() {
       await activitiesAPI.create({ lead_id: id, activity_type: 'status_change', description: actText });
       setActs(prev => [{ id:`a${Date.now()}`, type:'status_change', text:actText, date:new Date().toLocaleString(), user:'You' }, ...prev]);
     } catch { setLead(l => ({ ...l, status: prev })); }
+  };
+
+
+  const submitCandidate = async () => {
+    if (!selCand) return;
+    setSubLoading(true);
+    try {
+      await submissionsAPI.create({ lead_id: id, candidate_id: selCand });
+      const sRes = await submissionsAPI.getAll({ lead_id: id });
+      setSubmissions(Array.isArray(sRes.data) ? sRes.data : []);
+      setSelCand('');
+    } catch (e) { alert(e?.response?.data?.detail || 'Failed to link candidate'); }
+    finally { setSubLoading(false); }
+  };
+
+  const removeSubmission = async (subId) => {
+    try {
+      await submissionsAPI.delete(subId);
+      setSubmissions(prev => prev.filter(s => s.id !== subId));
+    } catch {}
   };
 
   if (loading) return (
@@ -209,6 +234,7 @@ export default function LeadDetail() {
               { icon:'person',    label:'Owner',       value: lead?.assigned_owner || '' || '—' },
               { icon:'schedule',  label:'Follow-up',   value: lead?.next_follow_up || '' || '—' },
               { icon:'calendar_today', label:'Added',  value: lead?.created_at?.slice(0,10) || '' || '—' },
+              { icon:'payments',      label:'Deal Value', value: lead?.deal_value ? `₹${Number(lead.deal_value).toLocaleString('en-IN')}` : '—' },
             ].map(f => (
               <div key={f.label} style={{ display:'flex', gap:'0.75rem', alignItems:'flex-start', marginBottom:'0.75rem' }}>
                 <Icon name={f.icon} style={{ fontSize:'1rem', color:'var(--on-surface-variant)', marginTop:'0.125rem', flexShrink:0 }} />
@@ -252,8 +278,9 @@ export default function LeadDetail() {
           {/* Tab bar */}
           <div style={{ display:'flex', gap:'2px', background:'var(--surface-container-low)', padding:'4px', borderRadius:'0.75rem', alignSelf:'flex-start' }}>
             {[
-              { key:'activity', label:'Activity', icon:'history' },
-              { key:'notes',    label:'Notes',    icon:'sticky_note_2' },
+              { key:'activity',    label:'Activity',    icon:'history' },
+              { key:'submissions', label:`Submissions (${submissions.length})`, icon:'send' },
+              { key:'notes',       label:'Notes',       icon:'sticky_note_2' },
               { key:'tasks',    label:'Tasks',    icon:'task_alt' },
             ].map(t => (
               <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
@@ -308,6 +335,62 @@ export default function LeadDetail() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Submissions Tab */}
+          {activeTab === 'submissions' && (
+            <div>
+              <div style={{ display:'flex', gap:'0.75rem', marginBottom:'1rem', alignItems:'flex-end' }}>
+                <div style={{ flex:1 }}>
+                  <label className="label" style={{ marginBottom:'0.25rem', display:'block' }}>Link a Candidate to this Lead</label>
+                  <select className="select" value={selCand} onChange={e => setSelCand(e.target.value)}>
+                    <option value="">Select candidate…</option>
+                    {candidates.filter(c => !submissions.find(s => s.candidate_id === c.id)).map(c => (
+                      <option key={c.id} value={c.id}>{c.full_name} — {c.candidate_role||'—'} ({c.status})</option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  onClick={submitCandidate}
+                  disabled={!selCand || subLoading}
+                  style={{ display:'inline-flex', alignItems:'center', gap:'0.375rem', padding:'0.5rem 1.25rem', borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none', cursor:!selCand?'not-allowed':'pointer', background:!selCand?'var(--outline)':'var(--primary)', whiteSpace:'nowrap' }}
+                >
+                  <Icon name="send" style={{ fontSize:'1rem', color:'#fff' }} />
+                  {subLoading ? 'Linking…' : 'Submit Candidate'}
+                </button>
+              </div>
+
+              {submissions.length === 0 ? (
+                <p style={{ color:'var(--on-surface-variant)', textAlign:'center', padding:'2rem 0', fontSize:'0.875rem' }}>No candidates submitted to this client yet.</p>
+              ) : (
+                <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+                  {submissions.map(sub => (
+                    <div key={sub.id} style={{ display:'flex', alignItems:'center', gap:'0.875rem', padding:'0.75rem', borderRadius:'0.625rem', background:'var(--surface-container-low)', border:'1px solid var(--outline-variant)' }}>
+                      <div style={{ width:36, height:36, borderRadius:'50%', background:'rgba(0,74,198,0.08)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                        <Icon name="person" style={{ fontSize:'1.25rem', color:'var(--primary)' }} />
+                      </div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <p style={{ fontWeight:600, fontSize:'0.9375rem' }}>{sub.candidate?.full_name||'—'}</p>
+                        <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>{sub.candidate?.candidate_role||'—'} · <span style={{ textTransform:'capitalize' }}>{sub.candidate?.status||'—'}</span></p>
+                      </div>
+                      <select
+                        value={sub.status}
+                        onChange={async e => {
+                          await submissionsAPI.update(sub.id, { status: e.target.value });
+                          setSubmissions(prev => prev.map(s => s.id===sub.id ? {...s, status:e.target.value} : s));
+                        }}
+                        style={{ fontSize:'0.8125rem', padding:'0.25rem 0.5rem', borderRadius:'0.375rem', border:'1px solid var(--outline-variant)', background:'var(--surface-container-lowest)', color:'var(--on-surface)', cursor:'pointer' }}
+                      >
+                        {['submitted','feedback_pending','accepted','rejected'].map(s => <option key={s} value={s}>{s.replace('_',' ')}</option>)}
+                      </select>
+                      <button onClick={() => removeSubmission(sub.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--error)', padding:'0.25rem' }}>
+                        <Icon name="close" style={{ fontSize:'1rem' }} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -384,6 +467,10 @@ export default function LeadDetail() {
               <div style={{ gridColumn:'1/-1' }}>
                 <label className="label">Follow-up Date</label>
                 <input className="input" type="date" value={editForm.next_follow_up||''} onChange={e => set('next_follow_up', e.target.value)} />
+              </div>
+              <div style={{ gridColumn:'1/-1' }}>
+                <label className="label">Deal Value (₹)</label>
+                <input className="input" type="number" min="0" placeholder="Expected contract value" value={editForm.deal_value||''} onChange={e => set('deal_value', e.target.value ? Number(e.target.value) : '')} />
               </div>
               <div style={{ gridColumn:'1/-1' }}>
                 <label className="label">Notes</label>

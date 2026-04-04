@@ -71,11 +71,17 @@ export default function SalesDashboard() {
     : true
   );
 
+  const pipelineVal = data?.pipeline_value || 0;
+  const fmtVal = (v) => v >= 10000000 ? `₹${(v/10000000).toFixed(1)}Cr` : v >= 100000 ? `₹${(v/100000).toFixed(1)}L` : `₹${Math.round(v).toLocaleString('en-IN')}`;
+  const urgentFollowups = data?.urgent_followups || [];
+  const awaitingFeedback = data?.awaiting_feedback || [];
+  const subsPending = data?.submissions_pending || [];
+
   const kpis = [
-    { label:'Total Leads',       value: totalLeads.toLocaleString(), icon:'group',         color:'var(--primary)' },
-    { label:'Conversion Rate',   value: `${convRate}%`,              icon:'trending_up',   color:'var(--tertiary)' },
-    { label:'Follow-ups Today',  value: todayFollowups,              icon:'schedule',       color:'var(--amber)' },
-    { label:'Closed This Month', value: closedCount,                 icon:'check_circle',   color:'var(--tertiary)' },
+    { label:'Total Leads',      value: totalLeads.toLocaleString(), icon:'group',       color:'var(--primary)' },
+    { label:'Pipeline Value',   value: fmtVal(pipelineVal),         icon:'payments',    color:'var(--tertiary)' },
+    { label:'Follow-ups Today', value: todayFollowups,              icon:'schedule',    color:'var(--amber)' },
+    { label:'Deals Closed',     value: closedCount,                 icon:'check_circle',color:'var(--tertiary)' },
   ];
 
   const maxCount = Math.max(...Object.values(stats), 1);
@@ -150,32 +156,48 @@ export default function SalesDashboard() {
               </div>
             </div>
 
-            {/* Today's Tasks */}
+            {/* Smart Daily View */}
             <div className="card">
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.25rem' }}>
-                <h2 style={{ fontSize:'1rem', fontWeight:700 }}>Today's Tasks</h2>
-                <span style={{ background:'var(--primary)', color:'#fff', fontSize:'0.6875rem', fontWeight:700, padding:'0.125rem 0.5rem', borderRadius:9999 }}>
-                  {periodTasks.filter(t => !t.completed).length} left
-                </span>
+                <h2 style={{ fontSize:'1rem', fontWeight:700 }}>Start Your Day Here</h2>
               </div>
-              {periodTasks.length === 0 && (
-                <p style={{ fontSize:'0.875rem', color:'var(--on-surface-variant)', textAlign:'center', padding:'1.5rem 0' }}>No tasks due today 🎉</p>
-              )}
-              <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
-                {periodTasks.slice(0,6).map(t => (
-                  <div key={t.id} style={{ display:'flex', alignItems:'center', gap:'0.75rem', padding:'0.625rem 0.75rem', borderRadius:'0.5rem', background:t.completed?'transparent':'var(--surface-container-low)', opacity:t.completed?0.5:1, transition:'all 0.2s ease' }}>
-                    <button onClick={() => toggleTask(t.id, t.completed)} style={{ width:20, height:20, borderRadius:4, border:`2px solid ${t.completed?'var(--tertiary)':'var(--outline-variant)'}`, background:t.completed?'var(--tertiary)':'transparent', cursor:'pointer', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                      {t.completed && <Icon name="check" style={{ fontSize:'0.75rem', color:'#fff' }} />}
-                    </button>
-                    <Icon name={TASK_ICON[t.task_type] || 'task_alt'} style={{ fontSize:'1rem', color:'var(--on-surface-variant)' }} />
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <p style={{ fontSize:'0.875rem', fontWeight:500, textDecoration:t.completed?'line-through':'none', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{t.title}</p>
-                      {t.due_time && <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>{t.due_time.slice(0,5)}</p>}
+
+              {/* Urgent follow-ups */}
+              <div style={{ marginBottom:'1rem' }}>
+                <p className="label-sm" style={{ marginBottom:'0.5rem', color: urgentFollowups.length>0?'var(--error)':'var(--on-surface-variant)' }}>
+                  {urgentFollowups.length > 0 ? `🔥 ${urgentFollowups.length} Urgent Follow-up${urgentFollowups.length>1?'s':''}` : '✅ No urgent follow-ups'}
+                </p>
+                {urgentFollowups.slice(0,3).map(l => (
+                  <a key={l.id} href={`/sales/leads/${l.id}`} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.5rem 0.625rem', borderRadius:'0.5rem', background:'rgba(186,26,26,0.05)', border:'1px solid rgba(186,26,26,0.15)', marginBottom:'0.375rem', textDecoration:'none' }}>
+                    <div>
+                      <p style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--on-surface)' }}>{l.full_name}</p>
+                      <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>{l.company||'—'}</p>
                     </div>
-                  </div>
+                    <span style={{ fontSize:'0.6875rem', fontWeight:700, color:'var(--error)', whiteSpace:'nowrap' }}>{l.next_follow_up}</span>
+                  </a>
                 ))}
               </div>
-              {periodTasks.length > 0 && <a href="/sales/tasks" style={{ display:'block', textAlign:'center', fontSize:'0.8125rem', color:'var(--primary)', marginTop:'0.75rem', textDecoration:'none' }}>View all tasks →</a>}
+
+              {/* Candidates awaiting feedback */}
+              {awaitingFeedback.length > 0 && (
+                <div style={{ marginBottom:'1rem' }}>
+                  <p className="label-sm" style={{ marginBottom:'0.5rem', color:'var(--amber)' }}>⏳ {awaitingFeedback.length} Candidate{awaitingFeedback.length>1?'s':''} Awaiting Feedback</p>
+                  {awaitingFeedback.slice(0,2).map(iv => (
+                    <div key={iv.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.5rem 0.625rem', borderRadius:'0.5rem', background:'rgba(217,119,6,0.05)', border:'1px solid rgba(217,119,6,0.2)', marginBottom:'0.375rem' }}>
+                      <div>
+                        <p style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--on-surface)' }}>{iv.candidate?.full_name||'—'}</p>
+                        <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>{iv.interview_type} · {iv.job?.title||'—'}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Pipeline value */}
+              <div style={{ padding:'0.75rem', borderRadius:'0.625rem', background:'rgba(0,98,67,0.05)', border:'1px solid rgba(0,98,67,0.15)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <p style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--on-surface)' }}>Total Pipeline Value</p>
+                <p style={{ fontSize:'1.25rem', fontWeight:800, color:'var(--tertiary)' }}>{fmtVal(pipelineVal)}</p>
+              </div>
             </div>
           </div>
 
