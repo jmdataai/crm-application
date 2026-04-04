@@ -1,6 +1,19 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { leadsAPI } from '../../services/api';
 
+// ── SheetJS for Excel parsing (loaded once from CDN) ──
+let XLSX_LIB = null;
+async function getXLSX() {
+  if (XLSX_LIB) return XLSX_LIB;
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = () => { XLSX_LIB = window.XLSX; resolve(XLSX_LIB); };
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
 );
@@ -48,6 +61,8 @@ const SYNONYMS = {
     'primary email','contact email','corporate email','email 1','email1',
     'person email','emailaddress','email_address','work_email','main email',
     'lead email','prospect email',
+  ,
+    'personal_email',
   ],
   phone: [
     'phone','phone number','mobile','mobile phone','mobile number','work phone',
@@ -55,6 +70,12 @@ const SYNONYMS = {
     'contact number','primary phone','work mobile','business phone',
     'phone 1','phone1','phonenumber','phone_number','work_phone','direct dial',
     'office phone','hq phone','main phone','sanitized phone',
+  ,
+    'mobile_number',
+  ,
+    'mobile_phone',
+  ,
+    'contact_phone',
   ],
   company: [
     'company','company name','organization','organisation','account',
@@ -66,11 +87,15 @@ const SYNONYMS = {
     'title','job title','position','role','designation','occupation','job',
     'function','job function','person title','work title','current title',
     'job_title','jobtitle','contact title','professional title','headline',
+  ,
+    'functional_level',
   ],
   source: [
     'source','lead source','channel','origin','campaign','medium',
     'acquisition','how found','referred by','utm source','leadsource',
     'traffic source','referral','list name','list',
+  ,
+    'industry',
   ],
   linkedin_url: [
     'linkedin','linkedin url','linkedin profile','linkedin link',
@@ -203,7 +228,9 @@ const detectMapping = (headers, rows) => {
    CSV PARSER
 ═══════════════════════════════════════════════════════ */
 const parseCSV = (text) => {
-  const lines = text.trim().split(/\r?\n/);
+  // Strip BOM (Apify and Excel CSVs often have \uFEFF at the start)
+  const clean = text.replace(/^\uFEFF/, '').trim();
+  const lines = clean.split(/\r?\n/);
   if (lines.length < 2) return { headers: [], rows: [] };
   const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
   const rows = lines.slice(1, 201).map((line, i) => {
@@ -277,17 +304,50 @@ export default function ImportLeads() {
   const handleFile = useCallback((f) => {
     if (!f) return;
     const ext = f.name.split('.').pop().toLowerCase();
-    if (!['csv','xlsx','xls'].includes(ext)) { alert('Only CSV or Excel files supported'); return; }
+    if (!['csv','xlsx','xls'].includes(ext)) { alert('Only CSV or Excel files are supported'); return; }
     setFile(f);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const { headers, rows } = parseCSV(e.target.result);
-      if (!headers.length) { alert('Could not read file — check it has headers in row 1'); return; }
-      setParsed({ headers, rows });
-      setDetections(detectMapping(headers, rows));
-      setStep(2);
-    };
-    reader.readAsText(f);
+
+    if (ext === 'csv') {
+      // CSV — read as text, parse normally
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const { headers, rows } = parseCSV(e.target.result);
+        if (!headers.length) { alert('Could not read CSV — check it has a header row'); return; }
+        setParsed({ headers, rows });
+        setDetections(detectMapping(headers, rows));
+        setStep(2);
+      };
+      reader.readAsText(f);
+    } else {
+      // Excel (.xlsx / .xls) — read as binary, parse with SheetJS
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const XLSX = await getXLSX();
+          const wb   = XLSX.read(e.target.result, { type: 'array' });
+          const ws   = wb.Sheets[wb.SheetNames[0]]; // first sheet
+          // Convert to array-of-arrays, then build header+rows like parseCSV
+          const raw  = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+          if (!raw || raw.length < 2) { alert('Excel file appears empty or has no data rows'); return; }
+          // First non-empty row = headers
+          const headers = (raw[0] || []).map(h => String(h).trim());
+          const rows    = raw.slice(1)
+            .filter(r => r.some(v => String(v).trim() !== '')) // skip blank rows
+            .map((r, i) => {
+              const obj = { _rowNum: i + 2 };
+              headers.forEach((h, ci) => { obj[h] = String(r[ci] ?? '').trim(); });
+              return obj;
+            });
+          if (!headers.length) { alert('Could not find headers in first row'); return; }
+          setParsed({ headers, rows });
+          setDetections(detectMapping(headers, rows));
+          setStep(2);
+        } catch (err) {
+          alert('Failed to read Excel file: ' + err.message);
+        }
+      };
+      reader.readAsArrayBuffer(f);
+    }
   }, []);
 
   const onDrop = (e) => { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0]); };
@@ -397,7 +457,7 @@ export default function ImportLeads() {
             <div className="card scale-in">
               <h2 style={{ fontSize:'1rem', fontWeight:700, marginBottom:'0.5rem' }}>Upload your file</h2>
               <p style={{ color:'var(--on-surface-variant)', fontSize:'0.875rem', marginBottom:'1.5rem' }}>
-                Works with <strong>Apollo, LinkedIn, ZoomInfo, Lusha, Apify, Phantombuster, Clay, Hunter.io</strong> and any custom scraper. Upload as-is — no column renaming needed.
+                Works with <strong>Apollo, LinkedIn, ZoomInfo, Lusha, Apify, Clay, Hunter.io</strong> and any custom scraper. Supports <strong>Excel (.xlsx) and CSV</strong> — upload as-is, no renaming needed.
               </p>
               <div onDrop={onDrop} onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)} onClick={()=>fileRef.current?.click()}
                 style={{ border:`2px dashed ${dragOver?'var(--primary)':'rgba(195,198,215,0.5)'}`, borderRadius:'0.875rem', padding:'3rem 2rem', textAlign:'center', cursor:'pointer', background:dragOver?'rgba(0,74,198,0.04)':'var(--surface-container-low)', transition:'all 0.2s ease' }}>
@@ -598,8 +658,8 @@ export default function ImportLeads() {
               </div>
             ))}
           </div>
-        </div>
       </div>
     </div>
+  </div>
   );
 }
