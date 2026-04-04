@@ -192,7 +192,7 @@ const detectMapping = (headers, rows) => {
     }
 
     // Layer 2 — content analysis (can override fuzzy, confirms exact)
-    const samples = rows.map(r => String(r.cells?.[col] || '').trim()).filter(v => v && v !== 'null' && v !== 'undefined').slice(0, 20);
+    const samples = rows.map(r => String(r[col] || '').trim()).filter(v => v && v !== 'null' && v !== 'undefined').slice(0, 20);
     if (samples.length >= 3) {
       for (const det of CONTENT_DETECTORS) {
         const score = det.test(samples);
@@ -225,18 +225,37 @@ const detectMapping = (headers, rows) => {
 };
 
 /* ═══════════════════════════════════════════════════════
-   CSV PARSER
+   CSV PARSER — handles quoted commas, BOM, CRLF
+   Rows use direct properties: { _rowNum, [header]: value }
+   (same shape as Excel rows — no nested "cells" wrapper)
 ═══════════════════════════════════════════════════════ */
+const parseCSVLine = (line) => {
+  const result = []; let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"' && line[i+1] === '"') { cur += '"'; i++; continue; } // escaped quote
+    if (c === '"') { inQ = !inQ; continue; }
+    if (c === ',' && !inQ) { result.push(cur.trim()); cur = ''; continue; }
+    cur += c;
+  }
+  result.push(cur.trim());
+  return result;
+};
+
 const parseCSV = (text) => {
-  // Strip BOM (Apify and Excel CSVs often have \uFEFF at the start)
   const clean = text.replace(/^\uFEFF/, '').trim();
   const lines = clean.split(/\r?\n/);
   if (lines.length < 2) return { headers: [], rows: [] };
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-  const rows = lines.slice(1, 201).map((line, i) => {
-    const vals = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-    return { _rowNum: i+2, cells: headers.reduce((acc, h, j) => ({ ...acc, [h]: vals[j]||'' }), {}) };
-  });
+  const headers = parseCSVLine(lines[0]);
+  const rows = lines.slice(1)
+    .filter(l => l.trim())        // skip blank lines
+    .slice(0, 2000)               // safety cap
+    .map((line, i) => {
+      const vals = parseCSVLine(line);
+      const obj = { _rowNum: i + 2 };
+      headers.forEach((h, j) => { obj[h] = vals[j] || ''; });
+      return obj;
+    });
   return { headers, rows };
 };
 
@@ -247,7 +266,7 @@ const validateRow = (row, detections) => {
   const errors = [];
   const mapped = {};
   Object.entries(detections).forEach(([col, det]) => {
-    if (det.key !== '__skip__' && det.key !== '_last_name') mapped[det.key] = row.cells[col] || '';
+    if (det.key !== '__skip__' && det.key !== '_last_name') mapped[det.key] = row[col] || '';
   });
   if (!mapped.full_name?.trim()) errors.push('Full Name is required');
   if (mapped.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mapped.email)) errors.push('Invalid email');
@@ -387,7 +406,7 @@ export default function ImportLeads() {
 
     for (let i = 0; i < parsed.rows.length; i++) {
       const row  = parsed.rows[i];
-      const errs = errorRows[i]?.errors || [];
+      const errs = validatedRows[i]?.errors || [];  // validatedRows is 1:1 with parsed.rows
       if (errs.length > 0) { errors.push({ row: row._rowNum, issues: errs }); continue; }
 
       // Build lead from mapping
@@ -538,7 +557,7 @@ export default function ImportLeads() {
                   const isFuzzy = det.method === 'fuzzy';
                   const rowBg = isSkipped ? 'var(--surface-container-low)' : isFuzzy ? 'rgba(251,191,36,0.08)' : 'rgba(0,74,198,0.04)';
                   const rowBorder = isSkipped ? '1px solid transparent' : isFuzzy ? '1px solid rgba(251,191,36,0.4)' : '1px solid rgba(0,74,198,0.15)';
-                  const samples = parsed.rows.slice(0,3).map(r=>r.cells[col]).filter(Boolean);
+                  const samples = parsed.rows.slice(0,3).map(r=>r[col]).filter(Boolean);
                   return (
                     <div key={col} style={{ borderRadius:'0.5rem', background:rowBg, border:rowBorder }}>
                       <div style={{ display:'grid', gridTemplateColumns:'1fr 28px 1fr', gap:'0.75rem', alignItems:'center', padding:'0.625rem 0.75rem' }}>

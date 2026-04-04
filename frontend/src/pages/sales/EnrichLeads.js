@@ -107,6 +107,8 @@ export default function EnrichLeads() {
   // import state
   const [importing, setImporting] = useState(false);
   const [imported,  setImported]  = useState(0);
+  // table view toggle
+  const [showAllRows, setShowAllRows] = useState(false);
 
   /* ── Parse uploaded file ─────────────────────────────── */
   const handleFile = useCallback((file) => {
@@ -526,14 +528,24 @@ export default function EnrichLeads() {
           {/* Data table */}
           <div className="card" style={{ padding:0, overflow:'hidden' }}>
             <div style={{ padding:'1rem 1.5rem', borderBottom:'1px solid var(--outline-variant)', display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:'0.5rem' }}>
-              <h2 style={{ fontSize:'1rem', fontWeight:700 }}>{fileName} — {rows.length} rows</h2>
-              <div style={{ display:'flex', gap:'0.375rem', flexWrap:'wrap' }}>
+              <div>
+                <h2 style={{ fontSize:'1rem', fontWeight:700, marginBottom:'0.125rem' }}>{fileName}</h2>
+                <p style={{ fontSize:'0.8125rem', color:'var(--on-surface-variant)', margin:0 }}>
+                  {showAllRows ? `All ${rows.length} rows` : toEnrich.length > 0 ? `Showing ${toEnrich.length} rows that need enrichment` : `${rows.length} rows — all complete`}
+                </p>
+              </div>
+              <div style={{ display:'flex', gap:'0.375rem', flexWrap:'wrap', alignItems:'center' }}>
                 {rows.filter(r => emailCol && r[emailCol]?.trim()).length > 0 && (
                   <Pill color="var(--tertiary)" bg="rgba(0,98,67,0.1)">✅ {rows.filter(r => emailCol && r[emailCol]?.trim()).length} have email</Pill>
                 )}
                 {missingEmail.length > 0 && <Pill color="#d97706" bg="rgba(217,119,6,0.1)">📧 {missingEmail.length} missing email</Pill>}
                 {missingPhone.length > 0 && <Pill color="#7c3aed" bg="rgba(124,58,237,0.08)">📞 {missingPhone.length} missing phone</Pill>}
                 {foundEmails > 0 && <Pill color="var(--primary)" bg="rgba(0,74,198,0.1)">✨ {foundEmails} enriched</Pill>}
+                {toEnrich.length > 0 && toEnrich.length < rows.length && (
+                  <button onClick={() => setShowAllRows(v => !v)} style={{ fontSize:'0.75rem', padding:'0.25rem 0.625rem', borderRadius:'0.375rem', border:'1px solid var(--outline-variant)', background:'var(--surface)', color:'var(--on-surface-variant)', cursor:'pointer' }}>
+                    {showAllRows ? `Show ${toEnrich.length} to enrich` : `Show all ${rows.length} rows`}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -547,7 +559,7 @@ export default function EnrichLeads() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(enriched.length ? enriched : rows).map((row, idx) => {
+                  {(showAllRows ? (enriched.length ? enriched : rows) : (toEnrich.length > 0 ? (enriched.length ? enriched.filter(r => linkedinCol && r[linkedinCol]?.trim() && (r._e || r._p || (!emailCol || !r[emailCol]?.trim()) || (!phoneCol || !r[phoneCol]?.trim()))) : toEnrich) : (enriched.length ? enriched : rows))).map((row, idx) => {
                     const email   = emailCol ? row[emailCol]?.trim()   : '';
                     const phone   = phoneCol ? row[phoneCol]?.trim()   : '';
                     const li      = linkedinCol ? row[linkedinCol]?.trim() : '';
@@ -607,6 +619,7 @@ export default function EnrichLeads() {
               </table>
             </div>
           </div>
+
         </>
       )}
     </div>
