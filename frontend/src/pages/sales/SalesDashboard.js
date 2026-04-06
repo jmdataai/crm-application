@@ -1,252 +1,496 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { dashboardAPI, tasksAPI } from '../../services/api';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { leadsAPI } from '../../services/api';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
 );
 
-const Chip = ({ status }) => {
-  const map = {
-    new: 'chip-new', contacted: 'chip-contacted', called: 'chip-called',
-    interested: 'chip-interested', closed: 'chip-closed', completed: 'chip-completed',
-    follow_up_needed: 'chip-follow-up', rejected: 'chip-rejected', lost: 'chip-lost',
-  };
-  const labels = {
-    new:'New', contacted:'Contacted', called:'Called', interested:'Interested',
-    closed:'Closed', completed:'Completed', follow_up_needed:'Follow-up',
-    rejected:'Rejected', lost:'Lost',
-  };
-  return <span className={`chip ${map[status] || 'chip-new'}`}>{labels[status] || status}</span>;
+/* ── Status config ─────────────────────────────────────── */
+const STATUS_META = {
+  new:              { label:'New',            bg:'#f1f5f9', color:'#64748b',  dot:'#94a3b8' },
+  contacted:        { label:'Intro Sent',     bg:'#eff6ff', color:'#1d4ed8',  dot:'#3b82f6' },
+  called:           { label:'Called',         bg:'#f5f3ff', color:'#6d28d9',  dot:'#8b5cf6' },
+  interested:       { label:'Interested',     bg:'#fffbeb', color:'#d97706',  dot:'#f59e0b' },
+  follow_up_needed: { label:'Follow-up Due',  bg:'#fff7ed', color:'#ea580c',  dot:'#f97316' },
+  closed:           { label:'Won',            bg:'#f0fdf4', color:'#16a34a',  dot:'#22c55e' },
+  completed:        { label:'Completed',      bg:'#f0fdf4', color:'#15803d',  dot:'#16a34a' },
+  rejected:         { label:'Not Interested', bg:'#fef2f2', color:'#dc2626',  dot:'#ef4444' },
+  lost:             { label:'Lost',           bg:'#fef2f2', color:'#b91c1c',  dot:'#dc2626' },
 };
 
-const TASK_ICON = { call:'phone', email:'mail', meeting:'video_call', note:'edit_note', follow_up:'schedule', demo:'present_to_all', outreach:'person_search' };
+/* ── Category tabs — mirrors the Excel sheets ──────────── */
+const CATEGORY_TABS = [
+  { id:'all',         label:'All Companies',     icon:'grid_view',  desc:'Every company across all sheets' },
+  { id:'recruitment', label:'Recruitment Partners', icon:'people',  desc:'Staffing & recruitment agencies' },
+  { id:'endclient',   label:'End Clients',       icon:'business',   desc:'Direct clients — Banking, Pharma, Tech' },
+  { id:'consulting',  label:'Consulting',        icon:'cases',      desc:'SAP, IT consulting firms' },
+  { id:'technology',  label:'Technology',        icon:'computer',   desc:'Tech companies & SaaS' },
+  { id:'other',       label:'Others',            icon:'more_horiz', desc:'Other types' },
+];
 
+const categorise = (lead) => {
+  const t = (lead.business_type || lead.industry || '').toLowerCase();
+  if (t.includes('recruit') || t.includes('staffing') || t.includes('talent')) return 'recruitment';
+  if (t.includes('consult')) return 'consulting';
+  if (t.includes('technology') || t.includes('software') || t.includes('saas') || t.includes('tech')) return 'technology';
+  if (t.includes('bank') || t.includes('pharma') || t.includes('medical') || t.includes('financial') ||
+      t.includes('insurance') || t.includes('telecom') || t.includes('utilities') || t.includes('manufacturing') ||
+      t.includes('energy') || t.includes('food') || t.includes('chemical')) return 'endclient';
+  if (t) return 'other';
+  return 'other';
+};
+
+/* ── Normalise API response ────────────────────────────── */
+const norm = (l) => ({
+  id:         l.id,
+  company:    l.company || l.full_name || '—',
+  type:       l.business_type || l.industry || '',
+  status:     l.status || 'new',
+  location:   l.address || l.country || '',
+  country:    l.country || '',
+  domain:     l.solution_skills || l.industry || '',
+  website:    l.website || '',
+  linkedin:   l.linkedin_url || '',
+  c1_name:    l.full_name || '',
+  c1_desig:   l.job_title || '',
+  c1_email:   l.email || '',
+  c1_phone:   l.phone || '',
+  c2_name:    l.contact_person_2_name || '',
+  c2_desig:   l.contact_person_2_designation || '',
+  c2_email:   l.contact_person_2_email || '',
+  c2_phone:   l.contact_person_2_phone || '',
+  c3_name:    l.contact_person_3_name || '',
+  c3_email:   l.contact_person_3_email || '',
+  remark:     l.notes || '',
+  follow_up:  l.next_follow_up || '',
+  intro_sent: l.intro_sent || '',
+  source_file:l.source_file || '',
+  deal_value: l.deal_value || 0,
+  created_at: l.created_at?.slice(0,10) || '',
+  category:   categorise(l),
+});
+
+/* ── Status badge ──────────────────────────────────────── */
+const StatusBadge = ({ status, onChange, id }) => {
+  const s = STATUS_META[status] || STATUS_META.new;
+  return (
+    <select value={status} onChange={e => onChange(id, e.target.value)}
+      onClick={e => e.stopPropagation()}
+      style={{ border:'none', background:s.bg, color:s.color, fontWeight:700, fontSize:'0.7rem', borderRadius:4, padding:'0.15rem 0.4rem', cursor:'pointer', fontFamily:'Inter,sans-serif', outline:'none', minWidth:80 }}>
+      {Object.entries(STATUS_META).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
+    </select>
+  );
+};
+
+/* ── Contact cell ──────────────────────────────────────── */
+const ContactCell = ({ name, desig, email, phone }) => {
+  if (!name && !email) return <span style={{ color:'var(--outline)' }}>—</span>;
+  return (
+    <div style={{ minWidth:0 }}>
+      {name && <p style={{ fontSize:'0.8rem', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:150, margin:0 }}>{name}</p>}
+      {desig && <p style={{ fontSize:'0.7rem', color:'var(--on-surface-variant)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:150, margin:0 }}>{desig}</p>}
+      <div style={{ display:'flex', gap:6, marginTop:2 }}>
+        {email && <a href={`mailto:${email}`} onClick={e=>e.stopPropagation()} style={{ fontSize:'0.7rem', color:'var(--primary)', textDecoration:'none', display:'flex', alignItems:'center', gap:2, whiteSpace:'nowrap' }}><Icon name="mail" style={{fontSize:'0.75rem'}}/>{email.split('@')[0]}</a>}
+        {phone && <a href={`tel:${phone}`} onClick={e=>e.stopPropagation()} style={{ fontSize:'0.7rem', color:'var(--tertiary)', textDecoration:'none', display:'flex', alignItems:'center', gap:2, whiteSpace:'nowrap' }}><Icon name="call" style={{fontSize:'0.75rem'}}/></a>}
+      </div>
+    </div>
+  );
+};
+
+/* ── Main SalesDashboard ───────────────────────────────── */
 export default function SalesDashboard() {
-  const { user } = useAuth();
-  const [period, setPeriod] = useState('weekly');
-  const [data, setData]     = useState(null);
+  const navigate      = useNavigate();
+  const { user }      = useAuth();
+  const [leads,   setLeads]   = useState([]);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab]         = useState('all');
+  const [fileFilter, setFileFilter] = useState('all');
+  const changeFile = (f) => { setFileFilter(f); setTab('all'); setPage(1); setCS({ company:'', type:'', status:'', location:'', domain:'', c1_name:'', remark:'', follow_up:'', source_file:'' }); };
+  const [sortBy, setSortBy]   = useState('created_at');
+  const [sortDir, setSortDir] = useState('desc');
+  const [page, setPage]       = useState(1);
+  const PER_PAGE = 30;
 
-  const fetchDashboard = useCallback(async () => {
+  // Per-column search
+  const [cs, setCS] = useState({ company:'', type:'', status:'', location:'', domain:'', c1_name:'', remark:'', follow_up:'', source_file:'' });
+  const setCol = (k,v) => { setCS(s=>({...s,[k]:v})); setPage(1); };
+
+  const fetchLeads = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await dashboardAPI.getSales();
-      setData(res.data);
-    } catch { /* show empty */ }
+      const res = await leadsAPI.getAll({ limit:1000 });
+      const data = Array.isArray(res.data) ? res.data
+        : Array.isArray(res.data?.leads) ? res.data.leads
+        : Array.isArray(res.data?.data) ? res.data.data : [];
+      setLeads(data.map(norm));
+    } catch {}
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { fetchDashboard(); }, [fetchDashboard]);
+  useEffect(() => { fetchLeads(); }, [fetchLeads]);
 
-  const toggleTask = async (taskId, done) => {
-    try {
-      await tasksAPI.update(taskId, { completed: !done });
-      setData(prev => prev ? {
-        ...prev,
-        today_tasks: prev.today_tasks.map(t => t.id === taskId ? { ...t, completed: !done } : t)
-      } : prev);
-    } catch {}
+  /* quick updates inline */
+  const updateStatus = async (id, status) => {
+    setLeads(ls => ls.map(l => l.id===id ? {...l, status} : l));
+    try { await leadsAPI.update(id, { status }); } catch {}
+  };
+  const updateFollowUp = async (id, date) => {
+    setLeads(ls => ls.map(l => l.id===id ? {...l, follow_up:date} : l));
+    try { await leadsAPI.update(id, { next_follow_up: date||null }); } catch {}
   };
 
-  const stats = data?.lead_stats || {};
-  const totalLeads     = data?.total_leads || 0;
-  const todayFollowups = data?.today_followups?.length || 0;
-  const closedCount    = (stats.closed || 0) + (stats.completed || 0);
-  const convRate       = totalLeads > 0 ? ((closedCount / totalLeads) * 100).toFixed(1) : '0';
+  const today = new Date().toISOString().slice(0,10);
 
-  const recentLeads = data?.recent_leads || [];
-  const todayTasks  = data?.today_tasks  || [];
+  /* tab counts */
+  const tabCounts = useMemo(() => {
+    const c = { all: leads.length };
+    CATEGORY_TABS.slice(1).forEach(t => { c[t.id] = leads.filter(l => l.category === t.id).length; });
+    return c;
+  }, [leads]);
 
-  // Filter data by selected period
-  const now   = new Date();
-  const start = period === 'today'   ? new Date(now.toISOString().slice(0,10))
-              : period === 'weekly'  ? new Date(now - 7*86400000)
-              :                        new Date(now - 30*86400000);
-  const startStr = start.toISOString().slice(0,10);
-  const periodLeads = recentLeads.filter(l => !l.created_at || l.created_at.slice(0,10) >= startStr);
-  const periodTasks = todayTasks.filter(t =>
-    period === 'today'  ? t.due_date === new Date().toISOString().slice(0,10)
-    : period === 'weekly' ? (t.due_date >= startStr)
-    : true
+  /* summary counts */
+  const summary = useMemo(() => ({
+    total:        leads.length,
+    follow_due:   leads.filter(l => l.follow_up && l.follow_up <= today).length,
+    interested:   leads.filter(l => l.status === 'interested').length,
+    intro_sent:   leads.filter(l => l.status === 'contacted').length,
+    won:          leads.filter(l => ['closed','completed'].includes(l.status)).length,
+    not_started:  leads.filter(l => l.status === 'new').length,
+  }), [leads, today]);
+
+  /* distinct source files for the file picker */
+  const sourceFiles = useMemo(() => {
+    const files = [...new Set(leads.map(l => l.source_file).filter(Boolean))].sort();
+    return files;
+  }, [leads]);
+
+  /* filtering + sorting */
+  const filtered = useMemo(() => {
+    let out = leads.filter(l => {
+      if (fileFilter !== 'all' && l.source_file !== fileFilter) return false;
+      if (tab !== 'all' && l.category !== tab) return false;
+      if (cs.company && !l.company?.toLowerCase().includes(cs.company.toLowerCase())) return false;
+      if (cs.type    && !l.type?.toLowerCase().includes(cs.type.toLowerCase())) return false;
+      if (cs.status  && !l.status?.toLowerCase().includes(cs.status.toLowerCase())) return false;
+      if (cs.location&& !l.location?.toLowerCase().includes(cs.location.toLowerCase()) && !l.country?.toLowerCase().includes(cs.location.toLowerCase())) return false;
+      if (cs.domain  && !l.domain?.toLowerCase().includes(cs.domain.toLowerCase())) return false;
+      if (cs.c1_name && !l.c1_name?.toLowerCase().includes(cs.c1_name.toLowerCase())) return false;
+      if (cs.remark  && !l.remark?.toLowerCase().includes(cs.remark.toLowerCase())) return false;
+      if (cs.follow_up && !l.follow_up?.includes(cs.follow_up)) return false;
+      if (cs.source_file && !l.source_file?.toLowerCase().includes(cs.source_file.toLowerCase())) return false;
+      return true;
+    });
+    out = [...out].sort((a,b) => {
+      const av = a[sortBy]||'', bv = b[sortBy]||'';
+      return sortDir==='asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+    });
+    return out;
+  }, [leads, tab, cs, sortBy, sortDir]);
+
+  const totalPages = Math.ceil(filtered.length / PER_PAGE);
+  const paged      = filtered.slice((page-1)*PER_PAGE, page*PER_PAGE);
+
+  const toggleSort = (col) => {
+    if (sortBy===col) setSortDir(d => d==='asc'?'desc':'asc');
+    else { setSortBy(col); setSortDir('asc'); }
+    setPage(1);
+  };
+  const SortTh = ({ col, label, w, align }) => (
+    <th onClick={() => toggleSort(col)} style={{ padding:'0.5rem 0.625rem', textAlign:align||'left', cursor:'pointer', userSelect:'none', whiteSpace:'nowrap', minWidth:w||100, borderRight:'1px solid var(--outline-variant)', background:'var(--surface-container-low)', position:'sticky', top:0, zIndex:1 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:3, fontSize:'0.68rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase', letterSpacing:'0.06em' }}>
+        {label}
+        {sortBy===col
+          ? <Icon name={sortDir==='asc'?'arrow_upward':'arrow_downward'} style={{fontSize:'0.7rem',color:'var(--primary)'}}/>
+          : <Icon name="unfold_more" style={{fontSize:'0.7rem',opacity:0.25}}/>}
+      </div>
+    </th>
   );
 
-  const pipelineVal = data?.pipeline_value || 0;
-  const fmtVal = (v) => v >= 10000000 ? `₹${(v/10000000).toFixed(1)}Cr` : v >= 100000 ? `₹${(v/100000).toFixed(1)}L` : `₹${Math.round(v).toLocaleString('en-IN')}`;
-  const urgentFollowups = data?.urgent_followups || [];
-  const awaitingFeedback = data?.awaiting_feedback || [];
-  const subsPending = data?.submissions_pending || [];
+  const hasCS = Object.values(cs).some(v=>v);
 
-  const kpis = [
-    { label:'Total Leads',      value: totalLeads.toLocaleString(), icon:'group',       color:'var(--primary)' },
-    { label:'Pipeline Value',   value: fmtVal(pipelineVal),         icon:'payments',    color:'var(--tertiary)' },
-    { label:'Follow-ups Today', value: todayFollowups,              icon:'schedule',    color:'var(--amber)' },
-    { label:'Deals Closed',     value: closedCount,                 icon:'check_circle',color:'var(--tertiary)' },
-  ];
+  const colInput = (key, ph) => (
+    <input placeholder={ph||'Filter…'} value={cs[key]||''} onChange={e=>setCol(key,e.target.value)}
+      onClick={e=>e.stopPropagation()}
+      style={{ width:'100%', fontSize:'0.68rem', padding:'0.2rem 0.375rem', borderRadius:3, border:'1px solid var(--outline-variant)', background:'var(--surface)', color:'var(--on-surface)', fontFamily:'Inter,sans-serif', boxSizing:'border-box' }}/>
+  );
+  const statusFilter = (
+    <select value={cs.status||''} onChange={e=>setCol('status',e.target.value)} onClick={e=>e.stopPropagation()}
+      style={{ width:'100%', fontSize:'0.68rem', padding:'0.2rem 0.375rem', borderRadius:3, border:'1px solid var(--outline-variant)', background:'var(--surface)', color:'var(--on-surface)', fontFamily:'Inter,sans-serif' }}>
+      <option value="">All</option>
+      {Object.entries(STATUS_META).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+    </select>
+  );
 
-  const maxCount = Math.max(...Object.values(stats), 1);
-  const pipelineStages = [
-    { label:'New',        count: stats.new || 0,         color:'var(--outline-variant)' },
-    { label:'Contacted',  count: stats.contacted || 0,   color:'var(--secondary)' },
-    { label:'Interested', count: stats.interested || 0,  color:'var(--primary)' },
-    { label:'Closed',     count: closedCount,            color:'var(--tertiary)' },
-  ].map(s => ({ ...s, pct: Math.round((s.count / maxCount) * 100) }));
-
-  const firstName = user?.name?.split(' ')[0] || 'there';
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const greetHour = new Date().getHours();
+  const greet = greetHour < 12 ? 'Good morning' : greetHour < 17 ? 'Good afternoon' : 'Good evening';
 
   return (
     <div className="fade-in">
-      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'2rem' }}>
+      {/* ── Header ───────────────────────────────────── */}
+      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.5rem' }}>
         <div>
-          <p className="label-sm" style={{ marginBottom:'0.25rem' }}>Sales Overview</p>
-          <h1 className="headline-sm">{greeting}, {firstName} 👋</h1>
+          <p style={{ fontSize:'0.8125rem', color:'var(--on-surface-variant)', marginBottom:'0.25rem' }}>{greet}, {user?.name?.split(' ')[0] || 'Kajal'} 👋</p>
+          <h1 style={{ fontSize:'1.625rem', fontWeight:800, color:'var(--on-surface)', lineHeight:1 }}>Sales Tracker</h1>
+          <p style={{ fontSize:'0.8125rem', color:'var(--on-surface-variant)', marginTop:'0.25rem' }}>{new Date().toLocaleDateString('en-IN', {weekday:'long',day:'numeric',month:'long',year:'numeric'})}</p>
         </div>
-        <div style={{ display:'flex', alignItems:'center', gap:'2px', background:'var(--surface-container-low)', padding:'4px', borderRadius:'0.625rem' }}>
-          {['today','weekly','monthly'].map(p => (
-            <button key={p} onClick={() => setPeriod(p)} style={{ padding:'0.375rem 0.875rem', borderRadius:'0.5rem', border:'none', cursor:'pointer', fontSize:'0.8125rem', fontFamily:'Inter,sans-serif', fontWeight:period===p?600:400, background:period===p?'var(--surface-container-lowest)':'transparent', color:period===p?'var(--on-surface)':'var(--on-surface-variant)', boxShadow:period===p?'var(--ambient-shadow)':'none', transition:'all 0.2s ease' }}>
-              {p.charAt(0).toUpperCase()+p.slice(1)}
-            </button>
-          ))}
+        <div style={{ display:'flex', gap:'0.625rem' }}>
+          <a href="/sales/import" className="btn-secondary"><Icon name="upload_file" style={{fontSize:'1rem'}}/> Import</a>
+          <a href="/sales/leads" className="btn-secondary"><Icon name="table_rows" style={{fontSize:'1rem'}}/> All Leads</a>
+          <a href="/sales/leads" className="btn-primary" onClick={e=>{e.preventDefault();document.querySelector('[data-add-lead]')?.click();}}
+            style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1.25rem', borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none', cursor:'pointer', background:'var(--primary)', textDecoration:'none' }}>
+            <Icon name="add" style={{fontSize:'1rem',color:'#fff'}}/> Add Company
+          </a>
         </div>
       </div>
 
-      {loading && (
-        <div style={{ textAlign:'center', padding:'4rem', color:'var(--on-surface-variant)' }}>
-          <Icon name="progress_activity" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.75rem' }} />
-          Loading dashboard…
+      {/* ── File / Dataset Picker ─────────────────────── */}
+      {sourceFiles.length > 0 && (
+        <div style={{ marginBottom:'1.25rem', display:'flex', alignItems:'center', gap:'0.75rem', flexWrap:'wrap' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'0.375rem' }}>
+            <Icon name="folder_open" style={{ fontSize:'1.1rem', color:'var(--primary)' }}/>
+            <span style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--on-surface)' }}>Viewing:</span>
+          </div>
+          {/* All files option */}
+          <button onClick={() => changeFile('all')} style={{
+            padding:'0.35rem 0.875rem', borderRadius:9999, border: fileFilter==='all' ? 'none' : '1px solid var(--outline-variant)',
+            cursor:'pointer', fontSize:'0.8125rem', fontWeight:600, fontFamily:'Inter,sans-serif',
+            background: fileFilter==='all' ? 'var(--primary)' : 'transparent',
+            color: fileFilter==='all' ? '#fff' : 'var(--on-surface-variant)',
+            transition:'all 0.15s',
+          }}>
+            All Files ({leads.length})
+          </button>
+          {sourceFiles.map(f => {
+            const count = leads.filter(l => l.source_file === f).length;
+            // Shorten filename for display
+            const display = f.length > 35 ? f.slice(0, 32) + '…' : f;
+            return (
+              <button key={f} onClick={() => changeFile(f)} title={f} style={{
+                padding:'0.35rem 0.875rem', borderRadius:9999,
+                border: fileFilter===f ? 'none' : '1px solid var(--outline-variant)',
+                cursor:'pointer', fontSize:'0.8125rem', fontWeight:600, fontFamily:'Inter,sans-serif',
+                background: fileFilter===f ? 'var(--primary)' : 'var(--surface-container-low)',
+                color: fileFilter===f ? '#fff' : 'var(--on-surface-variant)',
+                display:'inline-flex', alignItems:'center', gap:'0.375rem',
+                transition:'all 0.15s',
+              }}>
+                <Icon name="description" style={{ fontSize:'0.875rem', color: fileFilter===f ? '#fff' : 'var(--primary)' }}/>
+                {display}
+                <span style={{ padding:'0.1rem 0.4rem', borderRadius:9999, fontSize:'0.7rem', fontWeight:700, background: fileFilter===f ? 'rgba(255,255,255,0.25)' : 'var(--surface-container)', color: fileFilter===f ? '#fff' : 'var(--on-surface-variant)' }}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
 
-      {!loading && (
-        <>
-          {/* KPI Strip */}
-          <div className="stagger-children" style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'1.25rem', marginBottom:'1.75rem' }}>
-            {kpis.map(k => (
-              <div key={k.label} className="card fade-in hover-lift" style={{ position:'relative', overflow:'hidden' }}>
-                <div style={{ position:'absolute', top:12, right:12, opacity:0.07 }}>
-                  <Icon name={k.icon} style={{ fontSize:'3.5rem', color:k.color }} />
-                </div>
-                <p className="label-sm" style={{ marginBottom:'1rem' }}>{k.label}</p>
-                <span style={{ fontSize:'2.5rem', fontWeight:800, color:'var(--on-surface)', letterSpacing:'-0.03em', lineHeight:1 }}>{k.value}</span>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ display:'grid', gridTemplateColumns:'7fr 5fr', gap:'1.25rem', marginBottom:'1.75rem' }}>
-            {/* Pipeline Funnel */}
-            <div className="card">
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.5rem' }}>
-                <h2 style={{ fontSize:'1rem', fontWeight:700 }}>Sales Pipeline</h2>
-                <a href="/sales/leads" className="btn-secondary" style={{ fontSize:'0.75rem', padding:'0.25rem 0.75rem' }}>View All</a>
-              </div>
-              <div style={{ display:'flex', flexDirection:'column', gap:'0.875rem' }}>
-                {pipelineStages.map(s => (
-                  <div key={s.label}>
-                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'0.375rem' }}>
-                      <span style={{ fontSize:'0.875rem', fontWeight:500 }}>{s.label}</span>
-                      <span style={{ fontSize:'0.875rem', fontWeight:700 }}>{s.count}</span>
-                    </div>
-                    <div style={{ height:8, background:'var(--surface-container-low)', borderRadius:9999, overflow:'hidden' }}>
-                      <div style={{ height:'100%', width:`${s.pct}%`, background:s.color, borderRadius:9999, transition:'width 0.6s ease' }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
+      {/* ── Summary KPI row ───────────────────────────── */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:'0.75rem', marginBottom:'1.5rem' }}>
+        {[
+          { label:'Total Companies',  value:summary.total,       icon:'business',      color:'#1d4ed8', bg:'#eff6ff' },
+          { label:'Not Yet Contacted',value:summary.not_started, icon:'pending',        color:'#64748b', bg:'#f1f5f9' },
+          { label:'Intro Sent',        value:summary.intro_sent,  icon:'send',           color:'#1d4ed8', bg:'#eff6ff' },
+          { label:'Interested',        value:summary.interested,  icon:'thumb_up',       color:'#d97706', bg:'#fffbeb' },
+          { label:'Follow-up Due',     value:summary.follow_due,  icon:'alarm',          color:'#dc2626', bg:'#fef2f2' },
+          { label:'Won / Closed',      value:summary.won,         icon:'check_circle',   color:'#16a34a', bg:'#f0fdf4' },
+        ].map(s => (
+          <div key={s.label} style={{ background:'var(--surface-container-lowest)', border:'1px solid var(--outline-variant)', borderRadius:'0.75rem', padding:'0.875rem 1rem', display:'flex', gap:'0.75rem', alignItems:'center' }}>
+            <div style={{ width:36, height:36, borderRadius:'0.5rem', background:s.bg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+              <Icon name={s.icon} style={{ fontSize:'1.1rem', color:s.color }}/>
             </div>
-
-            {/* Smart Daily View */}
-            <div className="card">
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.25rem' }}>
-                <h2 style={{ fontSize:'1rem', fontWeight:700 }}>Start Your Day Here</h2>
-              </div>
-
-              {/* Urgent follow-ups */}
-              <div style={{ marginBottom:'1rem' }}>
-                <p className="label-sm" style={{ marginBottom:'0.5rem', color: urgentFollowups.length>0?'var(--error)':'var(--on-surface-variant)' }}>
-                  {urgentFollowups.length > 0 ? `🔥 ${urgentFollowups.length} Urgent Follow-up${urgentFollowups.length>1?'s':''}` : '✅ No urgent follow-ups'}
-                </p>
-                {urgentFollowups.slice(0,3).map(l => (
-                  <a key={l.id} href={`/sales/leads/${l.id}`} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.5rem 0.625rem', borderRadius:'0.5rem', background:'rgba(186,26,26,0.05)', border:'1px solid rgba(186,26,26,0.15)', marginBottom:'0.375rem', textDecoration:'none' }}>
-                    <div>
-                      <p style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--on-surface)' }}>{l.full_name}</p>
-                      <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>{l.company||'—'}</p>
-                    </div>
-                    <span style={{ fontSize:'0.6875rem', fontWeight:700, color:'var(--error)', whiteSpace:'nowrap' }}>{l.next_follow_up}</span>
-                  </a>
-                ))}
-              </div>
-
-              {/* Candidates awaiting feedback */}
-              {awaitingFeedback.length > 0 && (
-                <div style={{ marginBottom:'1rem' }}>
-                  <p className="label-sm" style={{ marginBottom:'0.5rem', color:'var(--amber)' }}>⏳ {awaitingFeedback.length} Candidate{awaitingFeedback.length>1?'s':''} Awaiting Feedback</p>
-                  {awaitingFeedback.slice(0,2).map(iv => (
-                    <div key={iv.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.5rem 0.625rem', borderRadius:'0.5rem', background:'rgba(217,119,6,0.05)', border:'1px solid rgba(217,119,6,0.2)', marginBottom:'0.375rem' }}>
-                      <div>
-                        <p style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--on-surface)' }}>{iv.candidate?.full_name||'—'}</p>
-                        <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>{iv.interview_type} · {iv.job?.title||'—'}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Pipeline value */}
-              <div style={{ padding:'0.75rem', borderRadius:'0.625rem', background:'rgba(0,98,67,0.05)', border:'1px solid rgba(0,98,67,0.15)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                <p style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--on-surface)' }}>Total Pipeline Value</p>
-                <p style={{ fontSize:'1.25rem', fontWeight:800, color:'var(--tertiary)' }}>{fmtVal(pipelineVal)}</p>
-              </div>
+            <div>
+              <p style={{ fontSize:'1.375rem', fontWeight:800, color:'var(--on-surface)', lineHeight:1 }}>{s.value}</p>
+              <p style={{ fontSize:'0.7rem', fontWeight:600, color:'var(--on-surface-variant)', marginTop:2, lineHeight:1.2 }}>{s.label}</p>
             </div>
           </div>
+        ))}
+      </div>
 
-          {/* Recent Leads */}
-          <div className="card">
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.25rem' }}>
-              <h2 style={{ fontSize:'1rem', fontWeight:700 }}>Recent Leads</h2>
-              <a href="/sales/leads" className="btn-primary" style={{ fontSize:'0.75rem', padding:'0.25rem 0.875rem' }}>View All</a>
-            </div>
-            {periodLeads.length === 0 ? (
-              <p style={{ fontSize:'0.875rem', color:'var(--on-surface-variant)', textAlign:'center', padding:'2rem 0' }}>No leads yet — <a href="/sales/leads" style={{ color:'var(--primary)' }}>add your first lead</a></p>
-            ) : (
-              <table className="data-table">
-                <thead>
-                  <tr><th>Name</th><th>Company</th><th>Title</th><th>Source</th><th>Status</th><th>Follow-up</th></tr>
-                </thead>
-                <tbody>
-                  {periodLeads.map(lead => {
-                    const today = new Date().toISOString().slice(0,10);
-                    const isOverdue = lead.next_follow_up && lead.next_follow_up < today;
-                    const isToday   = lead.next_follow_up === today;
-                    return (
-                      <tr key={lead.id} onClick={() => window.location.href=`/sales/leads/${lead.id}`} style={{ cursor:'pointer' }}>
-                        <td>
-                          <div style={{ display:'flex', alignItems:'center', gap:'0.625rem' }}>
-                            <div className="avatar" style={{ width:32, height:32, fontSize:'0.6875rem', background:'var(--surface-container)', color:'var(--primary)', fontWeight:700 }}>
-                              {lead.full_name?.split(' ').map(w=>w[0]).join('').slice(0,2)}
-                            </div>
-                            <span style={{ fontWeight:500 }}>{lead.full_name}</span>
-                          </div>
-                        </td>
-                        <td style={{ color:'var(--on-surface-variant)' }}>{lead.company || '—'}</td>
-                        <td style={{ color:'var(--on-surface-variant)' }}>{lead.job_title || '—'}</td>
-                        <td><span style={{ fontSize:'0.8125rem', color:'var(--on-surface-variant)', background:'var(--surface-container-low)', padding:'0.125rem 0.5rem', borderRadius:4 }}>{lead.source || '—'}</span></td>
-                        <td><Chip status={lead.status} /></td>
-                        <td>
-                          <span style={{ fontSize:'0.8125rem', fontWeight:500, color: isOverdue?'var(--error)':isToday?'var(--primary)':'var(--on-surface-variant)' }}>
-                            {lead.next_follow_up || '—'}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </>
+      {/* ── Follow-up alert strip ─────────────────────── */}
+      {summary.follow_due > 0 && (
+        <div style={{ display:'flex', alignItems:'center', gap:'0.75rem', padding:'0.75rem 1.25rem', background:'#fef2f2', border:'1px solid #fecaca', borderRadius:'0.75rem', marginBottom:'1.25rem' }}>
+          <Icon name="alarm" style={{ fontSize:'1.25rem', color:'#dc2626', flexShrink:0 }}/>
+          <p style={{ fontSize:'0.875rem', fontWeight:600, color:'#b91c1c' }}>
+            {summary.follow_due} compan{summary.follow_due===1?'y':'ies'} with overdue follow-ups — action needed today
+          </p>
+          <button onClick={() => { setCS(s=>({...s,status:'follow_up_needed'})); }} style={{ marginLeft:'auto', fontSize:'0.8125rem', padding:'0.3rem 0.875rem', borderRadius:9999, background:'#dc2626', color:'#fff', border:'none', cursor:'pointer', fontWeight:600, fontFamily:'Inter,sans-serif' }}>
+            Show them
+          </button>
+        </div>
       )}
+
+      {/* ── Category tabs — like Excel sheet tabs ─────── */}
+      <div style={{ display:'flex', gap:0, borderBottom:'2px solid var(--outline-variant)', marginBottom:0, overflowX:'auto' }}>
+        {CATEGORY_TABS.map(t => (
+          <button key={t.id} onClick={() => { setTab(t.id); setPage(1); }}
+            style={{ display:'flex', alignItems:'center', gap:'0.4rem', padding:'0.625rem 1.125rem', border:'none', borderBottom: tab===t.id ? '2px solid var(--primary)' : '2px solid transparent', cursor:'pointer', fontFamily:'Inter,sans-serif', fontSize:'0.8125rem', fontWeight: tab===t.id ? 700 : 500, color: tab===t.id ? 'var(--primary)' : 'var(--on-surface-variant)', background:'transparent', marginBottom:'-2px', whiteSpace:'nowrap', transition:'all 0.15s' }}>
+            <Icon name={t.icon} style={{ fontSize:'1rem', color: tab===t.id ? 'var(--primary)' : 'var(--on-surface-variant)' }}/>
+            {t.label}
+            <span style={{ padding:'0.1rem 0.4rem', borderRadius:9999, fontSize:'0.7rem', fontWeight:700, background: tab===t.id ? 'rgba(0,74,198,0.1)' : 'var(--surface-container)', color: tab===t.id ? 'var(--primary)' : 'var(--on-surface-variant)' }}>
+              {tabCounts[t.id] || 0}
+            </span>
+          </button>
+        ))}
+        {hasCS && (
+          <button onClick={() => setCS({ company:'', type:'', status:'', location:'', domain:'', c1_name:'', remark:'', follow_up:'', source_file:'' })}
+            style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'0.375rem', padding:'0.625rem 1rem', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif', fontSize:'0.8125rem', fontWeight:600, color:'var(--error)', background:'transparent' }}>
+            <Icon name="filter_alt_off" style={{ fontSize:'1rem' }}/> Clear filters
+          </button>
+        )}
+      </div>
+
+      {/* ── Excel-style data grid ─────────────────────── */}
+      <div style={{ border:'1px solid var(--outline-variant)', borderTop:'none', borderRadius:'0 0 0.875rem 0.875rem', overflow:'hidden', background:'var(--surface-container-lowest)' }}>
+        {loading ? (
+          <div style={{ textAlign:'center', padding:'4rem', color:'var(--on-surface-variant)' }}>
+            <Icon name="progress_activity" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.75rem', animation:'spin 1s linear infinite' }}/>
+            Loading companies…
+          </div>
+        ) : (
+          <div style={{ overflowX:'auto', overflowY:'auto', maxHeight:'calc(100vh - 340px)' }}>
+            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.8125rem', tableLayout:'auto' }}>
+              <thead style={{ position:'sticky', top:0, zIndex:2 }}>
+                {/* ── Column headers ── */}
+                <tr>
+                  <th style={{ padding:'0.5rem 0.75rem', width:36, background:'var(--surface-container-low)', borderRight:'1px solid var(--outline-variant)', position:'sticky', top:0 }}>
+                    <span style={{ fontSize:'0.68rem', color:'var(--on-surface-variant)', fontWeight:700 }}>#</span>
+                  </th>
+                  <SortTh col="company"    label="Company Name"     w="180px"/>
+                  <SortTh col="type"       label="Type"             w="120px"/>
+                  <SortTh col="status"     label="Status"           w="130px"/>
+                  <SortTh col="location"   label="Location"         w="110px"/>
+                  <SortTh col="domain"     label="Domain / Focus"   w="140px"/>
+                  <th style={{ padding:'0.5rem 0.625rem', minWidth:60, background:'var(--surface-container-low)', borderRight:'1px solid var(--outline-variant)', fontSize:'0.68rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase', letterSpacing:'0.06em' }}>Web</th>
+                  <SortTh col="c1_name"    label="Contact Person 1" w="170px"/>
+                  <th style={{ padding:'0.5rem 0.625rem', minWidth:170, background:'var(--surface-container-low)', borderRight:'1px solid var(--outline-variant)', fontSize:'0.68rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase', letterSpacing:'0.06em' }}>Contact Person 2</th>
+                  <th style={{ padding:'0.5rem 0.625rem', minWidth:140, background:'var(--surface-container-low)', borderRight:'1px solid var(--outline-variant)', fontSize:'0.68rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase', letterSpacing:'0.06em' }}>Contact Person 3</th>
+                  <SortTh col="remark"     label="Remark"           w="160px"/>
+                  <SortTh col="follow_up"  label="Follow Up"        w="120px"/>
+                  <SortTh col="source_file"label="Source File"      w="130px"/>
+                  <th style={{ padding:'0.5rem 0.625rem', minWidth:80, background:'var(--surface-container-low)', position:'sticky', right:0, zIndex:2, textAlign:'right', fontSize:'0.68rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase' }}>Actions</th>
+                </tr>
+                {/* ── Per-column search row ── */}
+                <tr style={{ background:'var(--surface-container)', borderBottom:'2px solid var(--outline-variant)' }}>
+                  <th style={{ padding:'0.3rem 0.75rem', borderRight:'1px solid var(--outline-variant)' }}/>
+                  <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}>{colInput('company','Company…')}</th>
+                  <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}>{colInput('type','Type…')}</th>
+                  <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}>{statusFilter}</th>
+                  <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}>{colInput('location','Location…')}</th>
+                  <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}>{colInput('domain','Domain…')}</th>
+                  <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}/>
+                  <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}>{colInput('c1_name','Name…')}</th>
+                  <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}/>
+                  <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}/>
+                  <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}>{colInput('remark','Remark…')}</th>
+                  <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}>{colInput('follow_up','YYYY-MM-DD')}</th>
+                  <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}>{colInput('source_file','File…')}</th>
+                  <th style={{ padding:'0.3rem 0.375rem' }}/>
+                </tr>
+              </thead>
+              <tbody>
+                {paged.length === 0 && (
+                  <tr><td colSpan={14} style={{ textAlign:'center', padding:'4rem', color:'var(--on-surface-variant)' }}>
+                    <Icon name="search_off" style={{ fontSize:'2.5rem', display:'block', margin:'0 auto 0.75rem', opacity:0.3 }}/>
+                    <p style={{ fontWeight:600 }}>No companies found</p>
+                    <p style={{ fontSize:'0.8125rem', marginTop:'0.25rem' }}>Try adjusting your filters or <a href="/sales/import" style={{ color:'var(--primary)' }}>import from Excel</a></p>
+                  </td></tr>
+                )}
+                {paged.map((l, idx) => {
+                  const isOverdue  = l.follow_up && l.follow_up < today;
+                  const isDueToday = l.follow_up === today;
+                  const sm         = STATUS_META[l.status] || STATUS_META.new;
+                  const rowBg      = isOverdue  ? 'rgba(220,38,38,0.04)'
+                                   : isDueToday ? 'rgba(234,88,12,0.04)' : 'var(--surface-container-lowest)';
+                  return (
+                    <tr key={l.id} style={{ borderBottom:'1px solid var(--outline-variant)', background:rowBg, transition:'background 0.1s' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,74,198,0.03)'}
+                      onMouseLeave={e => e.currentTarget.style.background = rowBg}>
+                      {/* # */}
+                      <td style={{ padding:'0.5rem 0.75rem', borderRight:'1px solid var(--surface-container)', color:'var(--on-surface-variant)', fontSize:'0.7rem', textAlign:'center' }}>
+                        {(page-1)*PER_PAGE + idx + 1}
+                      </td>
+                      {/* Company */}
+                      <td style={{ padding:'0.5rem 0.625rem', borderRight:'1px solid var(--surface-container)', minWidth:180 }}>
+                        <p onClick={() => navigate(`/sales/leads/${l.id}`)} style={{ fontWeight:700, fontSize:'0.875rem', cursor:'pointer', color:'var(--on-surface)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:170, margin:0 }}>{l.company}</p>
+                        {l.intro_sent && <p style={{ fontSize:'0.65rem', color:'var(--tertiary)', margin:0 }}>Intro: {l.intro_sent}</p>}
+                      </td>
+                      {/* Type */}
+                      <td style={{ padding:'0.5rem 0.625rem', borderRight:'1px solid var(--surface-container)', maxWidth:120 }}>
+                        <span style={{ fontSize:'0.72rem', color:'var(--on-surface-variant)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'block' }}>{l.type||'—'}</span>
+                      </td>
+                      {/* Status — inline */}
+                      <td style={{ padding:'0.375rem 0.5rem', borderRight:'1px solid var(--surface-container)' }}>
+                        <StatusBadge status={l.status} onChange={updateStatus} id={l.id}/>
+                      </td>
+                      {/* Location */}
+                      <td style={{ padding:'0.5rem 0.625rem', borderRight:'1px solid var(--surface-container)', whiteSpace:'nowrap' }}>
+                        <span style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>{l.location||'—'}</span>
+                      </td>
+                      {/* Domain */}
+                      <td style={{ padding:'0.5rem 0.625rem', borderRight:'1px solid var(--surface-container)', maxWidth:140 }}>
+                        <span style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'block' }}>{l.domain||'—'}</span>
+                      </td>
+                      {/* Website */}
+                      <td style={{ padding:'0.5rem 0.625rem', borderRight:'1px solid var(--surface-container)', textAlign:'center' }} onClick={e=>e.stopPropagation()}>
+                        {l.website ? <a href={l.website.startsWith('http')?l.website:'https://'+l.website} target="_blank" rel="noreferrer" style={{ color:'var(--primary)', fontSize:'0.75rem', textDecoration:'none', display:'flex', alignItems:'center', gap:2, justifyContent:'center' }}><Icon name="open_in_new" style={{fontSize:'0.875rem'}}/></a> : <span style={{ color:'var(--outline)', fontSize:'0.75rem' }}>—</span>}
+                      </td>
+                      {/* Contact 1 */}
+                      <td style={{ padding:'0.5rem 0.625rem', borderRight:'1px solid var(--surface-container)' }}>
+                        <ContactCell name={l.c1_name} desig={l.c1_desig} email={l.c1_email} phone={l.c1_phone}/>
+                      </td>
+                      {/* Contact 2 */}
+                      <td style={{ padding:'0.5rem 0.625rem', borderRight:'1px solid var(--surface-container)' }}>
+                        <ContactCell name={l.c2_name} desig={l.c2_desig} email={l.c2_email} phone={l.c2_phone}/>
+                      </td>
+                      {/* Contact 3 */}
+                      <td style={{ padding:'0.5rem 0.625rem', borderRight:'1px solid var(--surface-container)' }}>
+                        <ContactCell name={l.c3_name} desig={''} email={l.c3_email} phone={''}/>
+                      </td>
+                      {/* Remark */}
+                      <td style={{ padding:'0.5rem 0.625rem', borderRight:'1px solid var(--surface-container)', maxWidth:160 }}>
+                        <span style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'block' }} title={l.remark}>{l.remark||'—'}</span>
+                      </td>
+                      {/* Follow-up — inline date */}
+                      <td style={{ padding:'0.375rem 0.5rem', borderRight:'1px solid var(--surface-container)', whiteSpace:'nowrap' }} onClick={e=>e.stopPropagation()}>
+                        <input type="date" value={l.follow_up||''} onChange={e=>updateFollowUp(l.id,e.target.value)}
+                          style={{ fontSize:'0.75rem', border:'none', background:'transparent', cursor:'pointer', fontFamily:'Inter,sans-serif', color:isOverdue?'#dc2626':isDueToday?'#ea580c':'var(--on-surface)', fontWeight:isOverdue||isDueToday?700:400, padding:0, outline:'none', width:'110px' }}/>
+                      </td>
+                      {/* Source file */}
+                      <td style={{ padding:'0.5rem 0.625rem', borderRight:'1px solid var(--surface-container)', maxWidth:130 }}>
+                        <span style={{ fontSize:'0.68rem', color:'var(--on-surface-variant)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'block' }} title={l.source_file}>{l.source_file||'—'}</span>
+                      </td>
+                      {/* Actions */}
+                      <td style={{ padding:'0.5rem 0.625rem', textAlign:'right', whiteSpace:'nowrap', position:'sticky', right:0, background:rowBg }} onClick={e=>e.stopPropagation()}>
+                        <button className="btn-icon" title="Open" onClick={()=>navigate(`/sales/leads/${l.id}`)}><Icon name="open_in_new" style={{fontSize:'1rem'}}/></button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* ── Footer / pagination ── */}
+        {!loading && (
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.75rem 1.25rem', borderTop:'1px solid var(--outline-variant)', background:'var(--surface-container-low)' }}>
+            <p style={{ fontSize:'0.8125rem', color:'var(--on-surface-variant)' }}>
+              Showing <b>{Math.min((page-1)*PER_PAGE+1,filtered.length)}–{Math.min(page*PER_PAGE,filtered.length)}</b> of <b>{filtered.length}</b> companies
+            </p>
+            <div style={{ display:'flex', gap:'0.375rem' }}>
+              <button className="btn-icon" disabled={page===1} onClick={()=>setPage(p=>p-1)} style={{ opacity:page===1?0.35:1 }}><Icon name="chevron_left"/></button>
+              {Array.from({length:totalPages},(_,i)=>i+1).filter(p=>p===1||p===totalPages||Math.abs(p-page)<=1).map((p,i,arr)=>(
+                <React.Fragment key={p}>{i>0&&arr[i-1]!==p-1&&<span style={{alignSelf:'center',color:'var(--on-surface-variant)',fontSize:'0.875rem'}}>…</span>}
+                <button onClick={()=>setPage(p)} style={{ width:32,height:32,borderRadius:'0.375rem',border:'none',cursor:'pointer',fontFamily:'Inter,sans-serif',fontSize:'0.875rem',fontWeight:600,background:page===p?'var(--primary)':'transparent',color:page===p?'#fff':'var(--on-surface-variant)',transition:'all 0.15s' }}>{p}</button></React.Fragment>
+              ))}
+              <button className="btn-icon" disabled={page===totalPages||totalPages===0} onClick={()=>setPage(p=>p+1)} style={{ opacity:(page===totalPages||totalPages===0)?0.35:1 }}><Icon name="chevron_right"/></button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

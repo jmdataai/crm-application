@@ -17,12 +17,13 @@ const salesNav = [
 ];
 
 const recruitNav = [
-  { path: '/recruitment',             icon: 'dashboard',     label: 'Dashboard',  exact: true },
-  { path: '/recruitment/jobs',        icon: 'work',           label: 'Jobs' },
-  { path: '/recruitment/candidates',  icon: 'person_search',  label: 'Candidates' },
-  { path: '/recruitment/pipeline',    icon: 'account_tree',   label: 'Pipeline' },
-  { path: '/recruitment/interviews',  icon: 'event',          label: 'Interviews' },
-  { path: '/recruitment/tasks',       icon: 'task_alt',       label: 'Tasks' },
+  { path: '/recruitment',                   icon: 'dashboard',     label: 'Dashboard',         exact: true },
+  { path: '/recruitment/jobs',              icon: 'work',           label: 'Jobs' },
+  { path: '/recruitment/candidates',        icon: 'person_search',  label: 'Candidates' },
+  { path: '/recruitment/import-candidates', icon: 'upload_file',    label: 'Import Candidates', requiresPerm: 'canViewImport' },
+  { path: '/recruitment/pipeline',          icon: 'account_tree',   label: 'Pipeline' },
+  { path: '/recruitment/interviews',        icon: 'event',          label: 'Interviews' },
+  { path: '/recruitment/tasks',             icon: 'task_alt',       label: 'Tasks' },
 ];
 
 // ── Role badge ───────────────────────────────────────────────

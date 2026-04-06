@@ -107,11 +107,32 @@ class LeadCreate(BaseModel):
     company:        Optional[str]      = None
     job_title:      Optional[str]      = None
     source:         Optional[str]      = None
-    status:         Optional[str]      = "new"   # coerced — invalid values default to "new"
+    status:         Optional[str]      = "new"
     notes:          Optional[str]      = None
-    next_follow_up: Optional[str]      = None   # ISO date string YYYY-MM-DD
-    deal_value:     Optional[float]    = None   # expected contract value
+    next_follow_up: Optional[str]      = None
+    deal_value:     Optional[float]    = None
     linkedin_url:   Optional[str]      = None
+    # Extended fields v3
+    source_file:                    Optional[str]   = None
+    website:                        Optional[str]   = None
+    industry:                       Optional[str]   = None
+    business_type:                  Optional[str]   = None
+    address:                        Optional[str]   = None
+    country:                        Optional[str]   = None
+    turnover_headcount:             Optional[str]   = None
+    intro_sent:                     Optional[str]   = None
+    linkedin_invite_sent:           Optional[bool]  = None
+    linkedin_invite_accepted:       Optional[bool]  = None
+    lead_share_date:                Optional[str]   = None
+    solution_skills:                Optional[str]   = None
+    contact_person_2_name:          Optional[str]   = None
+    contact_person_2_designation:   Optional[str]   = None
+    contact_person_2_phone:         Optional[str]   = None
+    contact_person_2_email:         Optional[str]   = None
+    contact_person_3_name:          Optional[str]   = None
+    contact_person_3_designation:   Optional[str]   = None
+    contact_person_3_phone:         Optional[str]   = None
+    contact_person_3_email:         Optional[str]   = None
 
     @field_validator('status', mode='before')
     @classmethod
@@ -127,24 +148,44 @@ class LeadCreate(BaseModel):
         if not v or not str(v).strip():
             return None
         val = str(v).strip()
-        # basic email check — reject obviously invalid values
-        if '@' not in val or '.' not in val.split('@')[-1]:
+        if "@" not in val or "." not in val.split("@")[-1]:
             return None
         return val
 
 class LeadUpdate(BaseModel):
     full_name:        Optional[str]       = None
-    email:            Optional[EmailStr]  = None
+    email:            Optional[str]       = None
     phone:            Optional[str]       = None
     company:          Optional[str]       = None
     job_title:        Optional[str]       = None
     source:           Optional[str]       = None
-    status:           Optional[LeadStatus]= None
+    status:           Optional[str]       = None
     notes:            Optional[str]       = None
     next_follow_up:   Optional[str]       = None
     assigned_owner_id:Optional[str]       = None
     deal_value:       Optional[float]     = None
     linkedin_url:     Optional[str]       = None
+    # Extended fields (v3)
+    source_file:                    Optional[str]   = None
+    website:                        Optional[str]   = None
+    industry:                       Optional[str]   = None
+    business_type:                  Optional[str]   = None
+    address:                        Optional[str]   = None
+    country:                        Optional[str]   = None
+    turnover_headcount:             Optional[str]   = None
+    intro_sent:                     Optional[str]   = None
+    linkedin_invite_sent:           Optional[bool]  = None
+    linkedin_invite_accepted:       Optional[bool]  = None
+    lead_share_date:                Optional[str]   = None
+    solution_skills:                Optional[str]   = None
+    contact_person_2_name:          Optional[str]   = None
+    contact_person_2_designation:   Optional[str]   = None
+    contact_person_2_phone:         Optional[str]   = None
+    contact_person_2_email:         Optional[str]   = None
+    contact_person_3_name:          Optional[str]   = None
+    contact_person_3_designation:   Optional[str]   = None
+    contact_person_3_phone:         Optional[str]   = None
+    contact_person_3_email:         Optional[str]   = None
 
 class ActivityCreate(BaseModel):
     lead_id:       Optional[str]  = None
@@ -206,36 +247,66 @@ class JobUpdate(BaseModel):
 
 class CandidateCreate(BaseModel):
     full_name:        str
-    email:            Optional[EmailStr] = None
-    phone:            Optional[str]      = None
-    current_company:  Optional[str]      = None
-    candidate_role:     Optional[str]      = None
-    experience_years: Optional[int]      = None
-    source:           Optional[str]      = None
-    job_id:           Optional[str]      = None
-    status:           CandidateStatus    = CandidateStatus.SOURCED
-    notes:            Optional[str]      = None
-    resume_url:       Optional[str]      = None
-    linkedin_url:     Optional[str]      = None
-    portfolio_url:    Optional[str]      = None
-    skills:           List[str]          = []
+    email:            Optional[str]  = None
+    phone:            Optional[str]  = None
+    current_company:  Optional[str]  = None
+    candidate_role:   Optional[str]  = None
+    experience_years: Optional[int]  = None
+    source:           Optional[str]  = None
+    job_id:           Optional[str]  = None
+    status:           Optional[str]  = "sourced"
+    notes:            Optional[str]  = None
+    resume_url:       Optional[str]  = None
+    linkedin_url:     Optional[str]  = None
+    portfolio_url:    Optional[str]  = None
+    skills:           List[str]      = []
+    # Extended fields v3
+    candidate_type:       Optional[str]  = "domestic"  # domestic | international
+    visa_status:          Optional[str]  = None
+    total_experience:     Optional[str]  = None
+    relevant_experience:  Optional[str]  = None
+    location:             Optional[str]  = None
+    relocation:           Optional[str]  = None
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def coerce_cand_status(cls, v):
+        valid = {"sourced","screened","shortlisted","interview_scheduled","interviewed","selected","rejected","onboarded"}
+        if not v or str(v).strip() not in valid:
+            return "sourced"
+        return str(v).strip()
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def clean_cand_email(cls, v):
+        if not v or not str(v).strip(): return None
+        val = str(v).strip()
+        if "@" not in val or "." not in val.split("@")[-1]: return None
+        return val
 
 class CandidateUpdate(BaseModel):
-    full_name:            Optional[str]              = None
-    email:                Optional[EmailStr]          = None
-    phone:                Optional[str]              = None
-    current_company:      Optional[str]              = None
-    candidate_role:         Optional[str]              = None
-    experience_years:     Optional[int]              = None
-    source:               Optional[str]              = None
-    job_id:               Optional[str]              = None
-    status:               Optional[CandidateStatus]  = None
-    notes:                Optional[str]              = None
-    resume_url:           Optional[str]              = None
-    linkedin_url:         Optional[str]              = None
-    portfolio_url:        Optional[str]              = None
-    skills:               Optional[List[str]]        = None
-    assigned_recruiter_id:Optional[str]              = None
+    full_name:            Optional[str]          = None
+    email:                Optional[str]          = None
+    phone:                Optional[str]          = None
+    current_company:      Optional[str]          = None
+    candidate_role:       Optional[str]          = None
+    experience_years:     Optional[int]          = None
+    source:               Optional[str]          = None
+    job_id:               Optional[str]          = None
+    status:               Optional[str]          = None
+    notes:                Optional[str]          = None
+    resume_url:           Optional[str]          = None
+    linkedin_url:         Optional[str]          = None
+    portfolio_url:        Optional[str]          = None
+    skills:               Optional[List[str]]    = None
+    assigned_recruiter_id:Optional[str]          = None
+    # Extended fields v3
+    candidate_type:       Optional[str]  = None
+    visa_status:          Optional[str]  = None
+    total_experience:     Optional[str]  = None
+    relevant_experience:  Optional[str]  = None
+    location:             Optional[str]  = None
+    relocation:           Optional[str]  = None
 
 class SubmissionCreate(BaseModel):
     lead_id:      str
@@ -521,6 +592,27 @@ async def create_lead(lead: LeadCreate, request: Request):
         "created_by":        user["id"],
         "deal_value":        lead.deal_value,
         "linkedin_url":      lead.linkedin_url,
+        # Extended v3 fields
+        "source_file":                  lead.source_file,
+        "website":                      lead.website,
+        "industry":                     lead.industry,
+        "business_type":                lead.business_type,
+        "address":                      lead.address,
+        "country":                      lead.country,
+        "turnover_headcount":           lead.turnover_headcount,
+        "intro_sent":                   lead.intro_sent,
+        "linkedin_invite_sent":         lead.linkedin_invite_sent,
+        "linkedin_invite_accepted":     lead.linkedin_invite_accepted,
+        "lead_share_date":              lead.lead_share_date,
+        "solution_skills":              lead.solution_skills,
+        "contact_person_2_name":        lead.contact_person_2_name,
+        "contact_person_2_designation": lead.contact_person_2_designation,
+        "contact_person_2_phone":       lead.contact_person_2_phone,
+        "contact_person_2_email":       lead.contact_person_2_email,
+        "contact_person_3_name":        lead.contact_person_3_name,
+        "contact_person_3_designation": lead.contact_person_3_designation,
+        "contact_person_3_phone":       lead.contact_person_3_phone,
+        "contact_person_3_email":       lead.contact_person_3_email,
     }
     # Strip None values — avoids inserting NULL for columns that may not exist yet
     doc = {k: v for k, v in doc_full.items() if v is not None}
@@ -536,7 +628,7 @@ async def create_lead(lead: LeadCreate, request: Request):
             col_match = _re.search(r"Could not find the '(\w+)' column", err_str)
             if col_match:
                 bad_col = col_match.group(1)
-                logger.warning(f"[create_lead] Column '{bad_col}' missing in DB — skipping it. Run add_features_v2.sql to add it.")
+                logger.warning(f"[create_lead] Column '{bad_col}' missing in DB — skipping it. Run add_features_v3.sql to add it.")
                 doc.pop(bad_col, None)
                 res = await run(lambda: sb("leads").insert(doc).execute())
             else:
@@ -1006,16 +1098,16 @@ async def delete_job(job_id: str, request: Request):
 @api_router.post("/candidates")
 async def create_candidate(candidate: CandidateCreate, request: Request):
     user = await get_current_user(request)
-    res = await run(lambda: sb("candidates").insert({
+    doc_c = {
         "full_name":            candidate.full_name,
         "email":                candidate.email,
         "phone":                candidate.phone,
         "current_company":      candidate.current_company,
-        "candidate_role":         candidate.candidate_role,
+        "candidate_role":       candidate.candidate_role,
         "experience_years":     candidate.experience_years,
         "source":               candidate.source,
         "job_id":               candidate.job_id,
-        "status":               candidate.status.value,
+        "status":               candidate.status or "sourced",
         "notes":                candidate.notes,
         "resume_url":           candidate.resume_url,
         "linkedin_url":         candidate.linkedin_url,
@@ -1023,7 +1115,32 @@ async def create_candidate(candidate: CandidateCreate, request: Request):
         "skills":               candidate.skills,
         "assigned_recruiter_id":user["id"],
         "created_by":           user["id"],
-    }).execute())
+        # Extended v3 fields
+        "candidate_type":       candidate.candidate_type or "domestic",
+        "visa_status":          candidate.visa_status,
+        "total_experience":     candidate.total_experience,
+        "relevant_experience":  candidate.relevant_experience,
+        "location":             candidate.location,
+        "relocation":           candidate.relocation,
+    }
+    doc_c = {k: v for k, v in doc_c.items() if v is not None and v != [] }
+    if candidate.skills: doc_c["skills"] = candidate.skills
+    try:
+        res = await run(lambda: sb("candidates").insert(doc_c).execute())
+    except Exception as e:
+        err_str = str(e)
+        if "PGRST204" in err_str:
+            import re as _re
+            col_match = _re.search(r"Could not find the '(\w+)' column", err_str)
+            if col_match:
+                bad_col = col_match.group(1)
+                logger.warning(f"[create_candidate] Column '{bad_col}' missing — skipping. Run add_features_v3.sql.")
+                doc_c.pop(bad_col, None)
+                res = await run(lambda: sb("candidates").insert(doc_c).execute())
+            else:
+                raise
+        else:
+            raise
     candidate_id = res.data[0]["id"]
     await _log_activity(candidate_id=candidate_id, user=user, atype="note",
                         desc=f"Candidate added by {user['name']}")

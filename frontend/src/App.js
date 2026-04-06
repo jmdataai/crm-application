@@ -10,6 +10,7 @@ import Login from './pages/Login';
 import SalesDashboard    from './pages/sales/SalesDashboard';
 import LeadsList         from './pages/sales/LeadsList';
 import LeadDetail        from './pages/sales/LeadDetail';
+import ImportCandidates from './pages/recruitment/ImportCandidates';
 import ImportLeads       from './pages/sales/ImportLeads';
 import EnrichLeads       from './pages/sales/EnrichLeads';
 import SalesTasks        from './pages/sales/SalesTasks';
@@ -65,7 +66,8 @@ function AppRoutes() {
       <Route path="/recruitment/jobs/:id"         element={<Page module="recruitment"><JobsList /></Page>} />
       <Route path="/recruitment/candidates"       element={<Page module="recruitment"><CandidatesList /></Page>} />
       <Route path="/recruitment/candidates/:id"   element={<Page module="recruitment"><CandidateDetail /></Page>} />
-      <Route path="/recruitment/pipeline"         element={<Page module="recruitment"><Pipeline /></Page>} />
+      <Route path="/recruitment/import-candidates" element={<ProtectedRoute><ImportCandidates /></ProtectedRoute>} />
+          <Route path="/recruitment/pipeline"         element={<Page module="recruitment"><Pipeline /></Page>} />
       <Route path="/recruitment/interviews"       element={<Page module="recruitment"><Interviews /></Page>} />
       <Route path="/recruitment/tasks"            element={<Page module="recruitment"><RecruitmentTasks /></Page>} />
 

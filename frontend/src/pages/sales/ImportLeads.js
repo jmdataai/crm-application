@@ -22,17 +22,31 @@ const Icon = ({ name, style = {} }) => (
    CRM FIELD DEFINITIONS
 ═══════════════════════════════════════════════════════ */
 const CRM_FIELDS = [
-  { key: 'full_name',      label: 'Full Name',       required: true  },
-  { key: 'email',          label: 'Email',            required: false },
-  { key: 'phone',          label: 'Phone',            required: false },
-  { key: 'company',        label: 'Company',          required: false },
-  { key: 'job_title',      label: 'Job Title',        required: false },
-  { key: 'source',         label: 'Source',           required: false },
-  { key: 'status',         label: 'Status',           required: false },
-  { key: 'linkedin_url',   label: 'LinkedIn URL',     required: false },
-  { key: 'notes',          label: 'Notes',            required: false },
-  { key: 'next_follow_up', label: 'Follow-up Date',   required: false },
-  { key: '__skip__',       label: '— Skip Column —',  required: false },
+  { key: 'full_name',                   label: 'Contact Name',             required: false },
+  { key: 'company',                     label: 'Company Name',             required: true  },
+  { key: 'job_title',                   label: 'Designation',              required: false },
+  { key: 'email',                       label: 'Email',                    required: false },
+  { key: 'phone',                       label: 'Phone / Mobile',           required: false },
+  { key: 'website',                     label: 'Website',                  required: false },
+  { key: 'industry',                    label: 'Industry Type',            required: false },
+  { key: 'business_type',              label: 'Business Type / Skills',    required: false },
+  { key: 'address',                     label: 'Address / Location',       required: false },
+  { key: 'country',                     label: 'Country',                  required: false },
+  { key: 'status',                      label: 'Lead Status',              required: false },
+  { key: 'source',                      label: 'Lead Source / From',       required: false },
+  { key: 'next_follow_up',              label: 'Next Follow-up Date',      required: false },
+  { key: 'intro_sent',                  label: 'Intro Sent Date',          required: false },
+  { key: 'solution_skills',             label: 'Domain / Solution Skills', required: false },
+  { key: 'turnover_headcount',          label: 'Turnover / Headcount',     required: false },
+  { key: 'notes',                       label: 'Remarks / Notes',          required: false },
+  { key: 'linkedin_url',                label: 'Company LinkedIn',         required: false },
+  { key: 'contact_person_2_name',       label: 'Contact Person 2 Name',    required: false },
+  { key: 'contact_person_2_designation',label: 'Contact 2 Designation',    required: false },
+  { key: 'contact_person_2_phone',      label: 'Contact 2 Phone',          required: false },
+  { key: 'contact_person_2_email',      label: 'Contact 2 Email',          required: false },
+  { key: 'contact_person_3_name',       label: 'Contact Person 3 Name',    required: false },
+  { key: 'contact_person_3_email',      label: 'Contact 3 Email',          required: false },
+  { key: '__skip__',                    label: '— Skip Column —',          required: false },
 ];
 
 const VALID_STATUSES = ['new','contacted','called','interested','closed','completed','rejected','lost','follow_up_needed'];
@@ -106,7 +120,57 @@ const SYNONYMS = {
   status: [
     'status','lead status','stage','pipeline stage','deal stage',
     'phase','current status','contact stage','lead_status','deal_stage',
-    'crm status','crm stage',
+    'crm status','crm stage','lead stage',
+  ],
+  website: [
+    'website','website url','company website','web','url','web url','site','company url','homepage',
+  ],
+  industry: [
+    'industry','industry type','sector','vertical','domain','field','business sector',
+    'type of business','business type','type','domain focus','core services',
+  ],
+  business_type: [
+    'skills','type of business/ skills','business type','service type','specialization',
+    'services','core skills','competencies',
+  ],
+  address: [
+    'address','location','city','hq','headquarters','place','registered address',
+    'office location','base','street address','irish hq','india office',
+  ],
+  country: [
+    'country','countory','nation','region','geography','location country',
+  ],
+  intro_sent: [
+    'intro sent','introduction sent','intro date','first contact','intro sent date',
+  ],
+  solution_skills: [
+    'solution using','looking skills','solution skills','skills needed','domain focus',
+    'solution using/looking skills','requirements','tech stack needed',
+  ],
+  turnover_headcount: [
+    'turnover','headcount','turnover/ headcount','revenue','company size','employees',
+    'company annual revenue','company size',
+  ],
+  contact_person_2_name: [
+    'contact person 1','contact person-1','contact person 2','contact 1','contact 2',
+    'contact_person_1','contact_person_2','second contact','additional contact',
+  ],
+  contact_person_2_designation: [
+    'contact person 1 designation','contact 1 designation','contact 2 designation',
+    'designtaion','designation 2','contact designation',
+  ],
+  contact_person_2_phone: [
+    'contact person 1 mobile','contact person 2 mobile','contact 1 mobile','contact 1 phone',
+    'contact person 1 mobile','mobile number','contact phone',
+  ],
+  contact_person_2_email: [
+    'email 1','e-mail 1','contact 1 email','contact person 1 email','contact email 1',
+  ],
+  contact_person_3_name: [
+    'contact person 3','contact 3','third contact','contact person-3','contact_person_3',
+  ],
+  contact_person_3_email: [
+    'email 2','e-mail 2','contact 2 email','contact 3 email','contact email 2',
   ],
 };
 
@@ -458,6 +522,22 @@ export default function ImportLeads() {
           notes:          get('notes')           || null,
           next_follow_up: get('next_follow_up')  || null,
           linkedin_url:   get('linkedin_url')    || null,
+          // Extended v3 fields
+          source_file:                    file?.name || null,
+          website:                        get('website')                     || null,
+          industry:                       get('industry')                    || null,
+          business_type:                  get('business_type')               || null,
+          address:                        get('address')                     || null,
+          country:                        get('country')                     || null,
+          turnover_headcount:             get('turnover_headcount')          || null,
+          intro_sent:                     get('intro_sent')                  || null,
+          solution_skills:                get('solution_skills')             || null,
+          contact_person_2_name:          get('contact_person_2_name')       || null,
+          contact_person_2_designation:   get('contact_person_2_designation')|| null,
+          contact_person_2_phone:         get('contact_person_2_phone')      || null,
+          contact_person_2_email:         get('contact_person_2_email')      || null,
+          contact_person_3_name:          get('contact_person_3_name')       || null,
+          contact_person_3_email:         get('contact_person_3_email')      || null,
         });
         successCount++;
       } catch (e) {
