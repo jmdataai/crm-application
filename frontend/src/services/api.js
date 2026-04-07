@@ -10,6 +10,30 @@ const api = axios.create({
   }
 });
 
+let unauthorizedHandler = null;
+let handlingUnauthorized = false;
+
+export const setUnauthorizedHandler = (handler) => {
+  unauthorizedHandler = handler;
+};
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401) {
+      if (!handlingUnauthorized) {
+        handlingUnauthorized = true;
+        try {
+          if (typeof unauthorizedHandler === 'function') unauthorizedHandler();
+        } finally {
+          setTimeout(() => { handlingUnauthorized = false; }, 0);
+        }
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 // Error handler helper
 export const formatApiError = (error) => {
   const detail = error?.response?.data?.detail;

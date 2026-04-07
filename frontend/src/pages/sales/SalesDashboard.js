@@ -241,7 +241,7 @@ export default function SalesDashboard() {
       return sortDir==='asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
     });
     return out;
-  }, [leads, tab, cs, sortBy, sortDir]);
+  }, [leads, tab, cs, sortBy, sortDir, fileFilter]);
 
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
   const paged      = filtered.slice((page-1)*PER_PAGE, page*PER_PAGE);

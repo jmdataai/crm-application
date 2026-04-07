@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { setUnauthorizedHandler } from '../services/api';
 
 const AuthContext = createContext(null);
 
@@ -61,13 +62,47 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser]     = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const stored = localStorage.getItem('crm_user');
-    if (stored) {
-      try { setUser(JSON.parse(stored)); } catch {}
-    }
-    setLoading(false);
+  const clearSession = useCallback(() => {
+    localStorage.removeItem('crm_user');
+    setUser(null);
   }, []);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      clearSession();
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [clearSession]);
+
+  useEffect(() => {
+    let active = true;
+
+    const init = async () => {
+      const stored = localStorage.getItem('crm_user');
+      if (stored) {
+        try { setUser(JSON.parse(stored)); } catch {}
+      }
+
+      try {
+        const res = await fetch('/api/auth/me', { credentials: 'include' });
+        if (!active) return;
+        if (res.ok) {
+          const userData = await res.json();
+          localStorage.setItem('crm_user', JSON.stringify(userData));
+          setUser(userData);
+        } else if (res.status === 401 || res.status === 403) {
+          clearSession();
+        }
+      } catch {
+        // Network error: keep cached user, but don't block the app.
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    init();
+    return () => { active = false; };
+  }, [clearSession]);
 
   // ── Login — calls real API ──────────────────────────────────
   const login = async (email, password) => {
@@ -90,8 +125,7 @@ export const AuthProvider = ({ children }) => {
   // ── Logout ──────────────────────────────────────────────────
   const logout = async () => {
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
-    localStorage.removeItem('crm_user');
-    setUser(null);
+    clearSession();
   };
 
   // ── Refresh user from server ────────────────────────────────
@@ -102,6 +136,8 @@ export const AuthProvider = ({ children }) => {
         const userData = await res.json();
         localStorage.setItem('crm_user', JSON.stringify(userData));
         setUser(userData);
+      } else if (res.status === 401 || res.status === 403) {
+        clearSession();
       }
     } catch {}
   };
