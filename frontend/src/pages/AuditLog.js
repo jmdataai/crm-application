@@ -15,25 +15,42 @@ export default function AuditLog() {
   const [total,    setTotal]    = useState(0);
   const [loading,  setLoading]  = useState(true);
   const [page,     setPage]     = useState(0);
-  const [action,   setAction]   = useState('');
-  const [entity,   setEntity]   = useState('');
   const [expanded, setExpanded] = useState(null);
   const PER = 50;
+
+  // All filters
+  const [action,     setAction]     = useState('');
+  const [entity,     setEntity]     = useState('');
+  const [userName,   setUserName]   = useState('');
+  const [entityName, setEntityName] = useState('');
+  const [dateFrom,   setDateFrom]   = useState('');
+  const [dateTo,     setDateTo]     = useState('');
+
+  const hasFilters = action || entity || userName || entityName || dateFrom || dateTo;
+
+  const clearAll = () => {
+    setAction(''); setEntity(''); setUserName(''); setEntityName('');
+    setDateFrom(''); setDateTo(''); setPage(0);
+  };
 
   const fetchLogs = useCallback(async () => {
     setLoading(true);
     try {
       const res = await auditLogsAPI.getAll({
-        limit:  PER,
-        skip:   page * PER,
-        action: action || undefined,
-        entity_type: entity || undefined,
+        limit:       PER,
+        skip:        page * PER,
+        action:      action      || undefined,
+        entity_type: entity      || undefined,
+        user_name:   userName    || undefined,
+        entity_name: entityName  || undefined,
+        date_from:   dateFrom    || undefined,
+        date_to:     dateTo      || undefined,
       });
       setLogs(res.data?.logs || []);
       setTotal(res.data?.total || 0);
     } catch { /* show empty */ }
     finally { setLoading(false); }
-  }, [page, action, entity]);
+  }, [page, action, entity, userName, entityName, dateFrom, dateTo]);
 
   useEffect(() => { fetchLogs(); }, [fetchLogs]);
 
@@ -48,10 +65,12 @@ export default function AuditLog() {
   }
 
   const pages = Math.ceil(total / PER);
+  const inputStyle = { padding:'0.4rem 0.75rem', borderRadius:'0.375rem', border:'1px solid var(--outline-variant)', background:'var(--surface)', color:'var(--on-surface)', fontFamily:'Inter,sans-serif', fontSize:'0.8125rem', outline:'none' };
 
   return (
     <div className="fade-in">
-      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem' }}>
+      {/* Header */}
+      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.5rem' }}>
         <div>
           <p className="label-sm" style={{ marginBottom:'0.25rem' }}>Admin · Read-Only</p>
           <h1 className="headline-sm">Audit & Access Log</h1>
@@ -64,34 +83,80 @@ export default function AuditLog() {
         </button>
       </div>
 
-      {/* Filters */}
-      <div className="card" style={{ marginBottom:'1.25rem', padding:'0.75rem 1.25rem', display:'flex', gap:'1rem', alignItems:'center', flexWrap:'wrap' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
-          <label className="label" style={{ marginBottom:0, whiteSpace:'nowrap' }}>Action:</label>
-          <select className="select" value={action} onChange={e => { setAction(e.target.value); setPage(0); }} style={{ minWidth:140 }}>
-            <option value="">All actions</option>
-            {['login','login_failed','logout','view','create','update','delete','export'].map(a => (
-              <option key={a} value={a}>{a}</option>
-            ))}
-          </select>
+      {/* ── Filter Panel ── */}
+      <div className="card" style={{ marginBottom:'1.25rem', padding:'1rem 1.25rem' }}>
+        <div style={{ display:'flex', gap:'0.75rem', flexWrap:'wrap', alignItems:'flex-end' }}>
+
+          {/* Date From */}
+          <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem' }}>
+            <label style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--on-surface-variant)' }}>Date From</label>
+            <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(0); }} style={inputStyle}/>
+          </div>
+
+          {/* Date To */}
+          <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem' }}>
+            <label style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--on-surface-variant)' }}>Date To</label>
+            <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(0); }} style={inputStyle}/>
+          </div>
+
+          {/* User Name */}
+          <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem' }}>
+            <label style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--on-surface-variant)' }}>User Name</label>
+            <input type="text" placeholder="Search user…" value={userName} onChange={e => { setUserName(e.target.value); setPage(0); }} style={{ ...inputStyle, minWidth:150 }}/>
+          </div>
+
+          {/* Action */}
+          <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem' }}>
+            <label style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--on-surface-variant)' }}>Action</label>
+            <select value={action} onChange={e => { setAction(e.target.value); setPage(0); }} style={{ ...inputStyle, minWidth:140 }}>
+              <option value="">All actions</option>
+              {['login','login_failed','logout','view','create','update','delete','export'].map(a => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Record Type */}
+          <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem' }}>
+            <label style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--on-surface-variant)' }}>Record Type</label>
+            <select value={entity} onChange={e => { setEntity(e.target.value); setPage(0); }} style={{ ...inputStyle, minWidth:130 }}>
+              <option value="">All types</option>
+              {['lead','candidate','job','user','settings'].map(e => (
+                <option key={e} value={e}>{e}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Record Name */}
+          <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem' }}>
+            <label style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--on-surface-variant)' }}>Record Name</label>
+            <input type="text" placeholder="Search record…" value={entityName} onChange={e => { setEntityName(e.target.value); setPage(0); }} style={{ ...inputStyle, minWidth:150 }}/>
+          </div>
+
+          {/* Clear */}
+          {hasFilters && (
+            <button onClick={clearAll} className="btn-ghost" style={{ fontSize:'0.8125rem', alignSelf:'flex-end' }}>
+              <Icon name="filter_alt_off" style={{ fontSize:'1rem' }}/> Clear all
+            </button>
+          )}
+
+          <p style={{ marginLeft:'auto', fontSize:'0.8125rem', color:'var(--on-surface-variant)', alignSelf:'flex-end' }}>
+            {total > 0 ? `${page*PER+1}–${Math.min((page+1)*PER, total)} of ${total.toLocaleString()}` : '0 results'}
+          </p>
         </div>
-        <div style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
-          <label className="label" style={{ marginBottom:0, whiteSpace:'nowrap' }}>Record type:</label>
-          <select className="select" value={entity} onChange={e => { setEntity(e.target.value); setPage(0); }} style={{ minWidth:140 }}>
-            <option value="">All types</option>
-            {['lead','candidate','job','user','settings'].map(e => (
-              <option key={e} value={e}>{e}</option>
-            ))}
-          </select>
-        </div>
-        {(action||entity) && (
-          <button onClick={() => { setAction(''); setEntity(''); setPage(0); }} className="btn-ghost" style={{ fontSize:'0.8125rem' }}>
-            Clear filters ×
-          </button>
+
+        {/* Active filter chips */}
+        {hasFilters && (
+          <div style={{ display:'flex', gap:'0.375rem', flexWrap:'wrap', marginTop:'0.75rem', paddingTop:'0.75rem', borderTop:'1px solid var(--outline-variant)' }}>
+            <span style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', alignSelf:'center' }}>Active filters:</span>
+            {dateFrom && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:'rgba(0,74,198,0.1)', color:'var(--primary)' }}>From: {dateFrom}</span>}
+            {dateTo   && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:'rgba(0,74,198,0.1)', color:'var(--primary)' }}>To: {dateTo}</span>}
+            {userName && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:'rgba(124,58,237,0.1)', color:'#7c3aed' }}>User: {userName}</span>}
+            {action   && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:`${ACTION_COLOR[action]||'#6b7280'}18`, color:ACTION_COLOR[action]||'#6b7280' }}>{action}</span>}
+            {entity   && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:'var(--surface-container)', color:'var(--on-surface-variant)' }}>{entity}</span>}
+            {entityName && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:'var(--surface-container)', color:'var(--on-surface-variant)' }}>Record: {entityName}</span>}
+          </div>
         )}
-        <p style={{ marginLeft:'auto', fontSize:'0.8125rem', color:'var(--on-surface-variant)' }}>
-          Showing {page*PER+1}–{Math.min((page+1)*PER, total)} of {total.toLocaleString()}
-        </p>
       </div>
 
       {/* Log table */}
@@ -103,9 +168,10 @@ export default function AuditLog() {
         )}
 
         {!loading && logs.length === 0 && (
-          <div style={{ textAlign:'center', padding:'3rem', color:'var(--on-surface-variant)' }}>
+          <div style={{ textAlign:'center', padding:'4rem', color:'var(--on-surface-variant)' }}>
             <Icon name="search_off" style={{ fontSize:'2.5rem', display:'block', margin:'0 auto 0.75rem', opacity:0.3 }} />
             <p style={{ fontWeight:600 }}>No log entries found</p>
+            {hasFilters && <p style={{ fontSize:'0.875rem', marginTop:'0.375rem' }}>Try adjusting your filters above</p>}
           </div>
         )}
 
@@ -147,7 +213,8 @@ export default function AuditLog() {
                           <span style={{ fontWeight:500 }}>{log.entity_name||'—'}</span>
                         </td>
                         <td style={{ padding:'0.625rem 1rem', color:'var(--on-surface-variant)', whiteSpace:'nowrap', fontSize:'0.75rem' }}>
-                          {new Date(log.created_at).toLocaleString()}
+                          <p>{new Date(log.created_at).toLocaleDateString('en-IN')}</p>
+                          <p style={{ fontSize:'0.7rem' }}>{new Date(log.created_at).toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'})}</p>
                         </td>
                         <td style={{ padding:'0.625rem 1rem' }}>
                           {hasChanges ? (
@@ -193,10 +260,10 @@ export default function AuditLog() {
 
       {/* Pagination */}
       {pages > 1 && (
-        <div style={{ display:'flex', justifyContent:'center', gap:'0.5rem', marginTop:'1.25rem' }}>
-          <button onClick={() => setPage(p=>Math.max(0,p-1))} disabled={page===0} className="btn-secondary" style={{ padding:'0.375rem 0.75rem' }}>← Prev</button>
-          <span style={{ padding:'0.375rem 0.75rem', fontWeight:600, fontSize:'0.875rem', color:'var(--on-surface-variant)' }}>Page {page+1} / {pages}</span>
-          <button onClick={() => setPage(p=>Math.min(pages-1,p+1))} disabled={page>=pages-1} className="btn-secondary" style={{ padding:'0.375rem 0.75rem' }}>Next →</button>
+        <div style={{ display:'flex', justifyContent:'center', alignItems:'center', gap:'0.5rem', marginTop:'1.25rem' }}>
+          <button onClick={() => setPage(p=>Math.max(0,p-1))} disabled={page===0} className="btn-secondary" style={{ padding:'0.375rem 0.75rem', opacity:page===0?0.4:1 }}>← Prev</button>
+          <span style={{ padding:'0.375rem 0.75rem', fontWeight:600, fontSize:'0.875rem', color:'var(--on-surface-variant)' }}>Page {page+1} of {pages}</span>
+          <button onClick={() => setPage(p=>Math.min(pages-1,p+1))} disabled={page>=pages-1} className="btn-secondary" style={{ padding:'0.375rem 0.75rem', opacity:page>=pages-1?0.4:1 }}>Next →</button>
         </div>
       )}
     </div>

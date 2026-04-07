@@ -1771,6 +1771,10 @@ async def get_audit_logs(
     action:      Optional[str] = None,
     entity_type: Optional[str] = None,
     user_id:     Optional[str] = None,
+    user_name:   Optional[str] = None,   # search by user name
+    date_from:   Optional[str] = None,   # YYYY-MM-DD
+    date_to:     Optional[str] = None,   # YYYY-MM-DD
+    entity_name: Optional[str] = None,   # search by record name
     limit:       int = 100,
     skip:        int = 0,
 ):
@@ -1782,6 +1786,10 @@ async def get_audit_logs(
     if action:      q = q.eq("action", action)
     if entity_type: q = q.eq("entity_type", entity_type)
     if user_id:     q = q.eq("user_id", user_id)
+    if user_name:   q = q.ilike("user_name", f"%{user_name}%")
+    if entity_name: q = q.ilike("entity_name", f"%{entity_name}%")
+    if date_from:   q = q.gte("created_at", f"{date_from}T00:00:00Z")
+    if date_to:     q = q.lte("created_at", f"{date_to}T23:59:59Z")
 
     res = await run(lambda: q.execute())
     return {"logs": res.data or [], "total": res.count or 0}

@@ -76,6 +76,11 @@ export default function LeadDetail() {
   const [showLog, setShowLog]   = useState(false);
   const [note, setNote]         = useState('');
   const [activeTab, setActiveTab] = useState('activity');
+  // Submissions tab state — was missing, caused crash
+  const [candidates, setCandidates]   = useState([]);
+  const [submissions, setSubmissions] = useState([]);
+  const [selCand, setSelCand]         = useState('');
+  const [subLoading, setSubLoading]   = useState(false);
 
   const fetchLead = useCallback(async () => {
     setLoading(true);

@@ -78,34 +78,43 @@ const AddLeadModal = ({ onClose, onAdd }) => {
 };
 
 const normalise = (l) => ({
-  id:                   l.id,
-  company:              l.company || l.full_name || '—',
-  full_name:            l.full_name || '',
-  job_title:            l.job_title || '',
-  email:                l.email || '',
-  phone:                l.phone || '',
-  website:              l.website || '',
-  industry:             l.industry || '',
-  business_type:        l.business_type || '',
-  address:              l.address || '',
-  country:              l.country || '',
-  status:               l.status || 'new',
-  next_follow_up:       l.next_follow_up || '',
-  intro_sent:           l.intro_sent || '',
-  linkedin_invite_sent: l.linkedin_invite_sent || false,
-  solution_skills:      l.solution_skills || '',
-  notes:                l.notes || '',
-  source_file:          l.source_file || '',
-  source:               l.source || '',
-  contact2_name:        l.contact_person_2_name || '',
-  contact2_designation: l.contact_person_2_designation || '',
-  contact2_email:       l.contact_person_2_email || '',
-  contact2_phone:       l.contact_person_2_phone || '',
-  contact3_name:        l.contact_person_3_name || '',
-  contact3_email:       l.contact_person_3_email || '',
-  created_at:           l.created_at?.slice(0,10) || '',
-  deal_value:           l.deal_value || 0,
-  linkedin_url:         l.linkedin_url || '',
+  id:                       l.id,
+  // Company / Core
+  company:                  l.company || l.full_name || '—',
+  full_name:                l.full_name || '',
+  job_title:                l.job_title || '',
+  email:                    l.email || '',
+  phone:                    l.phone || '',           // Mobile (primary)
+  website:                  l.website || '',
+  industry:                 l.industry || '',
+  business_type:            l.business_type || '',
+  address:                  l.address || '',
+  country:                  l.country || '',
+  status:                   l.status || 'new',
+  // Follow-up dates
+  intro_sent:               l.intro_sent || '',           // Intro Sent
+  next_follow_up:           l.next_follow_up || '',       // Next F Date
+  // Outreach tracking
+  linkedin_invite_sent:     l.linkedin_invite_sent || false,
+  linkedin_invite_accepted: l.linkedin_invite_accepted || false,
+  lead_share_date:          l.lead_share_date || '',      // Lead Share on
+  solution_skills:          l.solution_skills || '',
+  turnover_headcount:       l.turnover_headcount || '',
+  notes:                    l.notes || '',
+  source_file:              l.source_file || '',          // Data Form
+  source:                   l.source || '',               // Lead come from
+  // Contact Person 1 (Name + Designation already in full_name/job_title)
+  contact2_name:            l.contact_person_2_name || '',
+  contact2_designation:     l.contact_person_2_designation || '',
+  contact2_email:           l.contact_person_2_email || '',
+  contact2_phone:           l.contact_person_2_phone || '',
+  contact3_name:            l.contact_person_3_name || '',
+  contact3_designation:     l.contact_person_3_designation || '',
+  contact3_email:           l.contact_person_3_email || '',
+  contact3_phone:           l.contact_person_3_phone || '',
+  created_at:               l.created_at?.slice(0,10) || '',
+  deal_value:               l.deal_value || 0,
+  linkedin_url:             l.linkedin_url || '',
 });
 
 export default function LeadsList() {
@@ -127,7 +136,8 @@ export default function LeadsList() {
   const [cs, setColS] = useState({
     company:'', full_name:'', job_title:'', email:'', phone:'',
     industry:'', business_type:'', country:'', status:'', source_file:'',
-    next_follow_up:'', solution_skills:'', source:'',
+    next_follow_up:'', intro_sent:'', solution_skills:'', source:'',
+    contact2_name:'', contact3_name:'',
   });
   const setCS = (k,v) => { setColS(s=>({...s,[k]:v})); setPage(1); };
   const hasCS = Object.values(cs).some(v=>v);
@@ -282,7 +292,7 @@ export default function LeadsList() {
             {s.label}
           </button>
         ))}
-        {hasCS && <button onClick={()=>setColS({company:'',full_name:'',job_title:'',email:'',phone:'',industry:'',business_type:'',country:'',status:'',source_file:'',next_follow_up:'',solution_skills:'',source:''})} style={{marginLeft:'auto',padding:'0.35rem 0.875rem',borderRadius:9999,border:'1px solid var(--outline-variant)',cursor:'pointer',fontSize:'0.8125rem',fontWeight:600,background:'transparent',color:'var(--error)',fontFamily:'Inter,sans-serif'}}><Icon name="filter_alt_off" style={{fontSize:'0.875rem'}}/> Clear filters</button>}
+        {hasCS && <button onClick={()=>setColS({company:'',full_name:'',job_title:'',email:'',phone:'',industry:'',business_type:'',country:'',status:'',source_file:'',next_follow_up:'',intro_sent:'',solution_skills:'',source:'',contact2_name:'',contact3_name:''})} style={{marginLeft:'auto',padding:'0.35rem 0.875rem',borderRadius:9999,border:'1px solid var(--outline-variant)',cursor:'pointer',fontSize:'0.8125rem',fontWeight:600,background:'transparent',color:'var(--error)',fontFamily:'Inter,sans-serif'}}><Icon name="filter_alt_off" style={{fontSize:'0.875rem'}}/> Clear filters</button>}
       </div>
 
       {/* KPI row */}
@@ -314,22 +324,35 @@ export default function LeadsList() {
                     style={{cursor:'pointer',width:14,height:14,accentColor:'var(--primary)'}}/>
                 </th>
                 {[
-                  {label:'#',               key:'_num',          w:'40px',  sort:false},
-                  {label:'Company',         key:'company',       w:'160px', sort:true},
-                  {label:'Type / Industry', key:'industry',      w:'120px', sort:true},
-                  {label:'Status',          key:'status',        w:'130px', sort:true},
-                  {label:'Contact 1',       key:'full_name',     w:'140px', sort:true},
-                  {label:'Designation',     key:'job_title',     w:'130px', sort:true},
-                  {label:'Email',           key:'email',         w:'170px', sort:true},
-                  {label:'Phone',           key:'phone',         w:'120px', sort:false},
-                  {label:'Contact 2',       key:'contact2_name', w:'130px', sort:false},
-                  {label:'C2 Email',        key:'contact2_email',w:'160px', sort:false},
-                  {label:'Domain / Skills', key:'solution_skills',w:'150px',sort:true},
-                  {label:'Country',         key:'country',       w:'100px', sort:true},
-                  {label:'Follow-up',       key:'next_follow_up',w:'120px', sort:true},
-                  {label:'Intro Sent',      key:'intro_sent',    w:'100px', sort:true},
-                  {label:'Source File',     key:'source_file',   w:'140px', sort:true},
-                  {label:'Remarks',         key:'notes',         w:'160px', sort:false},
+                  {label:'#',                  key:'_num',                   w:'40px',  sort:false},
+                  {label:'Company Name',        key:'company',                w:'170px', sort:true},
+                  {label:'Lead Status',         key:'status',                 w:'130px', sort:true},
+                  {label:'Name',                key:'full_name',              w:'140px', sort:true},
+                  {label:'Designation',         key:'job_title',              w:'130px', sort:true},
+                  {label:'Mobile',              key:'phone',                  w:'120px', sort:false},
+                  {label:'Email',               key:'email',                  w:'170px', sort:true},
+                  {label:'Contact Person 1',    key:'contact2_name',          w:'140px', sort:false},
+                  {label:'C1 Designation',      key:'contact2_designation',   w:'130px', sort:false},
+                  {label:'C1 Mobile',           key:'contact2_phone',         w:'120px', sort:false},
+                  {label:'C1 Email',            key:'contact2_email',         w:'170px', sort:false},
+                  {label:'Contact Person 2',    key:'contact3_name',          w:'140px', sort:false},
+                  {label:'C2 Designation',      key:'contact3_designation',   w:'130px', sort:false},
+                  {label:'C2 Mobile',           key:'contact3_phone',         w:'120px', sort:false},
+                  {label:'C2 Email',            key:'contact3_email',         w:'170px', sort:false},
+                  {label:'Website',             key:'website',                w:'120px', sort:false},
+                  {label:'Industry Type',       key:'industry',               w:'130px', sort:true},
+                  {label:'Business/Skills',     key:'business_type',          w:'140px', sort:true},
+                  {label:'Country',             key:'country',                w:'100px', sort:true},
+                  {label:'Intro Sent',          key:'intro_sent',             w:'105px', sort:true},
+                  {label:'Next F Date',         key:'next_follow_up',         w:'115px', sort:true},
+                  {label:'Lead Come From',      key:'source',                 w:'130px', sort:true},
+                  {label:'Data Form',           key:'source_file',            w:'140px', sort:true},
+                  {label:'Turnover/Headcount',  key:'turnover_headcount',     w:'130px', sort:false},
+                  {label:'LinkedIn Invite',     key:'linkedin_invite_sent',   w:'105px', sort:false},
+                  {label:'Invite Accepted',     key:'linkedin_invite_accepted',w:'105px',sort:false},
+                  {label:'Lead Share On',       key:'lead_share_date',        w:'110px', sort:true},
+                  {label:'Solution/Skills',     key:'solution_skills',        w:'150px', sort:true},
+                  {label:'Remarks',             key:'notes',                  w:'160px', sort:false},
                 ].map(col=>(
                   <th key={col.key} style={{padding:'0.5rem 0.625rem',textAlign:'left',cursor:col.sort?'pointer':'default',userSelect:'none',whiteSpace:'nowrap',minWidth:col.w,borderRight:'1px solid var(--outline-variant)'}}
                     onClick={()=>col.sort&&toggleSort(col.key)}>
@@ -340,26 +363,38 @@ export default function LeadsList() {
                 ))}
                 <th style={{padding:'0.5rem 0.625rem',whiteSpace:'nowrap',minWidth:'80px',textAlign:'right',fontSize:'0.7rem',fontWeight:700,color:'var(--on-surface-variant)',textTransform:'uppercase'}}>Actions</th>
               </tr>
-              {/* Search row */}
+              {/* Search row — one per column */}
               <tr style={{background:'var(--surface-container)',borderBottom:'2px solid var(--outline-variant)'}}>
-                <th style={{padding:'0.375rem 0.75rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.375rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.375rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('company','Company…')}</th>
-                <th style={{padding:'0.375rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('industry','Industry…')}</th>
-                <th style={{padding:'0.375rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{statusSelect}</th>
-                <th style={{padding:'0.375rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('full_name','Name…')}</th>
-                <th style={{padding:'0.375rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('job_title','Designation…')}</th>
-                <th style={{padding:'0.375rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('email','Email…')}</th>
-                <th style={{padding:'0.375rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('phone','Phone…')}</th>
-                <th style={{padding:'0.375rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.375rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.375rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('solution_skills','Skills…')}</th>
-                <th style={{padding:'0.375rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('country','Country…')}</th>
-                <th style={{padding:'0.375rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('next_follow_up','YYYY-MM-DD')}</th>
-                <th style={{padding:'0.375rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.375rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('source_file','File…')}</th>
-                <th style={{padding:'0.375rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.375rem 0.375rem'}}/>
+                <th style={{padding:'0.3rem 0.75rem',borderRight:'1px solid var(--outline-variant)'}}/>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('company','Company…')}</th>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{statusSelect}</th>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('full_name','Name…')}</th>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('job_title','Designation…')}</th>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('phone','Mobile…')}</th>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('email','Email…')}</th>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('contact2_name','C1 Name…')}</th>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('contact3_name','C2 Name…')}</th>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('industry','Industry…')}</th>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('country','Country…')}</th>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('intro_sent','Intro…')}</th>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('next_follow_up','YYYY-MM-DD')}</th>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('source','Source…')}</th>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('source_file','File…')}</th>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('solution_skills','Skills…')}</th>
+                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
+                <th style={{padding:'0.3rem 0.375rem'}}/>
               </tr>
             </thead>
             <tbody>
@@ -378,73 +413,124 @@ export default function LeadsList() {
                     </td>
                     {/* Row # */}
                     <td style={{padding:'0.625rem 0.5rem',color:'var(--on-surface-variant)',fontSize:'0.75rem',borderRight:'1px solid var(--surface-container)',textAlign:'center'}}>{(page-1)*PER_PAGE+idx+1}</td>
-                    {/* Company */}
-                    <td style={{padding:'0.625rem 0.625rem',borderRight:'1px solid var(--surface-container)',minWidth:'160px'}}>
-                      <div style={{fontWeight:700,fontSize:'0.875rem',color:'var(--on-surface)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:155,cursor:'pointer'}} onClick={()=>navigate(`/sales/leads/${l.id}`)}>
-                        {l.company}
-                      </div>
-                      {l.website&&<a href={l.website.startsWith('http')?l.website:'https://'+l.website} target="_blank" rel="noreferrer" style={{fontSize:'0.7rem',color:'var(--primary)',textDecoration:'none',display:'flex',alignItems:'center',gap:2}} onClick={e=>e.stopPropagation()}>
-                        <Icon name="open_in_new" style={{fontSize:'0.7rem'}}/>web
-                      </a>}
+                    {/* Company Name */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',minWidth:170}}>
+                      <p onClick={()=>navigate(`/sales/leads/${l.id}`)} style={{fontWeight:700,fontSize:'0.875rem',cursor:'pointer',color:'var(--on-surface)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:160,margin:0}}>{l.company}</p>
                     </td>
-                    {/* Industry */}
-                    <td style={{padding:'0.625rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:120}}>
-                      <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{l.industry||l.business_type||'—'}</span>
-                    </td>
-                    {/* Status — inline quick-change */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)'}} onClick={e=>e.stopPropagation()}>
+                    {/* Lead Status */}
+                    <td style={{padding:'0.4rem 0.5rem',borderRight:'1px solid var(--surface-container)'}} onClick={e=>e.stopPropagation()}>
                       <select value={l.status} onChange={e=>updateStatus(l.id,e.target.value)}
-                        style={{border:'none',background:'transparent',cursor:'pointer',fontFamily:'Inter,sans-serif',fontSize:'0.75rem',fontWeight:600,color:(STATUS_META[l.status]||STATUS_META.new).color,padding:0,outline:'none'}}>
+                        style={{border:'none',background:'transparent',cursor:'pointer',fontFamily:'Inter,sans-serif',fontSize:'0.73rem',fontWeight:600,color:(STATUS_META[l.status]||STATUS_META.new).color,padding:0,outline:'none',maxWidth:120}}>
                         {Object.entries(STATUS_META).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
                       </select>
                     </td>
-                    {/* Contact 1 name */}
-                    <td style={{padding:'0.625rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:140}}>
-                      <p style={{fontSize:'0.8125rem',fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{l.full_name||'—'}</p>
+                    {/* Name (primary contact) */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:140}}>
+                      <p style={{fontSize:'0.8125rem',fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',margin:0}}>{l.full_name||'—'}</p>
                     </td>
                     {/* Designation */}
-                    <td style={{padding:'0.625rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:130}}>
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:130}}>
                       <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{l.job_title||'—'}</span>
                     </td>
+                    {/* Mobile */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)'}} onClick={e=>e.stopPropagation()}>
+                      {l.phone?<a href={`tel:${l.phone}`} style={{fontSize:'0.75rem',color:'var(--on-surface)',textDecoration:'none',display:'flex',alignItems:'center',gap:3,whiteSpace:'nowrap'}}><Icon name="call" style={{fontSize:'0.875rem',color:'var(--tertiary)'}}/>{l.phone}</a>:<span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>}
+                    </td>
                     {/* Email */}
-                    <td style={{padding:'0.625rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:170}} onClick={e=>e.stopPropagation()}>
-                      {l.email?<a href={`mailto:${l.email}`} style={{fontSize:'0.75rem',color:'var(--primary)',textDecoration:'none',display:'flex',alignItems:'center',gap:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}><Icon name="mail" style={{fontSize:'0.875rem',flexShrink:0}}/>{l.email}</a>:<span style={{color:'var(--outline)'}}>—</span>}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:170}} onClick={e=>e.stopPropagation()}>
+                      {l.email?<a href={`mailto:${l.email}`} style={{fontSize:'0.75rem',color:'var(--primary)',textDecoration:'none',display:'flex',alignItems:'center',gap:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}><Icon name="mail" style={{fontSize:'0.875rem',flexShrink:0}}/>{l.email}</a>:<span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>}
                     </td>
-                    {/* Phone */}
-                    <td style={{padding:'0.625rem 0.625rem',borderRight:'1px solid var(--surface-container)'}} onClick={e=>e.stopPropagation()}>
-                      {l.phone?<a href={`tel:${l.phone}`} style={{fontSize:'0.75rem',color:'var(--on-surface)',textDecoration:'none',display:'flex',alignItems:'center',gap:3,whiteSpace:'nowrap'}}><Icon name="call" style={{fontSize:'0.875rem',color:'var(--tertiary)'}}/>{l.phone}</a>:<span style={{color:'var(--outline)'}}>—</span>}
+                    {/* Contact Person 1 name */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:140}}>
+                      <p style={{fontSize:'0.8125rem',fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',margin:0}}>{l.contact2_name||'—'}</p>
                     </td>
-                    {/* Contact 2 */}
-                    <td style={{padding:'0.625rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:130}}>
-                      {l.contact2_name?<div><p style={{fontSize:'0.8125rem',fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{l.contact2_name}</p><p style={{fontSize:'0.7rem',color:'var(--on-surface-variant)'}}>{l.contact2_designation}</p></div>:<span style={{color:'var(--outline)'}}>—</span>}
+                    {/* C1 Designation */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:130}}>
+                      <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{l.contact2_designation||'—'}</span>
                     </td>
-                    {/* C2 email */}
-                    <td style={{padding:'0.625rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:160}} onClick={e=>e.stopPropagation()}>
-                      {l.contact2_email?<a href={`mailto:${l.contact2_email}`} style={{fontSize:'0.75rem',color:'var(--primary)',textDecoration:'none',display:'flex',alignItems:'center',gap:3}}><Icon name="mail" style={{fontSize:'0.875rem'}}/>{l.contact2_email.slice(0,22)}</a>:<span style={{color:'var(--outline)'}}>—</span>}
+                    {/* C1 Mobile */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)'}} onClick={e=>e.stopPropagation()}>
+                      {l.contact2_phone?<a href={`tel:${l.contact2_phone}`} style={{fontSize:'0.75rem',color:'var(--on-surface)',textDecoration:'none',display:'flex',alignItems:'center',gap:3,whiteSpace:'nowrap'}}><Icon name="call" style={{fontSize:'0.875rem',color:'var(--tertiary)'}}/>{l.contact2_phone}</a>:<span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>}
                     </td>
-                    {/* Domain/Skills */}
-                    <td style={{padding:'0.625rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:150}}>
-                      <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{l.solution_skills||'—'}</span>
+                    {/* C1 Email */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:170}} onClick={e=>e.stopPropagation()}>
+                      {l.contact2_email?<a href={`mailto:${l.contact2_email}`} style={{fontSize:'0.75rem',color:'var(--primary)',textDecoration:'none',display:'flex',alignItems:'center',gap:3}}><Icon name="mail" style={{fontSize:'0.875rem'}}/>{l.contact2_email.slice(0,24)}</a>:<span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>}
+                    </td>
+                    {/* Contact Person 2 name */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:140}}>
+                      <p style={{fontSize:'0.8125rem',fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',margin:0}}>{l.contact3_name||'—'}</p>
+                    </td>
+                    {/* C2 Designation */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:130}}>
+                      <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{l.contact3_designation||'—'}</span>
+                    </td>
+                    {/* C2 Mobile */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)'}} onClick={e=>e.stopPropagation()}>
+                      {l.contact3_phone?<a href={`tel:${l.contact3_phone}`} style={{fontSize:'0.75rem',color:'var(--on-surface)',textDecoration:'none',display:'flex',alignItems:'center',gap:3,whiteSpace:'nowrap'}}><Icon name="call" style={{fontSize:'0.875rem',color:'var(--tertiary)'}}/>{l.contact3_phone}</a>:<span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>}
+                    </td>
+                    {/* C2 Email */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:170}} onClick={e=>e.stopPropagation()}>
+                      {l.contact3_email?<a href={`mailto:${l.contact3_email}`} style={{fontSize:'0.75rem',color:'var(--primary)',textDecoration:'none',display:'flex',alignItems:'center',gap:3}}><Icon name="mail" style={{fontSize:'0.875rem'}}/>{l.contact3_email.slice(0,24)}</a>:<span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>}
+                    </td>
+                    {/* Website */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)'}} onClick={e=>e.stopPropagation()}>
+                      {l.website?<a href={l.website.startsWith('http')?l.website:'https://'+l.website} target="_blank" rel="noreferrer" style={{fontSize:'0.75rem',color:'var(--primary)',textDecoration:'none',display:'flex',alignItems:'center',gap:2}}><Icon name="open_in_new" style={{fontSize:'0.875rem'}}/>Open</a>:<span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>}
+                    </td>
+                    {/* Industry Type */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:130}}>
+                      <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{l.industry||'—'}</span>
+                    </td>
+                    {/* Business/Skills */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:140}}>
+                      <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{l.business_type||'—'}</span>
                     </td>
                     {/* Country */}
-                    <td style={{padding:'0.625rem 0.625rem',borderRight:'1px solid var(--surface-container)',whiteSpace:'nowrap'}}>
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',whiteSpace:'nowrap'}}>
                       <span style={{fontSize:'0.75rem'}}>{l.country||l.address||'—'}</span>
                     </td>
-                    {/* Follow-up — inline date picker */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',whiteSpace:'nowrap'}} onClick={e=>e.stopPropagation()}>
-                      <input type="date" value={l.next_follow_up||''} onChange={e=>updateFollowUp(l.id,e.target.value)}
-                        style={{fontSize:'0.75rem',border:'none',background:'transparent',cursor:'pointer',fontFamily:'Inter,sans-serif',color:isOverdue?'var(--error)':isDueToday?'#d97706':'var(--on-surface)',fontWeight:isOverdue||isDueToday?600:400,padding:0,outline:'none',width:'110px'}}/>
-                    </td>
                     {/* Intro Sent */}
-                    <td style={{padding:'0.625rem 0.625rem',borderRight:'1px solid var(--surface-container)',textAlign:'center'}}>
-                      {l.intro_sent?<span style={{fontSize:'0.7rem',color:'var(--tertiary)',fontWeight:600}}>{l.intro_sent}</span>:bool_icon(false)}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',textAlign:'center',whiteSpace:'nowrap'}}>
+                      <span style={{fontSize:'0.7rem',color:'var(--tertiary)',fontWeight:600}}>{l.intro_sent||'—'}</span>
                     </td>
-                    {/* Source File */}
-                    <td style={{padding:'0.625rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:140}}>
-                      <span style={{fontSize:'0.7rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}} title={l.source_file}>{l.source_file||'—'}</span>
+                    {/* Next F Date — inline date picker */}
+                    <td style={{padding:'0.4rem 0.5rem',borderRight:'1px solid var(--surface-container)',whiteSpace:'nowrap'}} onClick={e=>e.stopPropagation()}>
+                      <input type="date" value={l.next_follow_up||''} onChange={e=>updateFollowUp(l.id,e.target.value)}
+                        style={{fontSize:'0.73rem',border:'none',background:'transparent',cursor:'pointer',fontFamily:'Inter,sans-serif',color:isOverdue?'var(--error)':isDueToday?'#d97706':'var(--on-surface)',fontWeight:isOverdue||isDueToday?600:400,padding:0,outline:'none',width:'108px'}}/>
                     </td>
-                    {/* Remarks / Notes */}
-                    <td style={{padding:'0.625rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:160}}>
+                    {/* Lead Come From */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:130}}>
+                      <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{l.source||'—'}</span>
+                    </td>
+                    {/* Data Form (source file) */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:140}}>
+                      <span style={{fontSize:'0.68rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}} title={l.source_file}>{l.source_file||'—'}</span>
+                    </td>
+                    {/* Turnover/Headcount */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:130}}>
+                      <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{l.turnover_headcount||'—'}</span>
+                    </td>
+                    {/* LinkedIn Invite Sent */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',textAlign:'center'}}>
+                      {l.linkedin_invite_sent
+                        ? <Icon name="check_circle" style={{fontSize:'1rem',color:'var(--tertiary)'}}/>
+                        : <Icon name="radio_button_unchecked" style={{fontSize:'1rem',color:'var(--outline-variant)'}}/>}
+                    </td>
+                    {/* Invitation Accepted */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',textAlign:'center'}}>
+                      {l.linkedin_invite_accepted
+                        ? <Icon name="check_circle" style={{fontSize:'1rem',color:'var(--tertiary)'}}/>
+                        : <Icon name="radio_button_unchecked" style={{fontSize:'1rem',color:'var(--outline-variant)'}}/>}
+                    </td>
+                    {/* Lead Share On */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',whiteSpace:'nowrap'}}>
+                      <span style={{fontSize:'0.7rem',color:'var(--on-surface-variant)',fontWeight:500}}>{l.lead_share_date||'—'}</span>
+                    </td>
+                    {/* Solution/Skills */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:150}}>
+                      <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{l.solution_skills||'—'}</span>
+                    </td>
+                    {/* Remarks */}
+                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:160}}>
                       <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}} title={l.notes}>{l.notes||'—'}</span>
                     </td>
                     {/* Actions */}

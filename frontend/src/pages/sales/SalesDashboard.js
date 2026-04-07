@@ -1,5 +1,58 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { leadsAPI } from '../../services/api';
+
+const STATUS_VALUES = ['new','contacted','called','interested','follow_up_needed','closed','completed','rejected','lost'];
+
+const AddLeadModal = ({ onClose, onAdd }) => {
+  const [form, setForm] = React.useState({ company:'', full_name:'', job_title:'', email:'', phone:'', website:'', industry:'', business_type:'', address:'', country:'', source:'', status:'new', notes:'', next_follow_up:'', solution_skills:'' });
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+  const submit = async () => {
+    if (!form.company.trim()) { alert('Company name is required'); return; }
+    try {
+      const res = await leadsAPI.create({
+        full_name: form.full_name || form.company,
+        company: form.company, job_title: form.job_title||null, email: form.email||null,
+        phone: form.phone||null, website: form.website||null, industry: form.industry||null,
+        business_type: form.business_type||null, address: form.address||null, country: form.country||null,
+        source: form.source||null, status: form.status, notes: form.notes||null,
+        next_follow_up: form.next_follow_up||null, solution_skills: form.solution_skills||null,
+      });
+      onAdd(res.data); onClose();
+    } catch(e) { alert(e?.response?.data?.detail || 'Failed to add'); }
+  };
+  return (
+    <div className="modal-overlay scale-in" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="modal modal-lg">
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1.5rem'}}>
+          <h2 style={{fontSize:'1.125rem',fontWeight:700}}>Add Company / Lead</h2>
+          <button className="btn-icon" onClick={onClose}><span className="material-symbols-outlined">close</span></button>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'1rem'}}>
+          {[{l:'Company Name *',k:'company',t:'text',s:2},{l:'Contact Name',k:'full_name',t:'text'},{l:'Designation',k:'job_title',t:'text'},{l:'Email',k:'email',t:'email'},{l:'Phone',k:'phone',t:'tel'},{l:'Website',k:'website',t:'url'},{l:'Industry Type',k:'industry',t:'text'},{l:'Business Type / Skills',k:'business_type',t:'text'},{l:'Address / City',k:'address',t:'text'},{l:'Country',k:'country',t:'text'},{l:'Lead From (Source)',k:'source',t:'text'},{l:'Next Follow-up',k:'next_follow_up',t:'date'},{l:'Solution / Looking Skills',k:'solution_skills',t:'text',s:2}].map(f=>(
+            <div key={f.k} style={{gridColumn:f.s===2?'1/-1':undefined}}>
+              <label style={{fontSize:'0.75rem',fontWeight:600,color:'var(--on-surface-variant)',display:'block',marginBottom:'0.25rem'}}>{f.l}</label>
+              <input className="input" type={f.t} value={form[f.k]||''} onChange={e=>set(f.k,e.target.value)}/>
+            </div>
+          ))}
+          <div>
+            <label style={{fontSize:'0.75rem',fontWeight:600,color:'var(--on-surface-variant)',display:'block',marginBottom:'0.25rem'}}>Status</label>
+            <select className="select" value={form.status} onChange={e=>set('status',e.target.value)}>
+              {STATUS_VALUES.map(s=><option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
+            </select>
+          </div>
+          <div style={{gridColumn:'1/-1'}}>
+            <label style={{fontSize:'0.75rem',fontWeight:600,color:'var(--on-surface-variant)',display:'block',marginBottom:'0.25rem'}}>Remarks / Notes</label>
+            <textarea className="textarea" rows={2} value={form.notes} onChange={e=>set('notes',e.target.value)}/>
+          </div>
+        </div>
+        <div style={{display:'flex',gap:'0.75rem',justifyContent:'flex-end',marginTop:'1.5rem'}}>
+          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" onClick={submit}><span className="material-symbols-outlined" style={{fontSize:'1rem',color:'#fff',verticalAlign:'middle'}}>add</span> Add Company</button>
+        </div>
+      </div>
+    </div>
+  );
+};
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -103,6 +156,7 @@ const ContactCell = ({ name, desig, email, phone }) => {
 export default function SalesDashboard() {
   const navigate      = useNavigate();
   const { user }      = useAuth();
+  const [showAdd, setShowAdd] = useState(false);
   const [leads,   setLeads]   = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab]         = useState('all');
@@ -187,7 +241,7 @@ export default function SalesDashboard() {
       return sortDir==='asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
     });
     return out;
-  }, [leads, tab, cs, sortBy, sortDir, fileFilter]);
+  }, [leads, tab, cs, sortBy, sortDir]);
 
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
   const paged      = filtered.slice((page-1)*PER_PAGE, page*PER_PAGE);
@@ -238,10 +292,9 @@ export default function SalesDashboard() {
         <div style={{ display:'flex', gap:'0.625rem' }}>
           <a href="/sales/import" className="btn-secondary"><Icon name="upload_file" style={{fontSize:'1rem'}}/> Import</a>
           <a href="/sales/leads" className="btn-secondary"><Icon name="table_rows" style={{fontSize:'1rem'}}/> All Leads</a>
-          <a href="/sales/leads" className="btn-primary" onClick={e=>{e.preventDefault();document.querySelector('[data-add-lead]')?.click();}}
-            style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1.25rem', borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none', cursor:'pointer', background:'var(--primary)', textDecoration:'none' }}>
+          <button onClick={() => setShowAdd(true)} className="btn-primary">
             <Icon name="add" style={{fontSize:'1rem',color:'#fff'}}/> Add Company
-          </a>
+          </button>
         </div>
       </div>
 
