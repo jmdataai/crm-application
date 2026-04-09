@@ -83,3 +83,12 @@ android-sdk/-e
 # Environment files
 *.env
 *.env.*
+
+
+.claude/
+.cursorrules
+.mcp.json
+.windsurfrules
+AGENTS.md
+CLAUDE.md
+GEMINI.md

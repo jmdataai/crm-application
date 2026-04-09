@@ -473,7 +473,7 @@ async def register(data: UserCreate, request: Request):
         raise HTTPException(403, "Only admins can create new user accounts")
 
     # Validate role value
-    allowed_roles = {"admin", "sales", "viewer"}
+    allowed_roles = {"admin", "sales", "viewer", "worker"}
     role = data.role if data.role in allowed_roles else "sales"
 
     existing = await run(lambda: sb("users").select("id").eq("email", data.email.lower()).execute())
@@ -553,7 +553,7 @@ async def update_user_role(user_id: str, body: dict, request: Request):
     caller = await get_current_user(request)
     if caller.get("role") != "admin":
         raise HTTPException(403, "Only admins can change user roles")
-    allowed_roles = {"admin", "sales", "viewer"}
+    allowed_roles = {"admin", "sales", "viewer", "worker"}
     role = body.get("role")
     if role not in allowed_roles:
         raise HTTPException(400, f"Role must be one of: {', '.join(allowed_roles)}")
@@ -1808,6 +1808,255 @@ async def health():
 # ============================================================
 
 # ============================================================
+# TIMESHEET — Models + Endpoints
+# ============================================================
+
+class TimesheetEntryUpsert(BaseModel):
+    entry_date: str          # ISO date string YYYY-MM-DD
+    hours:      float = 0.0
+    comments:   Optional[str] = None
+
+class TimesheetCreate(BaseModel):
+    week_start: str          # ISO date string YYYY-MM-DD (must be a Monday)
+    entries:    list[TimesheetEntryUpsert] = []
+
+class TimesheetReview(BaseModel):
+    action: str              # "approve" | "reject"
+    note:   Optional[str] = None
+
+
+def _week_monday(d: datetime) -> str:
+    """Return ISO string of the Monday of the week containing d."""
+    return (d.date() - timedelta(days=d.weekday())).isoformat()
+
+
+@api_router.get("/timesheets/me")
+async def get_my_timesheets(request: Request, week_start: Optional[str] = None):
+    """Get current user's timesheets. Optionally filter by week_start."""
+    user = await get_current_user(request)
+    q = sb("timesheets").select("*").eq("user_id", user["id"]).order("week_start", desc=True)
+    if week_start:
+        q = q.eq("week_start", week_start)
+    res = await run(lambda: q.execute())
+    timesheets = res.data or []
+    # Attach entries for each timesheet
+    for ts in timesheets:
+        ent = await run(lambda tid=ts["id"]: sb("timesheet_entries").select("*").eq("timesheet_id", tid).order("entry_date").execute())
+        ts["entries"] = ent.data or []
+    return {"timesheets": timesheets, "total": len(timesheets)}
+
+
+@api_router.get("/timesheets/me/current")
+async def get_current_week_timesheet(request: Request):
+    """Get (or create) the timesheet for the current week."""
+    user = await get_current_user(request)
+    monday = _week_monday(datetime.now(timezone.utc))
+    res = await run(lambda: sb("timesheets").select("*").eq("user_id", user["id"]).eq("week_start", monday).execute())
+    if res.data:
+        ts = res.data[0]
+    else:
+        ins = await run(lambda: sb("timesheets").insert({"user_id": user["id"], "week_start": monday, "status": "draft"}).execute())
+        ts = ins.data[0]
+    ent = await run(lambda tid=ts["id"]: sb("timesheet_entries").select("*").eq("timesheet_id", tid).order("entry_date").execute())
+    ts["entries"] = ent.data or []
+    return ts
+
+
+@api_router.get("/timesheets/me/week")
+async def get_week_timesheet(week_start: str, request: Request):
+    """Get (or create) the timesheet for a specific week."""
+    user = await get_current_user(request)
+    res = await run(lambda: sb("timesheets").select("*").eq("user_id", user["id"]).eq("week_start", week_start).execute())
+    if res.data:
+        ts = res.data[0]
+    else:
+        ins = await run(lambda: sb("timesheets").insert({"user_id": user["id"], "week_start": week_start, "status": "draft"}).execute())
+        ts = ins.data[0]
+    ent = await run(lambda tid=ts["id"]: sb("timesheet_entries").select("*").eq("timesheet_id", tid).order("entry_date").execute())
+    ts["entries"] = ent.data or []
+    return ts
+
+
+@api_router.put("/timesheets/{timesheet_id}/entries")
+async def upsert_timesheet_entries(timesheet_id: str, body: dict, request: Request):
+    """Save/update daily entries for a timesheet (draft only)."""
+    user = await get_current_user(request)
+    ts_res = await run(lambda: sb("timesheets").select("*").eq("id", timesheet_id).eq("user_id", user["id"]).execute())
+    if not ts_res.data:
+        raise HTTPException(404, "Timesheet not found")
+    ts = ts_res.data[0]
+    if ts["status"] == "submitted" or ts["status"] == "approved":
+        raise HTTPException(400, f"Cannot edit a {ts['status']} timesheet")
+
+    entries = body.get("entries", [])
+    total_hours = 0.0
+    for e in entries:
+        h = float(e.get("hours", 0))
+        total_hours += h
+        await run(lambda ed=e["entry_date"], eh=h, ec=e.get("comments"): sb("timesheet_entries").upsert({
+            "timesheet_id": timesheet_id,
+            "entry_date":   ed,
+            "hours":        eh,
+            "comments":     ec,
+        }, on_conflict="timesheet_id,entry_date").execute())
+
+    await run(lambda: sb("timesheets").update({"total_hours": total_hours, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", timesheet_id).execute())
+    await _audit("timesheet_saved", entity_name=f"Week of {ts['week_start']}", current_user=user)
+    return {"success": True, "total_hours": total_hours}
+
+
+@api_router.post("/timesheets/{timesheet_id}/submit")
+async def submit_timesheet(timesheet_id: str, request: Request):
+    """Submit a timesheet — sends email to CEO."""
+    user = await get_current_user(request)
+    ts_res = await run(lambda: sb("timesheets").select("*").eq("id", timesheet_id).eq("user_id", user["id"]).execute())
+    if not ts_res.data:
+        raise HTTPException(404, "Timesheet not found")
+    ts = ts_res.data[0]
+    if ts["status"] not in ("draft",):
+        raise HTTPException(400, f"Timesheet is already {ts['status']}")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await run(lambda: sb("timesheets").update({"status": "submitted", "submitted_at": now_iso, "updated_at": now_iso}).eq("id", timesheet_id).execute())
+
+    # Get entries for email
+    ent_res = await run(lambda: sb("timesheet_entries").select("*").eq("timesheet_id", timesheet_id).order("entry_date").execute())
+    entries = ent_res.data or []
+    rows_html = ""
+    for e in entries:
+        h = float(e.get("hours") or 0)
+        if h > 0 or e.get("comments"):
+            day_name = datetime.fromisoformat(e["entry_date"]).strftime("%A, %b %d")
+            rows_html += f"<tr><td style='padding:6px 12px;border-bottom:1px solid #f1f5f9'>{day_name}</td><td style='padding:6px 12px;border-bottom:1px solid #f1f5f9;font-weight:600'>{h:.1f}h</td><td style='padding:6px 12px;border-bottom:1px solid #f1f5f9;color:#64748b'>{e.get('comments','')}</td></tr>"
+
+    total_h = float(ts.get("total_hours") or 0)
+    html_ceo = f"""
+<div style="font-family:Inter,sans-serif;max-width:600px;margin:0 auto">
+  <div style="background:linear-gradient(135deg,#004ac6,#0066ff);padding:32px;border-radius:12px 12px 0 0;color:#fff">
+    <h1 style="margin:0;font-size:1.5rem">📋 Timesheet Submitted</h1>
+    <p style="margin:8px 0 0;opacity:0.85">{user['name']} submitted their timesheet for review</p>
+  </div>
+  <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;border-top:none">
+    <p><strong>Employee:</strong> {user['name']} ({user['email']})</p>
+    <p><strong>Week of:</strong> {ts['week_start']}</p>
+    <p><strong>Total Hours:</strong> {total_h:.1f}h</p>
+    <table style="width:100%;border-collapse:collapse;margin-top:16px">
+      <thead><tr style="background:#f8fafc">
+        <th style="padding:8px 12px;text-align:left;font-size:0.75rem;text-transform:uppercase;letter-spacing:.05em">Day</th>
+        <th style="padding:8px 12px;text-align:left;font-size:0.75rem;text-transform:uppercase;letter-spacing:.05em">Hours</th>
+        <th style="padding:8px 12px;text-align:left;font-size:0.75rem;text-transform:uppercase;letter-spacing:.05em">Notes</th>
+      </tr></thead>
+      <tbody>{rows_html}</tbody>
+    </table>
+    <div style="margin-top:24px;padding:16px;background:#f0f4ff;border-radius:8px">
+      <p style="margin:0;font-size:0.875rem">Please log into <strong>Nexus CRM</strong> to approve or reject this timesheet.</p>
+    </div>
+  </div>
+</div>"""
+
+    # Email all admins
+    admins = await run(lambda: sb("users").select("email,name").eq("role", "admin").execute())
+    for admin in (admins.data or []):
+        await send_email(admin["email"], f"📋 Timesheet Submitted — {user['name']} (Week of {ts['week_start']})", html_ceo)
+
+    await _audit("timesheet_submitted", entity_name=f"Week of {ts['week_start']}", current_user=user)
+    return {"success": True, "status": "submitted"}
+
+
+@api_router.post("/timesheets/{timesheet_id}/review")
+async def review_timesheet(timesheet_id: str, body: TimesheetReview, request: Request):
+    """CEO approves or rejects a timesheet."""
+    reviewer = await get_current_user(request)
+    if reviewer.get("role") not in ("admin", "viewer"):
+        raise HTTPException(403, "Only admins can review timesheets")
+
+    action = body.action.lower()
+    if action not in ("approve", "reject"):
+        raise HTTPException(400, "Action must be 'approve' or 'reject'")
+
+    ts_res = await run(lambda: sb("timesheets").select("*").eq("id", timesheet_id).execute())
+    if not ts_res.data:
+        raise HTTPException(404, "Timesheet not found")
+    ts = ts_res.data[0]
+    if ts["status"] != "submitted":
+        raise HTTPException(400, f"Can only review submitted timesheets (current: {ts['status']})")
+
+    new_status = "approved" if action == "approve" else "rejected"
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await run(lambda: sb("timesheets").update({
+        "status": new_status, "note": body.note,
+        "reviewed_at": now_iso, "reviewed_by": reviewer["id"], "updated_at": now_iso
+    }).eq("id", timesheet_id).execute())
+
+    # Email the worker
+    worker_res = await run(lambda: sb("users").select("email,name").eq("id", ts["user_id"]).execute())
+    worker = (worker_res.data or [{}])[0]
+    icon = "✅" if new_status == "approved" else "❌"
+    color = "#16a34a" if new_status == "approved" else "#dc2626"
+    note_html = f"<p style='background:#f8fafc;padding:12px;border-radius:8px;border-left:3px solid {color}'><strong>Note from CEO:</strong> {body.note}</p>" if body.note else ""
+    html_worker = f"""
+<div style="font-family:Inter,sans-serif;max-width:600px;margin:0 auto">
+  <div style="background:{color};padding:32px;border-radius:12px 12px 0 0;color:#fff">
+    <h1 style="margin:0;font-size:1.5rem">{icon} Timesheet {new_status.capitalize()}</h1>
+    <p style="margin:8px 0 0;opacity:0.85">Your timesheet for week of {ts['week_start']} has been {new_status}</p>
+  </div>
+  <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;border-top:none">
+    <p>Hi {worker.get('name','there')},</p>
+    <p>Your timesheet for the week of <strong>{ts['week_start']}</strong> ({float(ts.get('total_hours',0)):.1f} hours) has been <strong>{new_status}</strong> by {reviewer['name']}.</p>
+    {note_html}
+  </div>
+</div>"""
+    if worker.get("email"):
+        await send_email(worker["email"], f"{icon} Your timesheet has been {new_status} — Week of {ts['week_start']}", html_worker)
+
+    await _audit(f"timesheet_{new_status}", entity_name=f"Week of {ts['week_start']}", current_user=reviewer)
+    return {"success": True, "status": new_status}
+
+
+@api_router.get("/timesheets/all")
+async def get_all_timesheets(
+    request: Request,
+    status: Optional[str] = None,
+    user_id: Optional[str] = None,
+    week_start: Optional[str] = None,
+    limit: int = 50,
+):
+    """CEO view — all timesheets across all users."""
+    reviewer = await get_current_user(request)
+    if reviewer.get("role") not in ("admin", "viewer"):
+        raise HTTPException(403, "Only admins can view all timesheets")
+
+    q = sb("timesheets").select("*,users(id,name,email,role)").order("week_start", desc=True).limit(limit)
+    if status:   q = q.eq("status", status)
+    if user_id:  q = q.eq("user_id", user_id)
+    if week_start: q = q.eq("week_start", week_start)
+    res = await run(lambda: q.execute())
+    timesheets = res.data or []
+    # Attach entries
+    for ts in timesheets:
+        ent = await run(lambda tid=ts["id"]: sb("timesheet_entries").select("*").eq("timesheet_id", tid).order("entry_date").execute())
+        ts["entries"] = ent.data or []
+    return {"timesheets": timesheets, "total": len(timesheets)}
+
+
+@api_router.get("/timesheets/{timesheet_id}")
+async def get_timesheet_detail(timesheet_id: str, request: Request):
+    """Get a single timesheet with entries (CEO or owner)."""
+    user = await get_current_user(request)
+    q = sb("timesheets").select("*,users(id,name,email)").eq("id", timesheet_id)
+    res = await run(lambda: q.execute())
+    if not res.data:
+        raise HTTPException(404, "Not found")
+    ts = res.data[0]
+    # Only owner or admin/viewer can view
+    if ts["user_id"] != user["id"] and user.get("role") not in ("admin", "viewer"):
+        raise HTTPException(403, "Access denied")
+    ent = await run(lambda: sb("timesheet_entries").select("*").eq("timesheet_id", timesheet_id).order("entry_date").execute())
+    ts["entries"] = ent.data or []
+    return ts
+
+
+# ============================================================
 # AUDIT LOG CLEANUP — keeps last 180 days, runs daily at 3 AM
 # ============================================================
 async def cleanup_audit_logs():
@@ -1820,6 +2069,49 @@ async def cleanup_audit_logs():
     except Exception as e:
         logger.error(f"[audit-cleanup] Failed: {e}")
 
+async def send_timesheet_reminder():
+    """Every Friday 5PM — remind all users to submit their timesheet."""
+    today = datetime.now(timezone.utc).date()
+    # The current week's Monday
+    monday = (today - timedelta(days=today.weekday())).isoformat()
+    logger.info(f"[timesheet-reminder] Sending Friday reminders for week {monday}")
+    try:
+        users_res = await run(lambda: sb("users").select("id,email,name,role").execute())
+        users_list = users_res.data or []
+    except Exception as e:
+        logger.error(f"[timesheet-reminder] Failed to fetch users: {e}")
+        return
+
+    for u in users_list:
+        try:
+            # Check if they've already submitted this week
+            ts_res = await run(lambda uid=u["id"]: sb("timesheets").select("status").eq("user_id", uid).eq("week_start", monday).execute())
+            existing = ts_res.data[0] if ts_res.data else None
+            if existing and existing.get("status") in ("submitted", "approved"):
+                continue  # Already submitted — no need to remind
+
+            html = f"""
+<div style="font-family:Inter,sans-serif;max-width:600px;margin:0 auto">
+  <div style="background:linear-gradient(135deg,#f59e0b,#f97316);padding:32px;border-radius:12px 12px 0 0;color:#fff">
+    <h1 style="margin:0;font-size:1.5rem">⏰ Timesheet Reminder</h1>
+    <p style="margin:8px 0 0;opacity:0.85">Please submit your timesheet before end of day today</p>
+  </div>
+  <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;border-top:none">
+    <p>Hi {u['name']},</p>
+    <p>This is a friendly reminder to submit your timesheet for the week of <strong>{monday}</strong>.</p>
+    <p>Log your hours worked each day, add your activity notes, and click <strong>Submit for Approval</strong>.</p>
+    <div style="margin-top:24px;padding:16px;background:#fffbeb;border-radius:8px;border-left:4px solid #f59e0b">
+      <p style="margin:0;font-size:0.875rem">🕐 Please submit by <strong>end of day Friday</strong> so your manager can review over the weekend.</p>
+    </div>
+    <p style="margin-top:16px;font-size:0.8rem;color:#94a3b8">Nexus CRM &nbsp;·&nbsp; Automated weekly reminder</p>
+  </div>
+</div>"""
+            await send_email(u["email"], f"⏰ Please submit your timesheet — Week of {monday}", html)
+            logger.info(f"[timesheet-reminder] Sent reminder to {u['email']}")
+        except Exception as e:
+            logger.error(f"[timesheet-reminder] Failed for {u['email']}: {e}")
+
+
 @app.on_event("startup")
 async def startup():
     # Start daily digest scheduler
@@ -1827,9 +2119,11 @@ async def startup():
     hour, minute = digest_time.split(":")
     scheduler.add_job(send_daily_digest, CronTrigger(hour=int(hour), minute=int(minute)), id="daily_digest", replace_existing=True)
     scheduler.add_job(cleanup_audit_logs, CronTrigger(hour=3, minute=0), id="audit_cleanup", replace_existing=True)
+    scheduler.add_job(send_timesheet_reminder, CronTrigger(day_of_week="fri", hour=17, minute=0), id="timesheet_reminder", replace_existing=True)
     scheduler.start()
     logger.info("[scheduler] Audit log cleanup scheduled at 03:00 daily (keeps 180 days)")
     logger.info(f"[scheduler] Daily digest scheduled at {digest_time}")
+    logger.info("[scheduler] Timesheet reminder scheduled at Friday 17:00")
 
     admin_email    = os.environ.get("ADMIN_EMAIL", "admin@nexuscrm.com")
     admin_password = os.environ.get("ADMIN_PASSWORD", "Admin123!")

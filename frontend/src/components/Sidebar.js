@@ -26,12 +26,18 @@ const recruitNav = [
   { path: '/recruitment/tasks',             icon: 'task_alt',       label: 'Tasks' },
 ];
 
+const timesheetNav = [
+  { path: '/timesheet',           icon: 'schedule',     label: 'My Timesheet', exact: true },
+  { path: '/timesheet/approvals', icon: 'task_alt',     label: 'Approvals',    requiresPerm: 'viewTimesheetApprovals' },
+];
+
 // ── Role badge ───────────────────────────────────────────────
 const RoleBadge = ({ role }) => {
   const map = {
     admin:  { label: 'Admin',    bg: 'rgba(0,74,198,0.1)',   color: 'var(--primary)' },
     sales:  { label: 'Sales',    bg: 'rgba(0,98,67,0.1)',    color: 'var(--tertiary)' },
     viewer: { label: 'Viewer',   bg: 'rgba(115,118,134,0.1)',color: 'var(--on-surface-variant)' },
+    worker: { label: 'Worker',   bg: 'rgba(234,88,12,0.1)',  color: '#ea580c' },
   };
   const s = map[role] || map.viewer;
   return (
@@ -47,10 +53,11 @@ const RoleBadge = ({ role }) => {
 
 // ── Sidebar ──────────────────────────────────────────────────
 const Sidebar = ({ isOpen, onClose }) => {
-  const { user, logout, hasModule, can, isViewer } = useAuth();
+  const { user, logout, hasModule, can, isViewer, isWorker } = useAuth();
   const location  = useLocation();
   const navigate  = useNavigate();
-  const isRecruit = location.pathname.startsWith('/recruitment');
+  const isTimesheet = location.pathname.startsWith('/timesheet');
+  const isRecruit = !isTimesheet && location.pathname.startsWith('/recruitment');
 
   // Close sidebar on route change (mobile)
   const prevPath = React.useRef(location.pathname);
@@ -61,28 +68,53 @@ const Sidebar = ({ isOpen, onClose }) => {
     }
   }, [location.pathname, onClose]);
 
-  // If sales user tries to access recruitment URL, redirect
-  const canSeeRecruit = hasModule('recruitment');
-  const canSeeSales   = hasModule('sales');
+  const canSeeRecruit   = hasModule('recruitment');
+  const canSeeSales     = hasModule('sales');
+  const canSeeTimesheet = hasModule('timesheet');
 
-  const currentMode   = isRecruit ? 'recruitment' : 'sales';
-  const accentColor   = isRecruit ? 'var(--tertiary)' : 'var(--primary)';
-  const initials      = (user?.name || 'U').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+  // Determine current mode
+  let currentMode = isTimesheet ? 'timesheet' : (isRecruit ? 'recruitment' : 'sales');
+  const accentColor = isTimesheet
+    ? '#ea580c'
+    : (isRecruit ? 'var(--tertiary)' : 'var(--primary)');
+
+  const initials = (user?.name || 'U').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
 
   // Filter nav items by permission
   const filterNav = (items) =>
     items.filter(item => !item.requiresPerm || can(item.requiresPerm));
 
-  const navItems = isRecruit ? filterNav(recruitNav) : filterNav(salesNav);
+  let navItems;
+  if (isTimesheet) navItems = filterNav(timesheetNav);
+  else if (isRecruit) navItems = filterNav(recruitNav);
+  else navItems = filterNav(salesNav);
+
+  const NavItem = ({ item }) => (
+    <NavLink
+      to={item.path}
+      end={item.exact}
+      style={({ isActive }) => ({
+        display: 'flex', alignItems: 'center', gap: '0.625rem',
+        padding: '0.5625rem 0.75rem', borderRadius: '0.625rem',
+        textDecoration: 'none', fontSize: '0.875rem', fontWeight: isActive ? 600 : 400,
+        color: isActive ? accentColor : 'var(--on-surface-variant)',
+        background: isActive ? `${accentColor}15` : 'transparent',
+        transition: 'all 0.15s',
+      })}
+    >
+      <Icon name={item.icon} />
+      {item.label}
+    </NavLink>
+  );
 
   return (
-    <aside className={`sidebar ${isRecruit ? 'sidebar-recruitment' : 'sidebar-sales'}${isOpen ? ' sidebar-open' : ''}`}>
+    <aside className={`sidebar ${isRecruit ? 'sidebar-recruitment' : isTimesheet ? 'sidebar-timesheet' : 'sidebar-sales'}${isOpen ? ' sidebar-open' : ''}`}>
 
       {/* Logo + mobile close button */}
       <div style={{ padding: '0 0.5rem', marginBottom: '1.75rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
         <div style={{
           width: 40, height: 40, borderRadius: '0.75rem', flexShrink: 0,
-          background: `linear-gradient(135deg, ${accentColor}, ${isRecruit ? '#009966' : 'var(--primary-container)'})`,
+          background: `linear-gradient(135deg, ${accentColor}, ${isRecruit ? '#009966' : isTimesheet ? '#f97316' : 'var(--primary-container)'})`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <Icon name="hub" />
@@ -90,31 +122,31 @@ const Sidebar = ({ isOpen, onClose }) => {
         <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--on-surface)' }}>Nexus CRM</p>
           <p style={{ fontSize: '0.6875rem', color: 'var(--on-surface-variant)', opacity: 0.6 }}>
-            {isRecruit ? 'Recruitment' : 'Sales'} Portal
+            {isTimesheet ? 'Timesheet' : isRecruit ? 'Recruitment' : 'Sales'} Portal
           </p>
         </div>
-        {/* Close button — only visible on mobile via CSS */}
         <button className="sidebar-close-btn" onClick={onClose} title="Close menu">
           <Icon name="close" />
         </button>
       </div>
 
-      {/* Module switcher — only show tabs the user has access to */}
-      {(canSeeSales || canSeeRecruit) && (
+      {/* Module switcher — skip for worker (only timesheet) */}
+      {!isWorker && (canSeeSales || canSeeRecruit || canSeeTimesheet) && (
         <div style={{ marginBottom: '1.25rem' }}>
           <div style={{
             display: 'flex', gap: 4, padding: 4,
             background: 'var(--surface-container-high)', borderRadius: '0.75rem',
+            flexWrap: 'wrap',
           }}>
             {canSeeSales && (
               <button onClick={() => navigate('/sales')} style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                gap: '0.375rem', padding: '0.5rem 0.75rem', borderRadius: '0.625rem',
+                gap: '0.375rem', padding: '0.5rem 0.5rem', borderRadius: '0.625rem',
                 border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
-                fontSize: '0.8125rem', fontWeight: !isRecruit ? 600 : 500,
-                background: !isRecruit ? 'var(--surface-container-lowest)' : 'transparent',
-                color: !isRecruit ? 'var(--primary)' : 'var(--on-surface-variant)',
-                boxShadow: !isRecruit ? 'var(--ambient-shadow)' : 'none',
+                fontSize: '0.75rem', fontWeight: currentMode === 'sales' ? 600 : 500,
+                background: currentMode === 'sales' ? 'var(--surface-container-lowest)' : 'transparent',
+                color: currentMode === 'sales' ? 'var(--primary)' : 'var(--on-surface-variant)',
+                boxShadow: currentMode === 'sales' ? 'var(--ambient-shadow)' : 'none',
                 transition: 'all 0.2s',
               }}>
                 <Icon name="trending_up" /> Sales
@@ -123,20 +155,39 @@ const Sidebar = ({ isOpen, onClose }) => {
             {canSeeRecruit && (
               <button onClick={() => navigate('/recruitment')} style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                gap: '0.375rem', padding: '0.5rem 0.75rem', borderRadius: '0.625rem',
+                gap: '0.375rem', padding: '0.5rem 0.5rem', borderRadius: '0.625rem',
                 border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
-                fontSize: '0.8125rem', fontWeight: isRecruit ? 600 : 500,
-                background: isRecruit ? 'var(--surface-container-lowest)' : 'transparent',
-                color: isRecruit ? 'var(--tertiary)' : 'var(--on-surface-variant)',
-                boxShadow: isRecruit ? 'var(--ambient-shadow)' : 'none',
+                fontSize: '0.75rem', fontWeight: currentMode === 'recruitment' ? 600 : 500,
+                background: currentMode === 'recruitment' ? 'var(--surface-container-lowest)' : 'transparent',
+                color: currentMode === 'recruitment' ? 'var(--tertiary)' : 'var(--on-surface-variant)',
+                boxShadow: currentMode === 'recruitment' ? 'var(--ambient-shadow)' : 'none',
                 transition: 'all 0.2s',
               }}>
-                <Icon name="people" /> Recruit
+                <Icon name="person_search" /> Recruit
+              </button>
+            )}
+            {canSeeTimesheet && (
+              <button onClick={() => navigate('/timesheet')} style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                gap: '0.375rem', padding: '0.5rem 0.5rem', borderRadius: '0.625rem',
+                border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                fontSize: '0.75rem', fontWeight: currentMode === 'timesheet' ? 600 : 500,
+                background: currentMode === 'timesheet' ? 'var(--surface-container-lowest)' : 'transparent',
+                color: currentMode === 'timesheet' ? '#ea580c' : 'var(--on-surface-variant)',
+                boxShadow: currentMode === 'timesheet' ? 'var(--ambient-shadow)' : 'none',
+                transition: 'all 0.2s',
+              }}>
+                <Icon name="schedule" /> Time
               </button>
             )}
           </div>
         </div>
       )}
+
+      {/* Nav items */}
+      <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+        {navItems.map(item => <NavItem key={item.path} item={item} />)}
+      </nav>
 
       {/* Read-only banner for viewer */}
       {isViewer && (
@@ -153,52 +204,43 @@ const Sidebar = ({ isOpen, onClose }) => {
         </div>
       )}
 
-      {/* Section label */}
-      <p className="label-sm" style={{ padding: '0 0.75rem', marginBottom: '0.5rem' }}>
-        {isRecruit ? 'Recruitment' : 'Sales'} Mode
-      </p>
+      <div className="divider" style={{ margin: '0.75rem 0' }} />
 
-      {/* Navigation */}
-      <nav style={{ flex: 1 }}>
-        {navItems.map(item => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            end={item.exact}
-            className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-          >
-            <Icon name={item.icon} />
-            <span>{item.label}</span>
-          </NavLink>
-        ))}
-      </nav>
-
-      {/* Divider */}
-      <div className="divider" />
-
-      {/* CEO Dashboard + Audit — admin and viewer (CEO) only, hidden from sales */}
       {can('viewCEO') && (
         <>
-          <NavLink to="/ceo" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <Icon name="analytics" />
-            <span>CEO Dashboard</span>
+          <NavLink to="/ceo" style={({ isActive }) => ({
+            display: 'flex', alignItems: 'center', gap: '0.625rem',
+            padding: '0.5rem 0.75rem', borderRadius: '0.625rem',
+            textDecoration: 'none', fontSize: '0.875rem',
+            color: isActive ? 'var(--primary)' : 'var(--on-surface-variant)',
+            background: isActive ? 'rgba(0,74,198,0.08)' : 'transparent',
+          })}>
+            <Icon name="analytics" /><span>CEO Dashboard</span>
           </NavLink>
-          <NavLink to="/audit-log" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <Icon name="policy" />
-            <span>Audit Log</span>
+          <NavLink to="/audit-log" style={({ isActive }) => ({
+            display: 'flex', alignItems: 'center', gap: '0.625rem',
+            padding: '0.5rem 0.75rem', borderRadius: '0.625rem',
+            textDecoration: 'none', fontSize: '0.875rem',
+            color: isActive ? 'var(--primary)' : 'var(--on-surface-variant)',
+            background: isActive ? 'rgba(0,74,198,0.08)' : 'transparent',
+          })}>
+            <Icon name="policy" /><span>Audit Log</span>
           </NavLink>
         </>
       )}
 
-      {/* Settings — admin and viewer only */}
       {can('viewSettings') && (
-        <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-          <Icon name="settings" />
-          <span>Settings</span>
+        <NavLink to="/settings" style={({ isActive }) => ({
+          display: 'flex', alignItems: 'center', gap: '0.625rem',
+          padding: '0.5rem 0.75rem', borderRadius: '0.625rem',
+          textDecoration: 'none', fontSize: '0.875rem',
+          color: isActive ? 'var(--primary)' : 'var(--on-surface-variant)',
+          background: isActive ? 'rgba(0,74,198,0.08)' : 'transparent',
+        })}>
+          <Icon name="settings" /><span>Settings</span>
         </NavLink>
       )}
 
-      {/* User card */}
       <div style={{
         marginTop: '0.5rem', padding: '0.75rem',
         borderRadius: '0.75rem', background: 'var(--surface-container)',
@@ -206,7 +248,7 @@ const Sidebar = ({ isOpen, onClose }) => {
       }}>
         <div className="avatar" style={{
           width: 36, height: 36, fontSize: '0.75rem', fontWeight: 700,
-          background: `linear-gradient(135deg, ${accentColor}, ${isRecruit ? '#009966' : 'var(--primary-container)'})`,
+          background: `linear-gradient(135deg, ${accentColor}, ${isRecruit ? '#009966' : isTimesheet ? '#f97316' : 'var(--primary-container)'})`,
           color: '#fff',
         }}>
           {initials}
@@ -222,12 +264,7 @@ const Sidebar = ({ isOpen, onClose }) => {
             {user?.email || ''}
           </p>
         </div>
-        <button
-          onClick={logout}
-          className="btn-icon"
-          title="Logout"
-          style={{ color: 'var(--error)', flexShrink: 0 }}
-        >
+        <button onClick={logout} className="btn-icon" title="Logout" style={{ color: 'var(--error)', flexShrink: 0 }}>
           <Icon name="logout" />
         </button>
       </div>

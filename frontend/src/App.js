@@ -25,6 +25,10 @@ import Pipeline             from './pages/recruitment/Pipeline';
 import Interviews           from './pages/recruitment/Interviews';
 import RecruitmentTasks     from './pages/recruitment/RecruitmentTasks';
 
+// Timesheet
+import Timesheet            from './pages/timesheet/Timesheet';
+import TimesheetApprovals   from './pages/timesheet/TimesheetApprovals';
+
 import Settings      from './pages/Settings';
 import CEODashboard  from './pages/CEODashboard';
 import AuditLog      from './pages/AuditLog';
@@ -40,9 +44,8 @@ const Page = ({ children, module }) => (
 // Smart default redirect based on user role
 const DefaultRedirect = () => {
   const { user } = useAuth();
-  // Sales-only users go straight to sales
+  if (user?.role === 'worker') return <Navigate to="/timesheet" replace />;
   if (user?.role === 'sales') return <Navigate to="/sales" replace />;
-  // Everyone else also starts at sales dashboard
   return <Navigate to="/sales" replace />;
 };
 
@@ -67,9 +70,13 @@ function AppRoutes() {
       <Route path="/recruitment/candidates"       element={<Page module="recruitment"><CandidatesList /></Page>} />
       <Route path="/recruitment/candidates/:id"   element={<Page module="recruitment"><CandidateDetail /></Page>} />
       <Route path="/recruitment/import-candidates" element={<ProtectedRoute><ImportCandidates /></ProtectedRoute>} />
-          <Route path="/recruitment/pipeline"         element={<Page module="recruitment"><Pipeline /></Page>} />
+      <Route path="/recruitment/pipeline"         element={<Page module="recruitment"><Pipeline /></Page>} />
       <Route path="/recruitment/interviews"       element={<Page module="recruitment"><Interviews /></Page>} />
       <Route path="/recruitment/tasks"            element={<Page module="recruitment"><RecruitmentTasks /></Page>} />
+
+      {/* ── Timesheet (all roles) ── */}
+      <Route path="/timesheet"           element={<Page module="timesheet"><Timesheet /></Page>} />
+      <Route path="/timesheet/approvals" element={<Page module="timesheet"><TimesheetApprovals /></Page>} />
 
       {/* ── Settings (admin + viewer) ── */}
       <Route path="/settings"    element={<Page><Settings /></Page>} />

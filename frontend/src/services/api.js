@@ -155,3 +155,15 @@ export const ceoDashboardAPI = {
 export const auditLogsAPI = {
   getAll: (params) => api.get('/audit-logs', { params }),
 };
+
+// Timesheet APIs
+export const timesheetAPI = {
+  getCurrent:    ()                   => api.get('/timesheets/me/current'),
+  getWeek:       (week_start)         => api.get('/timesheets/me/week', { params: { week_start } }),
+  getMyAll:      ()                   => api.get('/timesheets/me'),
+  saveEntries:   (id, entries)        => api.put(`/timesheets/${id}/entries`, { entries }),
+  submit:        (id)                 => api.post(`/timesheets/${id}/submit`),
+  getAll:        (params)             => api.get('/timesheets/all', { params }),
+  getDetail:     (id)                 => api.get(`/timesheets/${id}`),
+  review:        (id, action, note)   => api.post(`/timesheets/${id}/review`, { action, note }),
+};

@@ -13,7 +13,7 @@ export const useAuth = () => {
 // Each role lists what it CAN do. Anything not listed = blocked.
 export const PERMISSIONS = {
   admin: {
-    modules:        ['sales', 'recruitment'],
+    modules:        ['sales', 'recruitment', 'timesheet'],
     canImport:      true,
     canViewImport:  true,
     canDelete:      true,
@@ -21,29 +21,44 @@ export const PERMISSIONS = {
     canManageUsers: true,
     viewSettings:   true,
     viewCEO:        true,
+    viewTimesheetApprovals: true,
     readOnly:       false,
   },
   sales: {
-    modules:        ['sales', 'recruitment'],
+    modules:        ['sales', 'recruitment', 'timesheet'],
     canImport:      true,
     canViewImport:  true,
     canDelete:      true,
     canEdit:        true,
     canManageUsers: false,
     viewSettings:   false,
-    viewCEO:        false,   // sales cannot see CEO dashboard or audit log
+    viewCEO:        false,
+    viewTimesheetApprovals: false,
     readOnly:       false,
   },
   viewer: {
-    modules:        ['sales', 'recruitment'],
-    canImport:      false,   // cannot actually import — but page is visible (readOnly hides button)
-    canViewImport:  true,    // page shows in sidebar for CEO
+    modules:        ['sales', 'recruitment', 'timesheet'],
+    canImport:      false,
+    canViewImport:  true,
     canDelete:      false,
     canEdit:        false,
     canManageUsers: false,
     viewSettings:   true,
-    viewCEO:        true,    // CEO dashboard + audit log visible
-    readOnly:       true,    // all add/edit/delete buttons hidden
+    viewCEO:        true,
+    viewTimesheetApprovals: true,
+    readOnly:       true,
+  },
+  worker: {
+    modules:        ['timesheet'],
+    canImport:      false,
+    canViewImport:  false,
+    canDelete:      false,
+    canEdit:        false,
+    canManageUsers: false,
+    viewSettings:   false,
+    viewCEO:        false,
+    viewTimesheetApprovals: false,
+    readOnly:       false,
   },
 };
 
@@ -153,6 +168,7 @@ export const AuthProvider = ({ children }) => {
       isAdmin:   user?.role === 'admin',
       isSales:   user?.role === 'sales',
       isViewer:  user?.role === 'viewer',
+      isWorker:  user?.role === 'worker',
       can:       (permission) => can(user, permission),
       hasModule: (module)     => hasModule(user, module),
     }}>
