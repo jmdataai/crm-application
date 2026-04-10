@@ -2026,7 +2026,7 @@ async def get_all_timesheets(
     if reviewer.get("role") not in ("admin", "viewer"):
         raise HTTPException(403, "Only admins can view all timesheets")
 
-    q = sb("timesheets").select("*,users(id,name,email,role)").order("week_start", desc=True).limit(limit)
+    q = sb("timesheets").select("*,users!timesheets_user_id_fkey(id,name,email,role)").order("week_start", desc=True).limit(limit)
     if status:   q = q.eq("status", status)
     if user_id:  q = q.eq("user_id", user_id)
     if week_start: q = q.eq("week_start", week_start)
@@ -2043,7 +2043,7 @@ async def get_all_timesheets(
 async def get_timesheet_detail(timesheet_id: str, request: Request):
     """Get a single timesheet with entries (CEO or owner)."""
     user = await get_current_user(request)
-    q = sb("timesheets").select("*,users(id,name,email)").eq("id", timesheet_id)
+    q = sb("timesheets").select("*,users!timesheets_user_id_fkey(id,name,email)").eq("id", timesheet_id)
     res = await run(lambda: q.execute())
     if not res.data:
         raise HTTPException(404, "Not found")

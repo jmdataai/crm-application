@@ -9,9 +9,10 @@ const ROLE_COLORS = {
   admin:  { bg: '#fef3c7', color: '#92400e' },
   sales:  { bg: '#dbeafe', color: '#1e40af' },
   viewer: { bg: '#f3f4f6', color: '#374151' },
+  worker: { bg: '#ffedd5', color: '#c2410c' },
 };
 
-const ROLE_LABELS = { admin: 'Admin', sales: 'Sales Rep', viewer: 'Viewer' };
+const ROLE_LABELS = { admin: 'Admin', sales: 'Sales Rep', viewer: 'Viewer (CEO)', worker: 'Worker' };
 
 export default function Settings() {
   const { user: me } = useAuth();
@@ -215,6 +216,7 @@ export default function Settings() {
                     <option value="sales">Sales Rep</option>
                     <option value="viewer">Viewer (CEO/Read-only)</option>
                     <option value="admin">Admin</option>
+                    <option value="worker">Worker (Timesheet only)</option>
                   </select>
                 </div>
               </div>
@@ -279,6 +281,7 @@ export default function Settings() {
                               <option value="sales">Sales Rep</option>
                               <option value="viewer">Viewer</option>
                               <option value="admin">Admin</option>
+                              <option value="worker">Worker</option>
                             </select>
                             <button onClick={() => setEditingRole(null)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--on-surface-variant)' }}>
                               <Icon name="close" style={{ fontSize:'1rem' }} />
