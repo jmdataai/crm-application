@@ -8,6 +8,12 @@ const Icon = ({ name, style = {} }) => (
 const DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function toISODate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 function weekLabel(monday) {
   if (!monday) return '—';
@@ -30,7 +36,7 @@ function getWeeksInMonth(year, month) {
   let cur = getMondayOf(firstDay);
   if (cur.getMonth() < month) cur = addDays(cur, 7);
   const lastDay = new Date(year, month + 1, 0);
-  while (cur <= lastDay) { weeks.push(cur.toISOString().split('T')[0]); cur = addDays(cur, 7); }
+  while (cur <= lastDay) { weeks.push(toISODate(cur)); cur = addDays(cur, 7); }
   return weeks;
 }
 
@@ -62,7 +68,7 @@ const DetailModal = ({ ts, onClose, onReviewed }) => {
   if (!ts) return null;
 
   const emp = getUser(ts);
-  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(new Date(ts.week_start + 'T00:00:00'), i).toISOString().split('T')[0]);
+  const weekDays = Array.from({ length: 7 }, (_, i) => toISODate(addDays(new Date(ts.week_start + 'T00:00:00'), i)));
   const entriesMap = {};
   (ts.entries || []).forEach(e => { entriesMap[e.entry_date] = e; });
   const totalH = parseFloat(ts.total_hours || 0);
