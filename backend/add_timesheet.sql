@@ -7,7 +7,7 @@
 CREATE TABLE IF NOT EXISTS timesheets (
   id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  week_start   DATE NOT NULL,           -- Monday of the week (ISO: always Monday)
+  week_start   DATE NOT NULL,           -- Friday of the week (ISO: always Friday)
   status       TEXT NOT NULL DEFAULT 'draft',  -- draft | submitted | approved | rejected
   total_hours  NUMERIC(5,2) DEFAULT 0,
   note         TEXT,                    -- CEO's note on approve/reject

@@ -6,7 +6,7 @@ const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
 );
 
-const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const DAY_NAMES = ['Friday', 'Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'];
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -15,11 +15,11 @@ function getGreeting() {
   return 'Good evening';
 }
 
-function getMondayOf(date) {
+function getFridayOf(date) {
   const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
+  const day = d.getDay(); // 0=Sun..6=Sat
+  const diff = (day - 5 + 7) % 7; // 5=Fri
+  d.setDate(d.getDate() - diff);
   return d;
 }
 
@@ -36,15 +36,15 @@ function formatShortDate(isoDate) {
   return new Date(isoDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
-function weekLabel(monday) {
-  const sun = addDays(new Date(monday + 'T00:00:00'), 6);
-  return `${new Date(monday + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${sun.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+function weekLabel(weekStart) {
+  const end = addDays(new Date(weekStart + 'T00:00:00'), 6);
+  return `${new Date(weekStart + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${end.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 }
 
 function getWeeksInMonth(year, month) {
   const weeks = [];
   const firstDay = new Date(year, month, 1);
-  let cur = getMondayOf(firstDay);
+  let cur = getFridayOf(firstDay);
   if (cur.getMonth() < month) cur = addDays(cur, 7);
   const lastDay = new Date(year, month + 1, 0);
   while (cur <= lastDay) {
@@ -317,11 +317,11 @@ const navBtnStyle = { display: 'flex', alignItems: 'center', justifyContent: 'ce
 const Timesheet = () => {
   const { user } = useAuth();
   const [view, setView]           = useState('weekly');
-  const [weekStart, setWeekStart] = useState(toISODate(getMondayOf(new Date())));
+  const [weekStart, setWeekStart] = useState(toISODate(getFridayOf(new Date())));
   const [monthDate, setMonthDate] = useState(new Date());
   const [refreshKey, setRefreshKey] = useState(0);
   const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  const currentWeekStart = toISODate(getMondayOf(new Date()));
+  const currentWeekStart = toISODate(getFridayOf(new Date()));
   const isCurrentWeek = weekStart === currentWeekStart;
 
   const goWeek = dir => { const d = addDays(new Date(weekStart + 'T00:00:00'), dir * 7); setWeekStart(toISODate(d)); };

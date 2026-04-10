@@ -5,7 +5,7 @@ const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
 );
 
-const DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const DAY_NAMES = ['Fri','Sat','Sun','Mon','Tue','Wed','Thu'];
 
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 function toISODate(d) {
@@ -15,25 +15,25 @@ function toISODate(d) {
   return `${y}-${m}-${day}`;
 }
 
-function weekLabel(monday) {
-  if (!monday) return '—';
-  const d = new Date(monday + 'T00:00:00');
-  const sun = addDays(d, 6);
-  return `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${sun.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+function weekLabel(weekStart) {
+  if (!weekStart) return '—';
+  const d = new Date(weekStart + 'T00:00:00');
+  const end = addDays(d, 6);
+  return `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${end.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 }
 
-function getMondayOf(date) {
+function getFridayOf(date) {
   const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
+  const day = d.getDay(); // 0=Sun..6=Sat
+  const diff = (day - 5 + 7) % 7; // 5=Fri
+  d.setDate(d.getDate() - diff);
   return d;
 }
 
 function getWeeksInMonth(year, month) {
   const weeks = [];
   const firstDay = new Date(year, month, 1);
-  let cur = getMondayOf(firstDay);
+  let cur = getFridayOf(firstDay);
   if (cur.getMonth() < month) cur = addDays(cur, 7);
   const lastDay = new Date(year, month + 1, 0);
   while (cur <= lastDay) { weeks.push(toISODate(cur)); cur = addDays(cur, 7); }

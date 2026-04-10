@@ -1817,7 +1817,7 @@ class TimesheetEntryUpsert(BaseModel):
     comments:   Optional[str] = None
 
 class TimesheetCreate(BaseModel):
-    week_start: str          # ISO date string YYYY-MM-DD (must be a Monday)
+    week_start: str          # ISO date string YYYY-MM-DD (must be a Friday)
     entries:    list[TimesheetEntryUpsert] = []
 
 class TimesheetReview(BaseModel):
@@ -1825,9 +1825,10 @@ class TimesheetReview(BaseModel):
     note:   Optional[str] = None
 
 
-def _week_monday(d: datetime) -> str:
-    """Return ISO string of the Monday of the week containing d."""
-    return (d.date() - timedelta(days=d.weekday())).isoformat()
+def _week_friday(d: datetime) -> str:
+    """Return ISO string of the Friday of the week containing d."""
+    # Friday is weekday 4 (Mon=0..Sun=6). Roll back to most recent Friday.
+    return (d.date() - timedelta(days=(d.weekday() - 4) % 7)).isoformat()
 
 
 @api_router.get("/timesheets/me")
@@ -1850,12 +1851,12 @@ async def get_my_timesheets(request: Request, week_start: Optional[str] = None):
 async def get_current_week_timesheet(request: Request):
     """Get (or create) the timesheet for the current week."""
     user = await get_current_user(request)
-    monday = _week_monday(datetime.now(timezone.utc))
-    res = await run(lambda: sb("timesheets").select("*").eq("user_id", user["id"]).eq("week_start", monday).execute())
+    week_start = _week_friday(datetime.now(timezone.utc))
+    res = await run(lambda: sb("timesheets").select("*").eq("user_id", user["id"]).eq("week_start", week_start).execute())
     if res.data:
         ts = res.data[0]
     else:
-        ins = await run(lambda: sb("timesheets").insert({"user_id": user["id"], "week_start": monday, "status": "draft"}).execute())
+        ins = await run(lambda: sb("timesheets").insert({"user_id": user["id"], "week_start": week_start, "status": "draft"}).execute())
         ts = ins.data[0]
     ent = await run(lambda tid=ts["id"]: sb("timesheet_entries").select("*").eq("timesheet_id", tid).order("entry_date").execute())
     ts["entries"] = ent.data or []
@@ -2070,11 +2071,12 @@ async def cleanup_audit_logs():
         logger.error(f"[audit-cleanup] Failed: {e}")
 
 async def send_timesheet_reminder():
-    """Every Friday 5PM — remind all users to submit their timesheet."""
-    today = datetime.now(timezone.utc).date()
-    # The current week's Monday
-    monday = (today - timedelta(days=today.weekday())).isoformat()
-    logger.info(f"[timesheet-reminder] Sending Friday reminders for week {monday}")
+    """Every Friday 5PM ??? remind all users to submit their timesheet."""
+    today = datetime.now(timezone.utc)
+    # Remind for the week that ended Thursday (week starts on Friday).
+    current_week_start = _week_friday(today)
+    prev_week_start = (datetime.fromisoformat(current_week_start).date() - timedelta(days=7)).isoformat()
+    logger.info(f"[timesheet-reminder] Sending Friday reminders for week {prev_week_start}")
     try:
         users_res = await run(lambda: sb("users").select("id,email,name,role").execute())
         users_list = users_res.data or []
@@ -2085,28 +2087,28 @@ async def send_timesheet_reminder():
     for u in users_list:
         try:
             # Check if they've already submitted this week
-            ts_res = await run(lambda uid=u["id"]: sb("timesheets").select("status").eq("user_id", uid).eq("week_start", monday).execute())
+            ts_res = await run(lambda uid=u["id"]: sb("timesheets").select("status").eq("user_id", uid).eq("week_start", prev_week_start).execute())
             existing = ts_res.data[0] if ts_res.data else None
             if existing and existing.get("status") in ("submitted", "approved"):
-                continue  # Already submitted — no need to remind
+                continue  # Already submitted ??? no need to remind
 
-            html = f"""
+            html = f'''
 <div style="font-family:Inter,sans-serif;max-width:600px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#f59e0b,#f97316);padding:32px;border-radius:12px 12px 0 0;color:#fff">
-    <h1 style="margin:0;font-size:1.5rem">⏰ Timesheet Reminder</h1>
+    <h1 style="margin:0;font-size:1.5rem">??? Timesheet Reminder</h1>
     <p style="margin:8px 0 0;opacity:0.85">Please submit your timesheet before end of day today</p>
   </div>
   <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;border-top:none">
     <p>Hi {u['name']},</p>
-    <p>This is a friendly reminder to submit your timesheet for the week of <strong>{monday}</strong>.</p>
+    <p>This is a friendly reminder to submit your timesheet for the week of <strong>{prev_week_start}</strong>.</p>
     <p>Log your hours worked each day, add your activity notes, and click <strong>Submit for Approval</strong>.</p>
     <div style="margin-top:24px;padding:16px;background:#fffbeb;border-radius:8px;border-left:4px solid #f59e0b">
-      <p style="margin:0;font-size:0.875rem">🕐 Please submit by <strong>end of day Friday</strong> so your manager can review over the weekend.</p>
+      <p style="margin:0;font-size:0.875rem">???? Please submit by <strong>end of day Friday</strong> so your manager can review over the weekend.</p>
     </div>
-    <p style="margin-top:16px;font-size:0.8rem;color:#94a3b8">Nexus CRM &nbsp;·&nbsp; Automated weekly reminder</p>
+    <p style="margin-top:16px;font-size:0.8rem;color:#94a3b8">Nexus CRM &nbsp;??&nbsp; Automated weekly reminder</p>
   </div>
-</div>"""
-            await send_email(u["email"], f"⏰ Please submit your timesheet — Week of {monday}", html)
+</div>'''
+            await send_email(u["email"], f"??? Please submit your timesheet ??? Week of {prev_week_start}", html)
             logger.info(f"[timesheet-reminder] Sent reminder to {u['email']}")
         except Exception as e:
             logger.error(f"[timesheet-reminder] Failed for {u['email']}: {e}")
