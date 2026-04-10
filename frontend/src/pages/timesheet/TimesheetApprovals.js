@@ -40,6 +40,12 @@ function getWeeksInMonth(year, month) {
   return weeks;
 }
 
+function isInMonth(dateStr, monthDate) {
+  if (!dateStr || !monthDate) return false;
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.getMonth() === monthDate.getMonth() && d.getFullYear() === monthDate.getFullYear();
+}
+
 // Supabase returns the joined user under the FK hint key
 function getUser(ts) {
   return ts['users!timesheets_user_id_fkey'] || ts.users || {};
@@ -61,17 +67,20 @@ const StatusBadge = ({ status }) => {
 };
 
 // ── Detail modal ─────────────────────────────────────────────
-const DetailModal = ({ ts, onClose, onReviewed }) => {
+const DetailModal = ({ ts, onClose, onReviewed, monthDate }) => {
   const [note, setNote]   = useState('');
   const [acting, setActing] = useState(false);
   const [err, setErr]     = useState(null);
   if (!ts) return null;
 
   const emp = getUser(ts);
-  const weekDays = Array.from({ length: 7 }, (_, i) => toISODate(addDays(new Date(ts.week_start + 'T00:00:00'), i)));
+  const weekDaysAll = Array.from({ length: 7 }, (_, i) => toISODate(addDays(new Date(ts.week_start + 'T00:00:00'), i)));
+  const weekDays = monthDate ? weekDaysAll.filter(d => isInMonth(d, monthDate)) : weekDaysAll;
   const entriesMap = {};
   (ts.entries || []).forEach(e => { entriesMap[e.entry_date] = e; });
-  const totalH = parseFloat(ts.total_hours || 0);
+  const totalH = monthDate
+    ? weekDays.reduce((s, d) => s + parseFloat(entriesMap[d]?.hours || 0), 0)
+    : parseFloat(ts.total_hours || 0);
   const initials = (emp.name || 'U').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
 
   const doReview = async (action) => {
@@ -120,14 +129,16 @@ const DetailModal = ({ ts, onClose, onReviewed }) => {
 
         {/* Daily breakdown — what CEO sees */}
         <div style={{ padding: '16px 20px' }}>
-          <p style={{ margin: '0 0 10px', fontWeight: 700, fontSize: '0.875rem', color: 'var(--on-surface)' }}>Daily Breakdown</p>
+          <p style={{ margin: '0 0 10px', fontWeight: 700, fontSize: '0.875rem', color: 'var(--on-surface)' }}>
+            Daily Breakdown{monthDate ? ` (Month Only: ${MONTH_NAMES[monthDate.getMonth()]} ${monthDate.getFullYear()})` : ''}
+          </p>
           {weekDays.map((date, i) => {
             const e = entriesMap[date];
             const hrs = parseFloat(e?.hours || 0);
             return (
               <div key={date} style={{ display: 'grid', gridTemplateColumns: '80px 55px 1fr', padding: '9px 0', borderBottom: '1px solid var(--surface-container-high)', alignItems: 'start', gap: 10 }}>
                 <div>
-                  <p style={{ margin: 0, fontWeight: 600, fontSize: '0.8125rem', color: 'var(--on-surface)' }}>{DAY_NAMES[i]}</p>
+                  <p style={{ margin: 0, fontWeight: 600, fontSize: '0.8125rem', color: 'var(--on-surface)' }}>{DAY_NAMES[weekDaysAll.indexOf(date)]}</p>
                   <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--on-surface-variant)' }}>{new Date(date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>
                 </div>
                 <p style={{ margin: 0, fontWeight: 700, fontSize: '0.9375rem', color: hrs > 0 ? '#ea580c' : 'var(--on-surface-variant)', paddingTop: 2 }}>{hrs > 0 ? `${hrs}h` : '—'}</p>
@@ -175,8 +186,19 @@ const TimesheetApprovals = () => {
   const [selected, setSelected]   = useState(null);
   const [filterStatus, setFilterStatus] = useState('');
   const [filterUser, setFilterUser]     = useState('');
+  const [filterEmployee, setFilterEmployee] = useState('');
   const [monthDate, setMonthDate] = useState(new Date());
   const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const YEAR_OPTIONS = Array.from(new Set(timesheets.map(ts => new Date(ts.week_start + 'T00:00:00').getFullYear()))).sort((a,b) => b - a);
+  const EMP_OPTIONS = Array.from(
+    new Map(
+      timesheets.map(ts => {
+        const u = getUser(ts);
+        const key = u.id || u.email || u.name;
+        return [key, u];
+      })
+    ).values()
+  ).filter(u => u && (u.id || u.email || u.name));
 
   const load = useCallback(async (status) => {
     setLoading(true);
@@ -194,10 +216,15 @@ const TimesheetApprovals = () => {
   const filtered = timesheets.filter(ts => {
     const emp = getUser(ts);
     if (filterUser && !emp.name?.toLowerCase().includes(filterUser.toLowerCase()) && !emp.email?.toLowerCase().includes(filterUser.toLowerCase())) return false;
+    if (filterEmployee) {
+      const key = emp.id || emp.email || emp.name;
+      if (key !== filterEmployee) return false;
+    }
     if (filterStatus && ts.status !== filterStatus) return false;
+    if (view === 'monthly' && !['submitted','approved'].includes(ts.status)) return false;
     if (view === 'monthly') {
-      const tsDate = new Date(ts.week_start + 'T00:00:00');
-      return tsDate.getMonth() === monthDate.getMonth() && tsDate.getFullYear() === monthDate.getFullYear();
+      const monthEntries = (ts.entries || []).filter(e => isInMonth(e.entry_date, monthDate));
+      return monthEntries.length > 0;
     }
     return true;
   });
@@ -245,7 +272,7 @@ const TimesheetApprovals = () => {
           { key: 'all',     label: 'All' },
           { key: 'monthly', label: 'Monthly' },
         ].map(tab => (
-          <button key={tab.key} onClick={() => { setView(tab.key); setFilterStatus(''); setFilterUser(''); }}
+          <button key={tab.key} onClick={() => { setView(tab.key); setFilterStatus(''); setFilterUser(''); setFilterEmployee(''); }}
             style={{ padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', fontSize: '0.8125rem', fontWeight: view === tab.key ? 700 : 500, background: view === tab.key ? 'var(--surface)' : 'transparent', color: view === tab.key ? '#ea580c' : 'var(--on-surface-variant)', boxShadow: view === tab.key ? 'var(--ambient-shadow)' : 'none', transition: 'all 0.15s' }}>
             {tab.label}
           </button>
@@ -271,10 +298,25 @@ const TimesheetApprovals = () => {
 
       {/* Monthly nav */}
       {view === 'monthly' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          <select value={filterEmployee} onChange={e => setFilterEmployee(e.target.value)}
+            style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid var(--surface-container-high)', fontSize: '0.875rem', background: 'var(--surface)', color: 'var(--on-surface)', outline: 'none', minWidth: 200 }}>
+            <option value="">All Employees</option>
+            {EMP_OPTIONS.map(u => {
+              const key = u.id || u.email || u.name;
+              const label = u.name || u.email || 'Unknown';
+              return <option key={key} value={key}>{label}</option>;
+            })}
+          </select>
+
           <button onClick={() => setMonthDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))} style={navBtn}><Icon name="chevron_left" /></button>
           <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--on-surface)', minWidth: 130, textAlign: 'center' }}>{MONTH_NAMES[monthDate.getMonth()]} {monthDate.getFullYear()}</span>
           <button onClick={() => setMonthDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))} style={navBtn}><Icon name="chevron_right" /></button>
+
+          <select value={monthDate.getFullYear()} onChange={e => setMonthDate(d => new Date(parseInt(e.target.value, 10), d.getMonth(), 1))}
+            style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid var(--surface-container-high)', fontSize: '0.875rem', background: 'var(--surface)', color: 'var(--on-surface)', outline: 'none' }}>
+            {YEAR_OPTIONS.length > 0 ? YEAR_OPTIONS.map(y => <option key={y} value={y}>{y}</option>) : <option value={monthDate.getFullYear()}>{monthDate.getFullYear()}</option>}
+          </select>
         </div>
       )}
 
@@ -293,7 +335,12 @@ const TimesheetApprovals = () => {
           {filtered.map(ts => {
             const emp = getUser(ts);
             const initials = (emp.name || 'U').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
-            const totalH = parseFloat(ts.total_hours || 0);
+            const monthEntries = view === 'monthly'
+              ? (ts.entries || []).filter(e => isInMonth(e.entry_date, monthDate))
+              : (ts.entries || []);
+            const totalH = view === 'monthly'
+              ? monthEntries.reduce((s, e) => s + parseFloat(e.hours || 0), 0)
+              : parseFloat(ts.total_hours || 0);
             const isPending = ts.status === 'submitted';
             return (
               <div key={ts.id} onClick={() => setSelected(ts)}
@@ -308,7 +355,7 @@ const TimesheetApprovals = () => {
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
                   <p style={{ margin: 0, fontWeight: 800, fontSize: '1.1rem', color: '#ea580c' }}>{totalH.toFixed(1)}h</p>
-                  <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--on-surface-variant)' }}>{(ts.entries||[]).filter(e => parseFloat(e.hours)>0).length} days</p>
+                  <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--on-surface-variant)' }}>{monthEntries.filter(e => parseFloat(e.hours)>0).length} days</p>
                 </div>
                 <StatusBadge status={ts.status} />
                 {isPending && <div style={{ padding: '6px 14px', borderRadius: 8, fontSize: '0.8rem', fontWeight: 700, background: 'linear-gradient(135deg,#2563eb,#3b82f6)', color: '#fff', flexShrink: 0 }}>Review →</div>}
@@ -318,7 +365,7 @@ const TimesheetApprovals = () => {
         </div>
       )}
 
-      {selected && <DetailModal ts={selected} onClose={() => setSelected(null)} onReviewed={() => load(view === 'pending' ? 'submitted' : '')} />}
+      {selected && <DetailModal ts={selected} monthDate={view === 'monthly' ? monthDate : null} onClose={() => setSelected(null)} onReviewed={() => load(view === 'pending' ? 'submitted' : '')} />}
     </div>
   );
 };
