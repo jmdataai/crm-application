@@ -1902,7 +1902,7 @@ async def upsert_timesheet_entries(timesheet_id: str, body: dict, request: Reque
         }, on_conflict="timesheet_id,entry_date").execute())
 
     await run(lambda: sb("timesheets").update({"total_hours": total_hours, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", timesheet_id).execute())
-    await _audit("timesheet_saved", entity_name=f"Week of {ts['week_start']}", current_user=user)
+    await _audit("timesheet_saved", entity_name=f"Week of {ts['week_start']}", user=user)
     return {"success": True, "total_hours": total_hours}
 
 
@@ -1960,7 +1960,7 @@ async def submit_timesheet(timesheet_id: str, request: Request):
     for ceo in (ceos.data or []):
         await send_email(ceo["email"], f"📋 Timesheet Submitted — {user['name']} (Week of {ts['week_start']})", html_ceo)
 
-    await _audit("timesheet_submitted", entity_name=f"Week of {ts['week_start']}", current_user=user)
+    await _audit("timesheet_submitted", entity_name=f"Week of {ts['week_start']}", user=user)
     return {"success": True, "status": "submitted"}
 
 
@@ -2010,7 +2010,7 @@ async def review_timesheet(timesheet_id: str, body: TimesheetReview, request: Re
     if worker.get("email"):
         await send_email(worker["email"], f"{icon} Your timesheet has been {new_status} — Week of {ts['week_start']}", html_worker)
 
-    await _audit(f"timesheet_{new_status}", entity_name=f"Week of {ts['week_start']}", current_user=reviewer)
+    await _audit(f"timesheet_{new_status}", entity_name=f"Week of {ts['week_start']}", user=reviewer)
     return {"success": True, "status": new_status}
 
 
@@ -2071,7 +2071,7 @@ async def cleanup_audit_logs():
         logger.error(f"[audit-cleanup] Failed: {e}")
 
 async def send_timesheet_reminder():
-    """Every Friday 5PM ??? remind all users to submit their timesheet."""
+    """Every Friday 5PM - remind all users to submit their timesheet."""
     today = datetime.now(timezone.utc)
     # Remind for the week that ended Thursday (week starts on Friday).
     current_week_start = _week_friday(today)
@@ -2090,12 +2090,12 @@ async def send_timesheet_reminder():
             ts_res = await run(lambda uid=u["id"]: sb("timesheets").select("status").eq("user_id", uid).eq("week_start", prev_week_start).execute())
             existing = ts_res.data[0] if ts_res.data else None
             if existing and existing.get("status") in ("submitted", "approved"):
-                continue  # Already submitted ??? no need to remind
+                continue  # Already submitted - no need to remind
 
             html = f'''
 <div style="font-family:Inter,sans-serif;max-width:600px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#f59e0b,#f97316);padding:32px;border-radius:12px 12px 0 0;color:#fff">
-    <h1 style="margin:0;font-size:1.5rem">??? Timesheet Reminder</h1>
+    <h1 style="margin:0;font-size:1.5rem">Timesheet Reminder</h1>
     <p style="margin:8px 0 0;opacity:0.85">Please submit your timesheet before end of day today</p>
   </div>
   <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;border-top:none">
@@ -2103,12 +2103,12 @@ async def send_timesheet_reminder():
     <p>This is a friendly reminder to submit your timesheet for the week of <strong>{prev_week_start}</strong>.</p>
     <p>Log your hours worked each day, add your activity notes, and click <strong>Submit for Approval</strong>.</p>
     <div style="margin-top:24px;padding:16px;background:#fffbeb;border-radius:8px;border-left:4px solid #f59e0b">
-      <p style="margin:0;font-size:0.875rem">???? Please submit by <strong>end of day Friday</strong> so your manager can review over the weekend.</p>
+      <p style="margin:0;font-size:0.875rem">Please submit by <strong>end of day Friday</strong> so your manager can review over the weekend.</p>
     </div>
-    <p style="margin-top:16px;font-size:0.8rem;color:#94a3b8">Nexus CRM &nbsp;??&nbsp; Automated weekly reminder</p>
+    <p style="margin-top:16px;font-size:0.8rem;color:#94a3b8">Nexus CRM - Automated weekly reminder</p>
   </div>
 </div>'''
-            await send_email(u["email"], f"??? Please submit your timesheet ??? Week of {prev_week_start}", html)
+            await send_email(u["email"], f"Please submit your timesheet - Week of {prev_week_start}", html)
             logger.info(f"[timesheet-reminder] Sent reminder to {u['email']}")
         except Exception as e:
             logger.error(f"[timesheet-reminder] Failed for {u['email']}: {e}")
