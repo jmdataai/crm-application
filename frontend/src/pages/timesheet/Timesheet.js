@@ -33,7 +33,7 @@ function formatShortDate(isoDate) {
 
 function weekLabel(monday) {
   const sun = addDays(new Date(monday + 'T00:00:00'), 6);
-  return `${new Date(monday + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} \u2013 ${sun.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  return `${new Date(monday + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${sun.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 }
 
 function getWeeksInMonth(year, month) {
@@ -114,13 +114,13 @@ const WeekForm = ({ weekStart, onSaved }) => {
       await timesheetAPI.saveEntries(ts.id, buildPayload());
       await timesheetAPI.submit(ts.id);
       await load();
-      setMsg({ type: 'success', text: '\u2705 Submitted! The CEO has been notified by email.' });
+      setMsg({ type: 'success', text: '✅ Submitted! The CEO has been notified by email.' });
       if (onSaved) onSaved();
     } catch (e) { setMsg({ type: 'error', text: formatApiError(e) }); }
     finally { setSubmitting(false); }
   };
 
-  if (!ts) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--on-surface-variant)' }}>Loading\u2026</div>;
+  if (!ts) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--on-surface-variant)' }}>Loading...</div>;
 
   const isEditable  = ts.status === 'draft' || ts.status === 'rejected';
   const isSubmitted = ts.status === 'submitted';
@@ -188,7 +188,7 @@ const WeekForm = ({ weekStart, onSaved }) => {
                   value={e.comments}
                   disabled={!isEditable}
                   onChange={ev => handleChange(date, 'comments', ev.target.value)}
-                  placeholder={isEditable ? 'Add activity notes\u2026' : '\u2014'}
+                  placeholder={isEditable ? 'Add activity notes...' : '—'}
                   style={{ width: '100%', padding: '7px 12px', borderRadius: 8, border: isEditable ? '1px solid var(--surface-container-high)' : '1px solid transparent', fontSize: '0.875rem', background: isEditable ? 'var(--surface)' : 'transparent', color: 'var(--on-surface)', outline: 'none', boxSizing: 'border-box' }}
                 />
               </div>
@@ -207,13 +207,13 @@ const WeekForm = ({ weekStart, onSaved }) => {
           {isEditable && (
             <button onClick={handleSave} disabled={saving}
               style={{ padding: '10px 20px', borderRadius: 10, border: '1.5px solid var(--surface-container-high)', background: 'var(--surface)', color: 'var(--on-surface)', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' }}>
-              {saving ? 'Saving\u2026' : '\uD83D\uDCBE Save Draft'}
+              {saving ? 'Saving...' : '💾 Save Draft'}
             </button>
           )}
           {isEditable && (
             <button onClick={handleSubmit} disabled={submitting || totalHours === 0}
               style={{ padding: '10px 24px', borderRadius: 10, border: 'none', background: totalHours === 0 ? '#e2e8f0' : 'linear-gradient(135deg,#ea580c,#f97316)', color: totalHours === 0 ? '#94a3b8' : '#fff', fontSize: '0.875rem', fontWeight: 700, cursor: totalHours === 0 ? 'not-allowed' : 'pointer' }}>
-              {submitting ? 'Submitting\u2026' : '\u2708\uFE0F Submit for Approval'}
+              {submitting ? 'Submitting...' : '✈️ Submit for Approval'}
             </button>
           )}
           {isSubmitted && <div style={{ padding: '10px 16px', borderRadius: 10, background: '#eff6ff', color: '#2563eb', fontSize: '0.875rem', fontWeight: 600 }}>⏳ Awaiting CEO approval</div>}
@@ -237,11 +237,26 @@ const MonthlyView = ({ year, month }) => {
     })();
   }, []);
 
-  const weeks = getWeeksInMonth(year, month);
-  const monthTs = data.filter(ts => weeks.includes(ts.week_start));
-  const totalHours = monthTs.reduce((s, ts) => s + parseFloat(ts.total_hours || 0), 0);
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--on-surface-variant)' }}>Loading...</div>;
 
-  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--on-surface-variant)' }}>Loading\u2026</div>;
+  // Build flat entries map: date -> {hours, comments, status}
+  const entriesMap = {};
+  data.forEach(ts => {
+    (ts.entries || []).forEach(e => {
+      entriesMap[e.entry_date] = { hours: parseFloat(e.hours || 0), comments: e.comments || '', status: ts.status };
+    });
+  });
+
+  // All days in the month
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const allDays = Array.from({ length: daysInMonth }, (_, i) => {
+    const d = new Date(year, month, i + 1);
+    return d.toISOString().split('T')[0];
+  });
+
+  const totalHours = allDays.reduce((sum, d) => sum + (entriesMap[d]?.hours || 0), 0);
+
+  const DAY_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
   return (
     <div>
@@ -249,33 +264,45 @@ const MonthlyView = ({ year, month }) => {
         <h3 style={{ margin: 0, fontWeight: 700, color: 'var(--on-surface)' }}>{MONTH_NAMES[month]} {year}</h3>
         <div style={{ padding: '8px 16px', borderRadius: 10, background: 'rgba(234,88,12,0.08)', border: '1px solid rgba(234,88,12,0.15)' }}>
           <span style={{ fontWeight: 800, fontSize: '1.25rem', color: '#ea580c' }}>{totalHours.toFixed(1)}h</span>
-          <span style={{ fontSize: '0.8125rem', color: '#ea580c', marginLeft: 4 }}>total</span>
+          <span style={{ fontSize: '0.8125rem', color: '#ea580c', marginLeft: 4 }}>total this month</span>
         </div>
       </div>
-      {weeks.length === 0
-        ? <p style={{ color: 'var(--on-surface-variant)', textAlign: 'center', padding: 20 }}>No weeks in this month.</p>
-        : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {weeks.map(ws => {
-              const ts  = monthTs.find(t => t.week_start === ws);
-              const hrs = parseFloat(ts?.total_hours || 0);
-              return (
-                <div key={ws} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: 10, background: 'var(--surface-container-lowest)', border: '1px solid var(--surface-container-high)', flexWrap: 'wrap', gap: 10 }}>
-                  <div>
-                    <p style={{ margin: 0, fontWeight: 600, fontSize: '0.9rem', color: 'var(--on-surface)' }}>{weekLabel(ws)}</p>
-                    <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--on-surface-variant)' }}>{ts ? `${(ts.entries || []).filter(e => parseFloat(e.hours) > 0).length} days logged` : 'Not started'}</p>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <span style={{ fontWeight: 700, fontSize: '1.1rem', color: hrs > 0 ? '#ea580c' : 'var(--on-surface-variant)' }}>{hrs.toFixed(1)}h</span>
-                    {ts
-                      ? <StatusBadge status={ts.status} />
-                      : <span style={{ fontSize: '0.75rem', color: 'var(--on-surface-variant)', padding: '3px 10px', background: '#f1f5f9', borderRadius: 99 }}>Not started</span>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+      {/* Column headers */}
+      <div style={{ display: 'grid', gridTemplateColumns: '100px 65px 1fr auto', padding: '7px 14px', background: 'var(--surface-container)', borderRadius: '10px 10px 0 0', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--on-surface-variant)', gap: 10, border: '1px solid var(--surface-container-high)', borderBottom: 'none' }}>
+        <span>Date</span><span>Hours</span><span>Notes</span><span>Status</span>
+      </div>
+      <div style={{ borderRadius: '0 0 10px 10px', overflow: 'hidden', border: '1px solid var(--surface-container-high)' }}>
+        {allDays.map((date, i) => {
+          const e = entriesMap[date];
+          const hrs = e?.hours || 0;
+          const d = new Date(date + 'T00:00:00');
+          const dayNum = d.getDay();
+          const isWeekend = dayNum === 0 || dayNum === 6;
+          return (
+            <div key={date} style={{
+              display: 'grid', gridTemplateColumns: '100px 65px 1fr auto',
+              padding: '8px 14px', gap: 10, alignItems: 'center',
+              borderTop: i === 0 ? 'none' : '1px solid var(--surface-container-high)',
+              background: isWeekend ? 'var(--surface-container)' : (hrs > 0 ? 'rgba(234,88,12,0.02)' : 'var(--surface-container-lowest)'),
+            }}>
+              <div>
+                <span style={{ fontWeight: 600, fontSize: '0.8125rem', color: isWeekend ? 'var(--on-surface-variant)' : 'var(--on-surface)' }}>
+                  {DAY_SHORT[dayNum]} {d.getDate()}
+                </span>
+              </div>
+              <span style={{ fontWeight: hrs > 0 ? 700 : 400, fontSize: '0.875rem', color: hrs > 0 ? '#ea580c' : 'var(--on-surface-variant)' }}>
+                {hrs > 0 ? `${hrs}h` : (isWeekend ? '' : '—')}
+              </span>
+              <span style={{ fontSize: '0.8125rem', color: 'var(--on-surface-variant)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {e?.comments || ''}
+              </span>
+              <span style={{ fontSize: '0.7rem' }}>
+                {e?.status ? <StatusBadge status={e.status} /> : null}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 };

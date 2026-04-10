@@ -21,7 +21,7 @@ export const PERMISSIONS = {
     canManageUsers: true,
     viewSettings:   true,
     viewCEO:        true,
-    viewTimesheetApprovals: true,
+    viewTimesheetApprovals: false,
     readOnly:       false,
   },
   sales: {

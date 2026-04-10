@@ -1954,10 +1954,10 @@ async def submit_timesheet(timesheet_id: str, request: Request):
   </div>
 </div>"""
 
-    # Email all admins
-    admins = await run(lambda: sb("users").select("email,name").eq("role", "admin").execute())
-    for admin in (admins.data or []):
-        await send_email(admin["email"], f"📋 Timesheet Submitted — {user['name']} (Week of {ts['week_start']})", html_ceo)
+    # Email the CEO (viewer role)
+    ceos = await run(lambda: sb("users").select("email,name").eq("role", "viewer").execute())
+    for ceo in (ceos.data or []):
+        await send_email(ceo["email"], f"📋 Timesheet Submitted — {user['name']} (Week of {ts['week_start']})", html_ceo)
 
     await _audit("timesheet_submitted", entity_name=f"Week of {ts['week_start']}", current_user=user)
     return {"success": True, "status": "submitted"}
@@ -1967,8 +1967,8 @@ async def submit_timesheet(timesheet_id: str, request: Request):
 async def review_timesheet(timesheet_id: str, body: TimesheetReview, request: Request):
     """CEO approves or rejects a timesheet."""
     reviewer = await get_current_user(request)
-    if reviewer.get("role") not in ("admin", "viewer"):
-        raise HTTPException(403, "Only admins can review timesheets")
+    if reviewer.get("role") != "viewer":
+        raise HTTPException(403, "Only the CEO can review timesheets")
 
     action = body.action.lower()
     if action not in ("approve", "reject"):
@@ -2023,8 +2023,8 @@ async def get_all_timesheets(
 ):
     """CEO view — all timesheets across all users."""
     reviewer = await get_current_user(request)
-    if reviewer.get("role") not in ("admin", "viewer"):
-        raise HTTPException(403, "Only admins can view all timesheets")
+    if reviewer.get("role") not in ("viewer",):
+        raise HTTPException(403, "Only the CEO can view all timesheets")
 
     q = sb("timesheets").select("*,users!timesheets_user_id_fkey(id,name,email,role)").order("week_start", desc=True).limit(limit)
     if status:   q = q.eq("status", status)

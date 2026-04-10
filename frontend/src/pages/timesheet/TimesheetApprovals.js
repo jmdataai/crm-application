@@ -13,7 +13,7 @@ function weekLabel(monday) {
   if (!monday) return '—';
   const d = new Date(monday + 'T00:00:00');
   const sun = addDays(d, 6);
-  return `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} \u2013 ${sun.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  return `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${sun.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 }
 
 function getMondayOf(date) {
