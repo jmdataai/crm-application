@@ -4,6 +4,10 @@ load_dotenv()
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, File, UploadFile
 from starlette.middleware.cors import CORSMiddleware
 from supabase import create_client, Client
+try:
+    from supabase import ClientOptions
+except Exception:
+    ClientOptions = None
 import os
 import logging
 import bcrypt
@@ -31,7 +35,11 @@ logger = logging.getLogger(__name__)
 # ── Supabase client ───────────────────────────────────────────
 SUPABASE_URL: str = os.environ["SUPABASE_URL"]
 SUPABASE_KEY: str = os.environ["SUPABASE_SERVICE_ROLE_KEY"]   # service role — bypasses RLS
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+if ClientOptions:
+    _supabase_httpx = httpx.Client(http2=False)
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY, options=ClientOptions(http_client=_supabase_httpx))
+else:
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ── Resend email ──────────────────────────────────────────────
 resend.api_key  = os.environ.get("RESEND_API_KEY", "")
