@@ -461,7 +461,7 @@ export default function ImportLeads() {
       // (server_sales_patch.py is authoritative for the backend transform)
       const form = new FormData();
       form.append('file', file);
-      const res = await leadsAPI.importFile(form);
+      const res = await leadsAPI.import(form);
       setResult(res.data);
       setStep(4);
     } catch (e) {
