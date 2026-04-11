@@ -4,6 +4,7 @@ load_dotenv()
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, File, UploadFile
 from starlette.middleware.cors import CORSMiddleware
 from supabase import create_client, Client
+import inspect
 try:
     from supabase import ClientOptions
 except Exception:
@@ -37,7 +38,20 @@ SUPABASE_URL: str = os.environ["SUPABASE_URL"]
 SUPABASE_KEY: str = os.environ["SUPABASE_SERVICE_ROLE_KEY"]   # service role — bypasses RLS
 if ClientOptions:
     _supabase_httpx = httpx.Client(http2=False)
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY, options=ClientOptions(http_client=_supabase_httpx))
+    options = None
+    try:
+        init_sig = inspect.signature(ClientOptions.__init__)
+        if "http_client" in init_sig.parameters:
+            options = ClientOptions(http_client=_supabase_httpx)
+        else:
+            options = ClientOptions()
+    except Exception:
+        options = None
+
+    if options is not None:
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY, options=options)
+    else:
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 else:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
