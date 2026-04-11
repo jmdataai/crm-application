@@ -68,9 +68,14 @@ export const leadsAPI = {
   create: (data) => api.post('/leads', data),
   update: (id, data) => api.put(`/leads/${id}`, data),
   delete: (id) => api.delete(`/leads/${id}`),
-  import: (file) => {
-    const formData = new FormData();
-    formData.append('file', file);
+  import: (fileOrForm) => {
+    const formData = fileOrForm instanceof FormData
+      ? fileOrForm
+      : (() => {
+          const fd = new FormData();
+          fd.append('file', fileOrForm);
+          return fd;
+        })();
     return api.post('/leads/import', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
