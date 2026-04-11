@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { leadsAPI } from '../../services/api';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -17,109 +17,269 @@ const STATUS_META = {
   rejected:         { label:'Not Interested',  bg:'var(--error-container)',       color:'var(--on-error-container)' },
   lost:             { label:'Lost',            bg:'rgba(186,26,26,0.08)',         color:'var(--error)' },
 };
-const StatusBadge = ({ status }) => {
-  const s = STATUS_META[status] || STATUS_META.new;
-  return <span style={{ display:'inline-flex', alignItems:'center', padding:'0.2rem 0.625rem', borderRadius:9999, fontSize:'0.6875rem', fontWeight:700, background:s.bg, color:s.color, whiteSpace:'nowrap' }}>{s.label}</span>;
+
+const SEGMENT_META = {
+  staffing_partner: { label:'Staffing Partner', color:'#7c3aed' },
+  end_client:       { label:'End Client',        color:'var(--tertiary)' },
+  ireland_company:  { label:'Ireland Company',   color:'var(--primary)' },
+  general:          { label:'General',           color:'var(--on-surface-variant)' },
 };
 
-const bool_icon = (v) => v
-  ? <Icon name="check_circle" style={{ fontSize:'1rem', color:'var(--tertiary)' }}/>
-  : <Icon name="radio_button_unchecked" style={{ fontSize:'1rem', color:'var(--outline-variant)' }}/>;
-
-// ── Add Lead Modal ─────────────────────────────────────
-const AddLeadModal = ({ onClose, onAdd }) => {
-  const [form, setForm] = useState({ full_name:'', company:'', job_title:'', email:'', phone:'', website:'', industry:'', business_type:'', location:'', country:'', source:'', status:'new', notes:'', next_follow_up:'', solution_skills:'' });
-  const set = (k,v) => setForm(f=>({...f,[k]:v}));
-  const submit = async () => {
-    if (!form.full_name.trim() && !form.company.trim()) { alert('Enter at least a name or company'); return; }
-    try {
-      const res = await leadsAPI.create({
-        full_name: form.full_name || form.company || 'Unknown',
-        company: form.company||null, job_title: form.job_title||null,
-        email: form.email||null, phone: form.phone||null, website: form.website||null,
-        industry: form.industry||null, business_type: form.business_type||null,
-        address: form.location||null, country: form.country||null,
-        source: form.source||null, status: form.status,
-        notes: form.notes||null, next_follow_up: form.next_follow_up||null,
-        solution_skills: form.solution_skills||null,
-      });
-      onAdd(normalise(res.data)); onClose();
-    } catch(e) { alert(e?.response?.data?.detail || 'Failed to add lead'); }
-  };
+const StatusBadge = ({ status }) => {
+  const s = STATUS_META[status] || STATUS_META.new;
   return (
-    <div className="modal-overlay scale-in" onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div className="modal modal-lg">
+    <span style={{
+      display:'inline-flex', alignItems:'center', padding:'0.2rem 0.625rem',
+      borderRadius:9999, fontSize:'0.6875rem', fontWeight:700,
+      background:s.bg, color:s.color, whiteSpace:'nowrap',
+    }}>{s.label}</span>
+  );
+};
+
+const SegmentBadge = ({ segment }) => {
+  if (!segment) return null;
+  const s = SEGMENT_META[segment] || { label: segment, color:'var(--on-surface-variant)' };
+  return (
+    <span style={{
+      display:'inline-flex', alignItems:'center', padding:'0.15rem 0.5rem',
+      borderRadius:9999, fontSize:'0.625rem', fontWeight:600,
+      background:'var(--surface-container)', color:s.color, whiteSpace:'nowrap',
+      border:`1px solid ${s.color}33`,
+    }}>{s.label}</span>
+  );
+};
+
+// ── Add Company Modal ────────────────────────────────────────
+const CONTACT_INIT = { name:'', designation:'', email:'', phone:'', linkedin:'' };
+
+const AddCompanyModal = ({ onClose, onAdd }) => {
+  const [form, setForm] = useState({
+    company:'', company_type:'', segment:'', hq_location:'', india_office:'',
+    domain_focus:'', website:'', company_linkedin:'',
+    status:'new', source:'', next_follow_up:'', notes:'',
+  });
+  const [cp1, setCp1] = useState({ ...CONTACT_INIT });
+  const [cp2, setCp2] = useState({ ...CONTACT_INIT });
+  const [cp3, setCp3] = useState({ ...CONTACT_INIT });
+  const [saving, setSaving] = useState(false);
+
+  const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const setCp = (setter, k, v) => setter(c => ({ ...c, [k]: v }));
+
+  const submit = async () => {
+    if (!form.company.trim()) { alert('Company name is required'); return; }
+    setSaving(true);
+    try {
+      const payload = {
+        company:          form.company,
+        company_type:     form.company_type || null,
+        segment:          form.segment || null,
+        hq_location:      form.hq_location || null,
+        india_office:     form.india_office || null,
+        domain_focus:     form.domain_focus || null,
+        website:          form.website || null,
+        company_linkedin: form.company_linkedin || null,
+        status:           form.status,
+        source:           form.source || null,
+        next_follow_up:   form.next_follow_up || null,
+        notes:            form.notes || null,
+        // CP1
+        full_name:        cp1.name || null,
+        job_title:        cp1.designation || null,
+        email:            cp1.email || null,
+        phone:            cp1.phone || null,
+        linkedin_url:     cp1.linkedin || null,
+        // CP2
+        contact_person_2_name:        cp2.name || null,
+        contact_person_2_designation: cp2.designation || null,
+        contact_person_2_email:       cp2.email || null,
+        contact_person_2_phone:       cp2.phone || null,
+        contact_person_2_linkedin:    cp2.linkedin || null,
+        // CP3
+        contact_person_3_name:        cp3.name || null,
+        contact_person_3_designation: cp3.designation || null,
+        contact_person_3_email:       cp3.email || null,
+        contact_person_3_phone:       cp3.phone || null,
+        contact_person_3_linkedin:    cp3.linkedin || null,
+      };
+      const res = await leadsAPI.create(payload);
+      onAdd(normalise(res.data));
+      onClose();
+    } catch (e) {
+      alert(e?.response?.data?.detail || 'Failed to add company');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const ContactPersonSection = ({ label, values, setter }) => (
+    <div style={{ marginTop:'0.5rem' }}>
+      <p style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.625rem' }}>{label}</p>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
+        {[
+          { l:'Name',        k:'name',        t:'text' },
+          { l:'Designation', k:'designation', t:'text' },
+          { l:'Email',       k:'email',       t:'email' },
+          { l:'Phone',       k:'phone',       t:'tel' },
+          { l:'LinkedIn URL',k:'linkedin',    t:'url', span:2 },
+        ].map(f => (
+          <div key={f.k} style={{ gridColumn: f.span===2 ? '1/-1' : undefined }}>
+            <label className="label">{f.l}</label>
+            <input className="input" type={f.t} value={values[f.k]} onChange={e => setCp(setter, f.k, e.target.value)} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="modal-overlay scale-in" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal modal-xl" style={{ maxWidth:820, maxHeight:'90vh', overflowY:'auto' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.5rem' }}>
-          <h2 style={{ fontSize:'1.125rem', fontWeight:700 }}>Add Lead</h2>
-          <button className="btn-icon" onClick={onClose}><Icon name="close"/></button>
-        </div>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
-          {[{l:'Company Name *',k:'company',t:'text',s:2},{l:'Contact Name',k:'full_name',t:'text'},{l:'Designation',k:'job_title',t:'text'},{l:'Email',k:'email',t:'email'},{l:'Phone',k:'phone',t:'tel'},{l:'Website',k:'website',t:'url'},{l:'Industry',k:'industry',t:'text'},{l:'Business Type / Skills',k:'business_type',t:'text'},{l:'Location / City',k:'location',t:'text'},{l:'Country',k:'country',t:'text'},{l:'Source / Lead From',k:'source',t:'text'},{l:'Next Follow-up',k:'next_follow_up',t:'date'},{l:'Solution / Looking For',k:'solution_skills',t:'text',s:2}].map(f=>(
-            <div key={f.k} style={{ gridColumn:f.s===2?'1/-1':undefined }}>
-              <label className="label">{f.l}</label>
-              <input className="input" type={f.t} value={form[f.k]||''} onChange={e=>set(f.k,e.target.value)}/>
-            </div>
-          ))}
           <div>
-            <label className="label">Status</label>
-            <select className="select" value={form.status} onChange={e=>set('status',e.target.value)}>
-              {Object.entries(STATUS_META).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+            <h2 style={{ fontSize:'1.125rem', fontWeight:700 }}>Add Company</h2>
+            <p style={{ fontSize:'0.8125rem', color:'var(--on-surface-variant)', marginTop:'0.125rem' }}>Company is the primary entity — contacts are linked below</p>
+          </div>
+          <button className="btn-icon" onClick={onClose}><Icon name="close" /></button>
+        </div>
+
+        {/* Company Details */}
+        <p style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.75rem' }}>Company Information</p>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.875rem' }}>
+          <div style={{ gridColumn:'1/-1' }}>
+            <label className="label">Company Name *</label>
+            <input className="input" type="text" value={form.company} onChange={e => setF('company', e.target.value)} placeholder="e.g. Accenture Ireland" />
+          </div>
+          <div>
+            <label className="label">Company Type</label>
+            <select className="select" value={form.company_type} onChange={e => setF('company_type', e.target.value)}>
+              <option value="">Select type…</option>
+              {['Consulting','Technology','Recruitment Agency','Banking','Financial Services','MedTech','IT Consulting','Manufacturing','Pharma','Other'].map(t => (
+                <option key={t} value={t}>{t}</option>
+              ))}
             </select>
           </div>
-          <div style={{ gridColumn:'1/-1' }}><label className="label">Notes / Remarks</label><textarea className="textarea" rows={2} value={form.notes} onChange={e=>set('notes',e.target.value)}/></div>
+          <div>
+            <label className="label">Segment</label>
+            <select className="select" value={form.segment} onChange={e => setF('segment', e.target.value)}>
+              <option value="">Select segment…</option>
+              <option value="staffing_partner">Staffing Partner</option>
+              <option value="end_client">End Client</option>
+              <option value="ireland_company">Ireland Company</option>
+              <option value="general">General</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">HQ Location (Irish)</label>
+            <input className="input" type="text" value={form.hq_location} onChange={e => setF('hq_location', e.target.value)} placeholder="e.g. Dublin, Cork, Galway" />
+          </div>
+          <div>
+            <label className="label">India Office(s)</label>
+            <input className="input" type="text" value={form.india_office} onChange={e => setF('india_office', e.target.value)} placeholder="e.g. Hyderabad (Kukatpally)" />
+          </div>
+          <div>
+            <label className="label">Domain Focus / Skills</label>
+            <input className="input" type="text" value={form.domain_focus} onChange={e => setF('domain_focus', e.target.value)} placeholder="e.g. SAP, Analytics, AI, ERP" />
+          </div>
+          <div>
+            <label className="label">Status</label>
+            <select className="select" value={form.status} onChange={e => setF('status', e.target.value)}>
+              {Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Website</label>
+            <input className="input" type="url" value={form.website} onChange={e => setF('website', e.target.value)} placeholder="https://…" />
+          </div>
+          <div>
+            <label className="label">Company LinkedIn</label>
+            <input className="input" type="url" value={form.company_linkedin} onChange={e => setF('company_linkedin', e.target.value)} placeholder="https://linkedin.com/company/…" />
+          </div>
+          <div>
+            <label className="label">Source / Lead From</label>
+            <input className="input" type="text" value={form.source} onChange={e => setF('source', e.target.value)} placeholder="e.g. LinkedIn, Referral, Import" />
+          </div>
+          <div>
+            <label className="label">Next Follow-up Date</label>
+            <input className="input" type="date" value={form.next_follow_up} onChange={e => setF('next_follow_up', e.target.value)} />
+          </div>
+          <div style={{ gridColumn:'1/-1' }}>
+            <label className="label">Notes / Remarks</label>
+            <textarea className="textarea" rows={2} value={form.notes} onChange={e => setF('notes', e.target.value)} placeholder="Any remarks about this company…" />
+          </div>
         </div>
-        <div style={{ display:'flex', gap:'0.75rem', justifyContent:'flex-end', marginTop:'1.5rem' }}>
+
+        {/* Divider */}
+        <div style={{ margin:'1.25rem 0', height:1, background:'var(--outline-variant)' }} />
+
+        {/* Contact Persons */}
+        <ContactPersonSection label="Contact Person 1" values={cp1} setter={setCp1} />
+        <div style={{ margin:'1rem 0', height:1, background:'var(--surface-container)' }} />
+        <ContactPersonSection label="Contact Person 2" values={cp2} setter={setCp2} />
+        <div style={{ margin:'1rem 0', height:1, background:'var(--surface-container)' }} />
+        <ContactPersonSection label="Contact Person 3" values={cp3} setter={setCp3} />
+
+        <div style={{ display:'flex', gap:'0.75rem', justifyContent:'flex-end', marginTop:'1.75rem' }}>
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button onClick={submit} className="btn-primary"><Icon name="add" style={{ fontSize:'1rem', color:'#fff' }}/> Add Lead</button>
+          <button onClick={submit} disabled={saving} className="btn-primary">
+            <Icon name="business" style={{ fontSize:'1rem', color:'#fff' }} />
+            {saving ? 'Saving…' : 'Add Company'}
+          </button>
         </div>
       </div>
     </div>
   );
 };
 
+// ── Normalise API response ──────────────────────────────────
 const normalise = (l) => ({
-  id:                       l.id,
-  // Company / Core
-  company:                  l.company || l.full_name || '—',
-  full_name:                l.full_name || '',
-  job_title:                l.job_title || '',
-  email:                    l.email || '',
-  phone:                    l.phone || '',           // Mobile (primary)
-  website:                  l.website || '',
-  industry:                 l.industry || '',
-  business_type:            l.business_type || '',
-  address:                  l.address || '',
-  country:                  l.country || '',
-  status:                   l.status || 'new',
-  // Follow-up dates
-  intro_sent:               l.intro_sent || '',           // Intro Sent
-  next_follow_up:           l.next_follow_up || '',       // Next F Date
-  // Outreach tracking
+  id:               l.id,
+  // Company
+  company:          l.company || l.full_name || '—',
+  company_type:     l.company_type || '',
+  company_linkedin: l.company_linkedin || '',
+  hq_location:      l.hq_location || l.address || '',
+  india_office:     l.india_office || '',
+  segment:          l.segment || '',
+  domain_focus:     l.domain_focus || l.industry || '',
+  website:          l.website || '',
+  status:           l.status || 'new',
+  source:           l.source || '',
+  source_file:      l.source_file || '',
+  next_follow_up:   l.next_follow_up || '',
+  intro_sent:       l.intro_sent || '',
+  notes:            l.notes || '',
+  solution_skills:  l.solution_skills || '',
+  turnover_headcount: l.turnover_headcount || '',
   linkedin_invite_sent:     l.linkedin_invite_sent || false,
   linkedin_invite_accepted: l.linkedin_invite_accepted || false,
-  lead_share_date:          l.lead_share_date || '',      // Lead Share on
-  solution_skills:          l.solution_skills || '',
-  turnover_headcount:       l.turnover_headcount || '',
-  notes:                    l.notes || '',
-  source_file:              l.source_file || '',          // Data Form
-  source:                   l.source || '',               // Lead come from
-  // Contact Person 1 (Name + Designation already in full_name/job_title)
-  contact2_name:            l.contact_person_2_name || '',
-  contact2_designation:     l.contact_person_2_designation || '',
-  contact2_email:           l.contact_person_2_email || '',
-  contact2_phone:           l.contact_person_2_phone || '',
-  contact3_name:            l.contact_person_3_name || '',
-  contact3_designation:     l.contact_person_3_designation || '',
-  contact3_email:           l.contact_person_3_email || '',
-  contact3_phone:           l.contact_person_3_phone || '',
-  created_at:               l.created_at?.slice(0,10) || '',
-  deal_value:               l.deal_value || 0,
-  linkedin_url:             l.linkedin_url || '',
+  lead_share_date:          l.lead_share_date || '',
+  created_at:       l.created_at?.slice(0, 10) || '',
+  deal_value:       l.deal_value || 0,
+  // Contact Person 1
+  cp1_name:         l.full_name || '',
+  cp1_designation:  l.job_title || '',
+  cp1_email:        l.email || '',
+  cp1_phone:        l.phone || '',
+  cp1_linkedin:     l.linkedin_url || '',
+  // Contact Person 2
+  cp2_name:         l.contact_person_2_name || '',
+  cp2_designation:  l.contact_person_2_designation || '',
+  cp2_email:        l.contact_person_2_email || '',
+  cp2_phone:        l.contact_person_2_phone || '',
+  cp2_linkedin:     l.contact_person_2_linkedin || '',
+  // Contact Person 3
+  cp3_name:         l.contact_person_3_name || '',
+  cp3_designation:  l.contact_person_3_designation || '',
+  cp3_email:        l.contact_person_3_email || '',
+  cp3_phone:        l.contact_person_3_phone || '',
+  cp3_linkedin:     l.contact_person_3_linkedin || '',
 });
 
+// ── Main Component ──────────────────────────────────────────
 export default function LeadsList() {
-  const navigate = useNavigate();
-  const location = useLocation();
+  const navigate   = useNavigate();
+  const location   = useLocation();
   const [leads, setLeads]         = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState('');
@@ -128,19 +288,19 @@ export default function LeadsList() {
   const [sortBy, setSortBy]       = useState('created_at');
   const [sortDir, setSortDir]     = useState('desc');
   const [page, setPage]           = useState(1);
-  const [statusView, setStatusView] = useState('all');
+  const [statusView, setStatusView]   = useState('all');
+  const [segmentView, setSegmentView] = useState('all');
   const [fileFilter, setFileFilter]   = useState('all');
   const PER_PAGE = 25;
 
   // Per-column search
   const [cs, setColS] = useState({
-    company:'', full_name:'', job_title:'', email:'', phone:'',
-    industry:'', business_type:'', country:'', status:'', source_file:'',
-    next_follow_up:'', intro_sent:'', solution_skills:'', source:'',
-    contact2_name:'', contact3_name:'',
+    company:'', company_type:'', hq_location:'', domain_focus:'', status:'',
+    cp1_name:'', cp1_email:'', cp2_name:'', cp3_name:'',
+    next_follow_up:'', source_file:'', source:'',
   });
-  const setCS = (k,v) => { setColS(s=>({...s,[k]:v})); setPage(1); };
-  const hasCS = Object.values(cs).some(v=>v);
+  const setCS = (k, v) => { setColS(s => ({ ...s, [k]: v })); setPage(1); };
+  const hasCS = Object.values(cs).some(v => v);
 
   useEffect(() => {
     const p = new URLSearchParams(location.search);
@@ -150,16 +310,17 @@ export default function LeadsList() {
   const fetchLeads = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const res = await leadsAPI.getAll({ limit:1000 });
-      const data = Array.isArray(res.data)?res.data:Array.isArray(res.data?.leads)?res.data.leads:Array.isArray(res.data?.data)?res.data.data:[];
+      const res = await leadsAPI.getAll({ limit: 1000 });
+      const data = Array.isArray(res.data) ? res.data
+        : Array.isArray(res.data?.leads)   ? res.data.leads
+        : Array.isArray(res.data?.data)    ? res.data.data : [];
       setLeads(data.map(normalise));
-    } catch { setError('Failed to load leads.'); }
-    finally { setLoading(false); }
+    } catch { setError('Failed to load companies.'); }
+    finally   { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
 
-  // Distinct source files from all leads
   const sourceFiles = useMemo(() =>
     [...new Set(leads.map(l => l.source_file).filter(Boolean))].sort()
   , [leads]);
@@ -168,399 +329,343 @@ export default function LeadsList() {
     let out = leads.filter(l => {
       if (fileFilter !== 'all' && l.source_file !== fileFilter) return false;
       if (statusView !== 'all' && l.status !== statusView) return false;
-      if (cs.company && !l.company?.toLowerCase().includes(cs.company.toLowerCase())) return false;
-      if (cs.full_name && !l.full_name?.toLowerCase().includes(cs.full_name.toLowerCase())) return false;
-      if (cs.job_title && !l.job_title?.toLowerCase().includes(cs.job_title.toLowerCase())) return false;
-      if (cs.email && !l.email?.toLowerCase().includes(cs.email.toLowerCase())) return false;
-      if (cs.phone && !l.phone?.toLowerCase().includes(cs.phone.toLowerCase())) return false;
-      if (cs.industry && !l.industry?.toLowerCase().includes(cs.industry.toLowerCase())) return false;
-      if (cs.business_type && !l.business_type?.toLowerCase().includes(cs.business_type.toLowerCase())) return false;
-      if (cs.country && !l.country?.toLowerCase().includes(cs.country.toLowerCase())) return false;
-      if (cs.status && !l.status?.toLowerCase().includes(cs.status.toLowerCase())) return false;
-      if (cs.source_file && !l.source_file?.toLowerCase().includes(cs.source_file.toLowerCase())) return false;
+      if (segmentView !== 'all' && l.segment !== segmentView) return false;
+      const q = (field) => !field || true; // helper
+      if (cs.company      && !l.company?.toLowerCase().includes(cs.company.toLowerCase())) return false;
+      if (cs.company_type && !l.company_type?.toLowerCase().includes(cs.company_type.toLowerCase())) return false;
+      if (cs.hq_location  && !l.hq_location?.toLowerCase().includes(cs.hq_location.toLowerCase())) return false;
+      if (cs.domain_focus && !l.domain_focus?.toLowerCase().includes(cs.domain_focus.toLowerCase())) return false;
+      if (cs.cp1_name     && !l.cp1_name?.toLowerCase().includes(cs.cp1_name.toLowerCase())) return false;
+      if (cs.cp1_email    && !l.cp1_email?.toLowerCase().includes(cs.cp1_email.toLowerCase())) return false;
+      if (cs.cp2_name     && !l.cp2_name?.toLowerCase().includes(cs.cp2_name.toLowerCase())) return false;
+      if (cs.cp3_name     && !l.cp3_name?.toLowerCase().includes(cs.cp3_name.toLowerCase())) return false;
+      if (cs.status       && !l.status?.toLowerCase().includes(cs.status.toLowerCase())) return false;
+      if (cs.source_file  && !l.source_file?.toLowerCase().includes(cs.source_file.toLowerCase())) return false;
+      if (cs.source       && !l.source?.toLowerCase().includes(cs.source.toLowerCase())) return false;
       if (cs.next_follow_up && !l.next_follow_up?.includes(cs.next_follow_up)) return false;
-      if (cs.solution_skills && !l.solution_skills?.toLowerCase().includes(cs.solution_skills.toLowerCase())) return false;
-      if (cs.source && !l.source?.toLowerCase().includes(cs.source.toLowerCase())) return false;
       return true;
     });
-    out = [...out].sort((a,b) => {
-      const av=a[sortBy]||'', bv=b[sortBy]||'';
-      if (sortBy==='deal_value') return sortDir==='asc'?Number(av)-Number(bv):Number(bv)-Number(av);
-      return sortDir==='asc'?String(av).localeCompare(String(bv)):String(bv).localeCompare(String(av));
+    out = [...out].sort((a, b) => {
+      const av = a[sortBy] || '', bv = b[sortBy] || '';
+      if (sortBy === 'deal_value') return sortDir === 'asc' ? Number(av) - Number(bv) : Number(bv) - Number(av);
+      return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
     });
     return out;
-  }, [leads, statusView, fileFilter, cs, sortBy, sortDir]);
+  }, [leads, statusView, segmentView, fileFilter, cs, sortBy, sortDir]);
 
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
-  const paged = filtered.slice((page-1)*PER_PAGE, page*PER_PAGE);
+  const paged = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
-  const toggleSort = (col) => { if(sortBy===col) setSortDir(d=>d==='asc'?'desc':'asc'); else{setSortBy(col);setSortDir('asc');} setPage(1); };
-  const SortIcon = ({ col }) => sortBy===col?<Icon name={sortDir==='asc'?'arrow_upward':'arrow_downward'} style={{fontSize:'0.7rem',color:'var(--primary)'}}/>:<Icon name="unfold_more" style={{fontSize:'0.7rem',opacity:0.3}}/>;
+  const toggleSort = (col) => {
+    if (sortBy === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortBy(col); setSortDir('asc'); }
+    setPage(1);
+  };
+  const SortIcon = ({ col }) => sortBy === col
+    ? <Icon name={sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward'} style={{ fontSize:'0.7rem', color:'var(--primary)' }} />
+    : <Icon name="unfold_more" style={{ fontSize:'0.7rem', opacity:0.3 }} />;
 
   // Status summary counts
-  const counts = useMemo(() => {
-    const c = { all: leads.length };
-    Object.keys(STATUS_META).forEach(k => { c[k] = leads.filter(l=>l.status===k).length; });
-    c.follow_due = leads.filter(l=>l.next_follow_up && l.next_follow_up <= new Date().toISOString().slice(0,10)).length;
-    return c;
+  const statusCounts = useMemo(() => {
+    const out = { all: leads.length };
+    Object.keys(STATUS_META).forEach(k => { out[k] = leads.filter(l => l.status === k).length; });
+    return out;
   }, [leads]);
 
-  const today = new Date().toISOString().slice(0,10);
+  // Segment counts
+  const segCounts = useMemo(() => {
+    const out = { all: leads.length };
+    Object.keys(SEGMENT_META).forEach(k => { out[k] = leads.filter(l => l.segment === k).length; });
+    return out;
+  }, [leads]);
 
-  // Quick-update follow-up date
-  const updateFollowUp = async (id, date) => {
-    setLeads(ls => ls.map(l => l.id===id ? {...l, next_follow_up: date} : l));
-    try { await leadsAPI.update(id, { next_follow_up: date||null }); } catch {}
+  const deleteSelected = async () => {
+    if (!selected.size) return;
+    if (!window.confirm(`Delete ${selected.size} company record(s)? This cannot be undone.`)) return;
+    for (const id of selected) {
+      try { await leadsAPI.delete(id); } catch {}
+    }
+    setLeads(prev => prev.filter(l => !selected.has(l.id)));
+    setSelected(new Set());
   };
 
-  // Quick status change
-  const updateStatus = async (id, status) => {
-    setLeads(ls => ls.map(l => l.id===id ? {...l, status} : l));
-    try { await leadsAPI.update(id, { status }); } catch {}
-  };
-
-  const colInput = (key, placeholder) => (
-    <input placeholder={placeholder||'Search…'} value={cs[key]||''} onChange={e=>setCS(key,e.target.value)}
-      style={{ width:'100%', fontSize:'0.7rem', padding:'0.2rem 0.4rem', borderRadius:3, border:'1px solid var(--outline-variant)', background:'var(--surface)', color:'var(--on-surface)', fontFamily:'Inter,sans-serif', boxSizing:'border-box' }}
-      onClick={e=>e.stopPropagation()}/>
+  const th = (label, col, minW = 80) => (
+    <th style={{ padding:'0.5rem 0.75rem', textAlign:'left', fontSize:'0.6875rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase', letterSpacing:'0.05em', whiteSpace:'nowrap', cursor:'pointer', minWidth:minW }}
+        onClick={() => col && toggleSort(col)}>
+      {label} {col && <SortIcon col={col} />}
+    </th>
   );
 
-  const statusSelect = (
-    <select value={cs.status||''} onChange={e=>setCS('status',e.target.value)} onClick={e=>e.stopPropagation()}
-      style={{ width:'100%', fontSize:'0.7rem', padding:'0.2rem 0.4rem', borderRadius:3, border:'1px solid var(--outline-variant)', background:'var(--surface)', color:'var(--on-surface)', fontFamily:'Inter,sans-serif' }}>
-      <option value="">All</option>
-      {Object.entries(STATUS_META).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
-    </select>
+  const SearchInput = ({ col, placeholder, width = 100 }) => (
+    <input
+      value={cs[col] || ''}
+      onChange={e => setCS(col, e.target.value)}
+      placeholder={placeholder || '🔍'}
+      style={{ width, padding:'0.2rem 0.4rem', fontSize:'0.6875rem', border:'1px solid var(--outline-variant)', borderRadius:'0.25rem', background:'var(--surface-container-lowest)', color:'var(--on-surface)', outline:'none' }}
+    />
+  );
+
+  if (error) return (
+    <div className="card" style={{ textAlign:'center', padding:'3rem', color:'var(--error)' }}>
+      <Icon name="error" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.5rem' }} />
+      {error}
+      <br /><button className="btn-secondary" style={{ marginTop:'1rem' }} onClick={fetchLeads}>Retry</button>
+    </div>
   );
 
   return (
     <div className="fade-in">
-      {loading && <div style={{textAlign:'center',padding:'4rem',color:'var(--on-surface-variant)'}}><Icon name="progress_activity" style={{fontSize:'2rem',display:'block',margin:'0 auto 0.75rem',animation:'spin 1s linear infinite'}}/>Loading leads…</div>}
-      {error && <div style={{background:'var(--error-container)',color:'var(--error)',padding:'1rem',borderRadius:'0.5rem',marginBottom:'1rem'}}>{error}</div>}
-      {!loading && <>
       {/* Header */}
-      <div style={{display:'flex',alignItems:'flex-end',justifyContent:'space-between',marginBottom:'1.25rem'}}>
-        <div><p className="label-sm" style={{marginBottom:'0.25rem'}}>Sales CRM</p><h1 className="headline-sm">Leads</h1></div>
-        <div style={{display:'flex',gap:'0.625rem'}}>
-          <a href="/sales/import" className="btn-secondary"><Icon name="upload_file" style={{fontSize:'1rem'}}/> Import CSV</a>
-          <button onClick={()=>setShowAdd(true)} className="btn-primary"><Icon name="add" style={{fontSize:'1rem',color:'#fff'}}/> Add Lead</button>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.25rem' }}>
+        <div>
+          <h1 style={{ fontSize:'1.375rem', fontWeight:800, color:'var(--on-surface)' }}>Sales — Companies</h1>
+          <p style={{ fontSize:'0.875rem', color:'var(--on-surface-variant)', marginTop:'0.25rem' }}>
+            {filtered.length} {filtered.length === 1 ? 'company' : 'companies'}
+            {hasCS || statusView !== 'all' || segmentView !== 'all' ? ' (filtered)' : ''}
+          </p>
+        </div>
+        <div style={{ display:'flex', gap:'0.625rem', alignItems:'center' }}>
+          {selected.size > 0 && (
+            <button onClick={deleteSelected} className="btn-secondary" style={{ color:'var(--error)', borderColor:'var(--error)' }}>
+              <Icon name="delete" style={{ fontSize:'1rem' }} /> Delete ({selected.size})
+            </button>
+          )}
+          {hasCS && (
+            <button onClick={() => { setColS(Object.fromEntries(Object.keys(cs).map(k=>[k,'']))); setStatusView('all'); setSegmentView('all'); setFileFilter('all'); }} className="btn-ghost" style={{ fontSize:'0.8125rem' }}>
+              <Icon name="filter_alt_off" style={{ fontSize:'1rem' }} /> Clear Filters
+            </button>
+          )}
+          <button onClick={() => navigate('/sales/import')} className="btn-secondary">
+            <Icon name="upload_file" style={{ fontSize:'1rem' }} /> Import Sheet
+          </button>
+          <button onClick={() => setShowAdd(true)} className="btn-primary">
+            <Icon name="add_business" style={{ fontSize:'1rem', color:'#fff' }} /> Add Company
+          </button>
         </div>
       </div>
 
-      {/* File / Dataset Filter */}
+      {/* Segment filter tabs */}
+      <div style={{ display:'flex', gap:'0.375rem', marginBottom:'0.875rem', flexWrap:'wrap' }}>
+        {[['all','All'], ...Object.entries(SEGMENT_META).map(([k,v]) => [k, v.label])].map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => { setSegmentView(key); setPage(1); }}
+            style={{
+              padding:'0.3125rem 0.875rem', borderRadius:9999, border:'none', cursor:'pointer',
+              fontSize:'0.8125rem', fontWeight: segmentView === key ? 700 : 400,
+              background: segmentView === key ? 'var(--primary)' : 'var(--surface-container)',
+              color: segmentView === key ? '#fff' : 'var(--on-surface-variant)',
+              transition:'all 0.15s',
+            }}
+          >
+            {label}
+            <span style={{ marginLeft:'0.375rem', fontSize:'0.6875rem', opacity:0.8 }}>
+              ({segCounts[key] ?? 0})
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* Status filter tabs */}
+      <div style={{ display:'flex', gap:'0.375rem', marginBottom:'1rem', flexWrap:'wrap' }}>
+        {[['all','All'], ...Object.entries(STATUS_META).map(([k,v]) => [k, v.label])].map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => { setStatusView(key); setPage(1); }}
+            style={{
+              padding:'0.25rem 0.75rem', borderRadius:9999, border:'1px solid transparent', cursor:'pointer',
+              fontSize:'0.75rem', fontWeight: statusView === key ? 700 : 400,
+              background: statusView === key ? (STATUS_META[key]?.bg || 'var(--primary)') : 'transparent',
+              color: statusView === key ? (STATUS_META[key]?.color || '#fff') : 'var(--on-surface-variant)',
+              borderColor: statusView === key ? (STATUS_META[key]?.color || 'var(--primary)') + '44' : 'transparent',
+            }}
+          >
+            {label} <span style={{ opacity:0.7 }}>({statusCounts[key] ?? 0})</span>
+          </button>
+        ))}
+      </div>
+
+      {/* File filter */}
       {sourceFiles.length > 0 && (
-        <div style={{ marginBottom:'0.875rem', display:'flex', alignItems:'center', gap:'0.625rem', flexWrap:'wrap' }}>
-          <Icon name="folder_open" style={{ fontSize:'1.1rem', color:'var(--primary)' }}/>
-          <span style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--on-surface-variant)' }}>File:</span>
-          <button onClick={() => { setFileFilter('all'); setPage(1); }} style={{
-            padding:'0.25rem 0.75rem', borderRadius:9999, border: fileFilter==='all'?'none':'1px solid var(--outline-variant)',
-            cursor:'pointer', fontSize:'0.8125rem', fontWeight:600, fontFamily:'Inter,sans-serif',
-            background:fileFilter==='all'?'var(--primary)':'transparent', color:fileFilter==='all'?'#fff':'var(--on-surface-variant)', transition:'all 0.15s',
-          }}>All ({leads.length})</button>
-          {sourceFiles.map(f => {
-            const cnt = leads.filter(l => l.source_file === f).length;
-            const display = f.length > 40 ? f.slice(0,38) + '…' : f;
-            return (
-              <button key={f} onClick={() => { setFileFilter(f); setStatusView('all'); setPage(1); }} title={f} style={{
-                padding:'0.25rem 0.75rem', borderRadius:9999, border: fileFilter===f?'none':'1px solid var(--outline-variant)',
-                cursor:'pointer', fontSize:'0.8125rem', fontWeight:600, fontFamily:'Inter,sans-serif',
-                background:fileFilter===f?'var(--primary)':'var(--surface-container-low)',
-                color:fileFilter===f?'#fff':'var(--on-surface-variant)',
-                display:'inline-flex', alignItems:'center', gap:'0.375rem', transition:'all 0.15s',
-              }}>
-                <Icon name="description" style={{ fontSize:'0.875rem', color:fileFilter===f?'#fff':'var(--primary)' }}/>
-                {display} <span style={{ padding:'0.05rem 0.35rem', borderRadius:9999, fontSize:'0.7rem', fontWeight:700, background:fileFilter===f?'rgba(255,255,255,0.25)':'var(--surface-container)', color:fileFilter===f?'#fff':'var(--on-surface-variant)' }}>{cnt}</span>
-              </button>
-            );
-          })}
+        <div style={{ display:'flex', alignItems:'center', gap:'0.625rem', marginBottom:'0.875rem' }}>
+          <Icon name="table_chart" style={{ fontSize:'1rem', color:'var(--on-surface-variant)' }} />
+          <select
+            className="select" style={{ fontSize:'0.8125rem', padding:'0.3125rem 0.5rem', width:'auto' }}
+            value={fileFilter} onChange={e => { setFileFilter(e.target.value); setPage(1); }}
+          >
+            <option value="all">All Files</option>
+            {sourceFiles.map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
         </div>
       )}
 
-      {/* Status Dashboard */}
-      <div style={{display:'flex',gap:'0.5rem',flexWrap:'wrap',marginBottom:'1.25rem'}}>
-        {[
-          {k:'all',       label:`All (${counts.all})`,               bg:statusView==='all'?'var(--primary)':'var(--surface-container-low)',       c:statusView==='all'?'#fff':'var(--on-surface-variant)'},
-          {k:'new',       label:`New (${counts.new||0})`,             bg:statusView==='new'?'#1e40af':'rgba(0,74,198,0.08)',   c:statusView==='new'?'#fff':'var(--primary)'},
-          {k:'contacted', label:`Intro Sent (${counts.contacted||0})`,bg:statusView==='contacted'?'#1e40af':'rgba(0,74,198,0.08)',c:statusView==='contacted'?'#fff':'var(--primary)'},
-          {k:'called',    label:`Called (${counts.called||0})`,       bg:statusView==='called'?'#6d28d9':'rgba(124,58,237,0.1)',c:statusView==='called'?'#fff':'#7c3aed'},
-          {k:'interested',label:`Interested (${counts.interested||0})`,bg:statusView==='interested'?'#d97706':'rgba(217,119,6,0.12)',c:statusView==='interested'?'#fff':'#92400e'},
-          {k:'follow_up_needed',label:`Follow-up (${counts.follow_up_needed||0})`,bg:statusView==='follow_up_needed'?'#d97706':'rgba(217,119,6,0.15)',c:statusView==='follow_up_needed'?'#fff':'#d97706'},
-          {k:'closed',    label:`Won (${counts.closed||0})`,          bg:statusView==='closed'?'#059669':'rgba(0,98,67,0.12)', c:statusView==='closed'?'#fff':'var(--tertiary)'},
-          {k:'rejected',  label:`Not Interested (${counts.rejected||0})`,bg:statusView==='rejected'?'#dc2626':'var(--error-container)',c:statusView==='rejected'?'#fff':'var(--error)'},
-        ].map(s=>(
-          <button key={s.k} onClick={()=>{setStatusView(s.k);setPage(1);}} style={{padding:'0.35rem 0.875rem',borderRadius:9999,border:'none',cursor:'pointer',fontSize:'0.8125rem',fontWeight:600,fontFamily:'Inter,sans-serif',background:s.bg,color:s.c,transition:'all 0.15s',whiteSpace:'nowrap'}}>
-            {s.label}
-          </button>
-        ))}
-        {hasCS && <button onClick={()=>setColS({company:'',full_name:'',job_title:'',email:'',phone:'',industry:'',business_type:'',country:'',status:'',source_file:'',next_follow_up:'',intro_sent:'',solution_skills:'',source:'',contact2_name:'',contact3_name:''})} style={{marginLeft:'auto',padding:'0.35rem 0.875rem',borderRadius:9999,border:'1px solid var(--outline-variant)',cursor:'pointer',fontSize:'0.8125rem',fontWeight:600,background:'transparent',color:'var(--error)',fontFamily:'Inter,sans-serif'}}><Icon name="filter_alt_off" style={{fontSize:'0.875rem'}}/> Clear filters</button>}
-      </div>
-
-      {/* KPI row */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:'0.75rem',marginBottom:'1.25rem'}}>
-        {[
-          {label:'Total Leads',     value:counts.all,                                   icon:'group',         color:'var(--primary)'},
-          {label:'Interested',      value:counts.interested||0,                          icon:'thumb_up',      color:'#d97706'},
-          {label:'Follow-up Due',   value:counts.follow_due||0,                          icon:'alarm',         color:'var(--error)'},
-          {label:'Won / Closed',    value:(counts.closed||0)+(counts.completed||0),       icon:'check_circle',  color:'var(--tertiary)'},
-          {label:'Pipeline Value',  value:`₹${((leads.reduce((s,l)=>s+(l.deal_value||0),0))/1000).toFixed(0)}K`, icon:'currency_rupee', color:'var(--primary)'},
-        ].map(s=>(
-          <div key={s.label} className="card-sm" style={{display:'flex',alignItems:'center',gap:'0.75rem'}}>
-            <div style={{width:36,height:36,borderRadius:'0.5rem',background:`${s.color}12`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><Icon name={s.icon} style={{fontSize:'1.1rem',color:s.color}}/></div>
-            <div><p style={{fontSize:'1.125rem',fontWeight:800,color:'var(--on-surface)',lineHeight:1}}>{s.value}</p><p className="label-sm" style={{marginTop:'0.125rem'}}>{s.label}</p></div>
-          </div>
-        ))}
-      </div>
-
-      {/* Main Data Grid */}
-      <div className="card" style={{padding:0,overflow:'hidden'}}>
-        <div style={{overflowX:'auto'}}>
-          <table style={{width:'100%',borderCollapse:'collapse',fontSize:'0.8125rem',tableLayout:'auto'}}>
-            <thead>
-              {/* Header row */}
-              <tr style={{background:'var(--surface-container-low)',borderBottom:'1px solid var(--outline-variant)'}}>
-                <th style={{padding:'0.625rem 0.75rem',width:36,borderRight:'1px solid var(--outline-variant)'}}>
-                  <input type="checkbox" checked={selected.size===paged.length&&paged.length>0}
-                    onChange={()=>{if(selected.size===paged.length)setSelected(new Set());else setSelected(new Set(paged.map(l=>l.id)));}}
-                    style={{cursor:'pointer',width:14,height:14,accentColor:'var(--primary)'}}/>
-                </th>
-                {[
-                  {label:'#',                  key:'_num',                   w:'40px',  sort:false},
-                  {label:'Company Name',        key:'company',                w:'170px', sort:true},
-                  {label:'Lead Status',         key:'status',                 w:'130px', sort:true},
-                  {label:'Name',                key:'full_name',              w:'140px', sort:true},
-                  {label:'Designation',         key:'job_title',              w:'130px', sort:true},
-                  {label:'Mobile',              key:'phone',                  w:'120px', sort:false},
-                  {label:'Email',               key:'email',                  w:'170px', sort:true},
-                  {label:'Contact Person 1',    key:'contact2_name',          w:'140px', sort:false},
-                  {label:'C1 Designation',      key:'contact2_designation',   w:'130px', sort:false},
-                  {label:'C1 Mobile',           key:'contact2_phone',         w:'120px', sort:false},
-                  {label:'C1 Email',            key:'contact2_email',         w:'170px', sort:false},
-                  {label:'Contact Person 2',    key:'contact3_name',          w:'140px', sort:false},
-                  {label:'C2 Designation',      key:'contact3_designation',   w:'130px', sort:false},
-                  {label:'C2 Mobile',           key:'contact3_phone',         w:'120px', sort:false},
-                  {label:'C2 Email',            key:'contact3_email',         w:'170px', sort:false},
-                  {label:'Website',             key:'website',                w:'120px', sort:false},
-                  {label:'Industry Type',       key:'industry',               w:'130px', sort:true},
-                  {label:'Business/Skills',     key:'business_type',          w:'140px', sort:true},
-                  {label:'Country',             key:'country',                w:'100px', sort:true},
-                  {label:'Intro Sent',          key:'intro_sent',             w:'105px', sort:true},
-                  {label:'Next F Date',         key:'next_follow_up',         w:'115px', sort:true},
-                  {label:'Lead Come From',      key:'source',                 w:'130px', sort:true},
-                  {label:'Data Form',           key:'source_file',            w:'140px', sort:true},
-                  {label:'Turnover/Headcount',  key:'turnover_headcount',     w:'130px', sort:false},
-                  {label:'LinkedIn Invite',     key:'linkedin_invite_sent',   w:'105px', sort:false},
-                  {label:'Invite Accepted',     key:'linkedin_invite_accepted',w:'105px',sort:false},
-                  {label:'Lead Share On',       key:'lead_share_date',        w:'110px', sort:true},
-                  {label:'Solution/Skills',     key:'solution_skills',        w:'150px', sort:true},
-                  {label:'Remarks',             key:'notes',                  w:'160px', sort:false},
-                ].map(col=>(
-                  <th key={col.key} style={{padding:'0.5rem 0.625rem',textAlign:'left',cursor:col.sort?'pointer':'default',userSelect:'none',whiteSpace:'nowrap',minWidth:col.w,borderRight:'1px solid var(--outline-variant)'}}
-                    onClick={()=>col.sort&&toggleSort(col.key)}>
-                    <div style={{display:'flex',alignItems:'center',gap:'0.2rem',fontSize:'0.7rem',fontWeight:700,color:'var(--on-surface-variant)',textTransform:'uppercase',letterSpacing:'0.05em'}}>
-                      {col.label}{col.sort&&<SortIcon col={col.key}/>}
-                    </div>
+      {/* Table */}
+      {loading ? (
+        <div style={{ textAlign:'center', padding:'4rem', color:'var(--on-surface-variant)' }}>
+          <Icon name="progress_activity" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.75rem' }} />
+          Loading companies…
+        </div>
+      ) : (
+        <div className="card" style={{ padding:0, overflow:'hidden' }}>
+          <div style={{ overflowX:'auto' }}>
+            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.8125rem' }}>
+              <thead>
+                <tr style={{ borderBottom:'2px solid var(--outline-variant)', background:'var(--surface-container-low)' }}>
+                  <th style={{ padding:'0.5rem 0.75rem', width:36 }}>
+                    <input type="checkbox"
+                      checked={selected.size === paged.length && paged.length > 0}
+                      onChange={e => setSelected(e.target.checked ? new Set(paged.map(l=>l.id)) : new Set())}
+                    />
                   </th>
-                ))}
-                <th style={{padding:'0.5rem 0.625rem',whiteSpace:'nowrap',minWidth:'80px',textAlign:'right',fontSize:'0.7rem',fontWeight:700,color:'var(--on-surface-variant)',textTransform:'uppercase'}}>Actions</th>
-              </tr>
-              {/* Search row — one per column */}
-              <tr style={{background:'var(--surface-container)',borderBottom:'2px solid var(--outline-variant)'}}>
-                <th style={{padding:'0.3rem 0.75rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('company','Company…')}</th>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{statusSelect}</th>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('full_name','Name…')}</th>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('job_title','Designation…')}</th>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('phone','Mobile…')}</th>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('email','Email…')}</th>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('contact2_name','C1 Name…')}</th>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('contact3_name','C2 Name…')}</th>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('industry','Industry…')}</th>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('country','Country…')}</th>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('intro_sent','Intro…')}</th>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('next_follow_up','YYYY-MM-DD')}</th>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('source','Source…')}</th>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('source_file','File…')}</th>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}>{colInput('solution_skills','Skills…')}</th>
-                <th style={{padding:'0.3rem 0.375rem',borderRight:'1px solid var(--outline-variant)'}}/>
-                <th style={{padding:'0.3rem 0.375rem'}}/>
-              </tr>
-            </thead>
-            <tbody>
-              {paged.length===0&&<tr><td colSpan={18} style={{textAlign:'center',padding:'3rem',color:'var(--on-surface-variant)'}}><Icon name="search_off" style={{fontSize:'2rem',display:'block',margin:'0 auto 0.5rem'}}/>No leads match your filters.</td></tr>}
-              {paged.map((l,idx)=>{
-                const isOverdue = l.next_follow_up && l.next_follow_up < today;
-                const isDueToday = l.next_follow_up === today;
-                const rowBg = isOverdue ? 'rgba(186,26,26,0.03)' : isDueToday ? 'rgba(217,119,6,0.03)' : 'transparent';
-                return (
-                  <tr key={l.id} style={{borderBottom:'1px solid var(--surface-container)',background:rowBg,transition:'background 0.1s'}}
-                    onMouseEnter={e=>{if(!isOverdue&&!isDueToday)e.currentTarget.style.background='var(--surface-container-low)';}}
-                    onMouseLeave={e=>{e.currentTarget.style.background=rowBg;}}>
-                    {/* Checkbox */}
-                    <td style={{padding:'0.625rem 0.75rem',borderRight:'1px solid var(--surface-container)'}} onClick={e=>e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.has(l.id)} onChange={()=>setSelected(s=>{const n=new Set(s);n.has(l.id)?n.delete(l.id):n.add(l.id);return n;})} style={{cursor:'pointer',width:14,height:14,accentColor:'var(--primary)'}}/>
-                    </td>
-                    {/* Row # */}
-                    <td style={{padding:'0.625rem 0.5rem',color:'var(--on-surface-variant)',fontSize:'0.75rem',borderRight:'1px solid var(--surface-container)',textAlign:'center'}}>{(page-1)*PER_PAGE+idx+1}</td>
-                    {/* Company Name */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',minWidth:170}}>
-                      <p onClick={()=>navigate(`/sales/leads/${l.id}`)} style={{fontWeight:700,fontSize:'0.875rem',cursor:'pointer',color:'var(--on-surface)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:160,margin:0}}>{l.company}</p>
-                    </td>
-                    {/* Lead Status */}
-                    <td style={{padding:'0.4rem 0.5rem',borderRight:'1px solid var(--surface-container)'}} onClick={e=>e.stopPropagation()}>
-                      <select value={l.status} onChange={e=>updateStatus(l.id,e.target.value)}
-                        style={{border:'none',background:'transparent',cursor:'pointer',fontFamily:'Inter,sans-serif',fontSize:'0.73rem',fontWeight:600,color:(STATUS_META[l.status]||STATUS_META.new).color,padding:0,outline:'none',maxWidth:120}}>
-                        {Object.entries(STATUS_META).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
-                      </select>
-                    </td>
-                    {/* Name (primary contact) */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:140}}>
-                      <p style={{fontSize:'0.8125rem',fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',margin:0}}>{l.full_name||'—'}</p>
-                    </td>
-                    {/* Designation */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:130}}>
-                      <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{l.job_title||'—'}</span>
-                    </td>
-                    {/* Mobile */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)'}} onClick={e=>e.stopPropagation()}>
-                      {l.phone?<a href={`tel:${l.phone}`} style={{fontSize:'0.75rem',color:'var(--on-surface)',textDecoration:'none',display:'flex',alignItems:'center',gap:3,whiteSpace:'nowrap'}}><Icon name="call" style={{fontSize:'0.875rem',color:'var(--tertiary)'}}/>{l.phone}</a>:<span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>}
-                    </td>
-                    {/* Email */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:170}} onClick={e=>e.stopPropagation()}>
-                      {l.email?<a href={`mailto:${l.email}`} style={{fontSize:'0.75rem',color:'var(--primary)',textDecoration:'none',display:'flex',alignItems:'center',gap:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}><Icon name="mail" style={{fontSize:'0.875rem',flexShrink:0}}/>{l.email}</a>:<span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>}
-                    </td>
-                    {/* Contact Person 1 name */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:140}}>
-                      <p style={{fontSize:'0.8125rem',fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',margin:0}}>{l.contact2_name||'—'}</p>
-                    </td>
-                    {/* C1 Designation */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:130}}>
-                      <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{l.contact2_designation||'—'}</span>
-                    </td>
-                    {/* C1 Mobile */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)'}} onClick={e=>e.stopPropagation()}>
-                      {l.contact2_phone?<a href={`tel:${l.contact2_phone}`} style={{fontSize:'0.75rem',color:'var(--on-surface)',textDecoration:'none',display:'flex',alignItems:'center',gap:3,whiteSpace:'nowrap'}}><Icon name="call" style={{fontSize:'0.875rem',color:'var(--tertiary)'}}/>{l.contact2_phone}</a>:<span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>}
-                    </td>
-                    {/* C1 Email */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:170}} onClick={e=>e.stopPropagation()}>
-                      {l.contact2_email?<a href={`mailto:${l.contact2_email}`} style={{fontSize:'0.75rem',color:'var(--primary)',textDecoration:'none',display:'flex',alignItems:'center',gap:3}}><Icon name="mail" style={{fontSize:'0.875rem'}}/>{l.contact2_email.slice(0,24)}</a>:<span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>}
-                    </td>
-                    {/* Contact Person 2 name */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:140}}>
-                      <p style={{fontSize:'0.8125rem',fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',margin:0}}>{l.contact3_name||'—'}</p>
-                    </td>
-                    {/* C2 Designation */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:130}}>
-                      <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{l.contact3_designation||'—'}</span>
-                    </td>
-                    {/* C2 Mobile */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)'}} onClick={e=>e.stopPropagation()}>
-                      {l.contact3_phone?<a href={`tel:${l.contact3_phone}`} style={{fontSize:'0.75rem',color:'var(--on-surface)',textDecoration:'none',display:'flex',alignItems:'center',gap:3,whiteSpace:'nowrap'}}><Icon name="call" style={{fontSize:'0.875rem',color:'var(--tertiary)'}}/>{l.contact3_phone}</a>:<span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>}
-                    </td>
-                    {/* C2 Email */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:170}} onClick={e=>e.stopPropagation()}>
-                      {l.contact3_email?<a href={`mailto:${l.contact3_email}`} style={{fontSize:'0.75rem',color:'var(--primary)',textDecoration:'none',display:'flex',alignItems:'center',gap:3}}><Icon name="mail" style={{fontSize:'0.875rem'}}/>{l.contact3_email.slice(0,24)}</a>:<span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>}
-                    </td>
-                    {/* Website */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)'}} onClick={e=>e.stopPropagation()}>
-                      {l.website?<a href={l.website.startsWith('http')?l.website:'https://'+l.website} target="_blank" rel="noreferrer" style={{fontSize:'0.75rem',color:'var(--primary)',textDecoration:'none',display:'flex',alignItems:'center',gap:2}}><Icon name="open_in_new" style={{fontSize:'0.875rem'}}/>Open</a>:<span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>}
-                    </td>
-                    {/* Industry Type */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:130}}>
-                      <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{l.industry||'—'}</span>
-                    </td>
-                    {/* Business/Skills */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:140}}>
-                      <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{l.business_type||'—'}</span>
-                    </td>
-                    {/* Country */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',whiteSpace:'nowrap'}}>
-                      <span style={{fontSize:'0.75rem'}}>{l.country||l.address||'—'}</span>
-                    </td>
-                    {/* Intro Sent */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',textAlign:'center',whiteSpace:'nowrap'}}>
-                      <span style={{fontSize:'0.7rem',color:'var(--tertiary)',fontWeight:600}}>{l.intro_sent||'—'}</span>
-                    </td>
-                    {/* Next F Date — inline date picker */}
-                    <td style={{padding:'0.4rem 0.5rem',borderRight:'1px solid var(--surface-container)',whiteSpace:'nowrap'}} onClick={e=>e.stopPropagation()}>
-                      <input type="date" value={l.next_follow_up||''} onChange={e=>updateFollowUp(l.id,e.target.value)}
-                        style={{fontSize:'0.73rem',border:'none',background:'transparent',cursor:'pointer',fontFamily:'Inter,sans-serif',color:isOverdue?'var(--error)':isDueToday?'#d97706':'var(--on-surface)',fontWeight:isOverdue||isDueToday?600:400,padding:0,outline:'none',width:'108px'}}/>
-                    </td>
-                    {/* Lead Come From */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:130}}>
-                      <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{l.source||'—'}</span>
-                    </td>
-                    {/* Data Form (source file) */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:140}}>
-                      <span style={{fontSize:'0.68rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}} title={l.source_file}>{l.source_file||'—'}</span>
-                    </td>
-                    {/* Turnover/Headcount */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:130}}>
-                      <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{l.turnover_headcount||'—'}</span>
-                    </td>
-                    {/* LinkedIn Invite Sent */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',textAlign:'center'}}>
-                      {l.linkedin_invite_sent
-                        ? <Icon name="check_circle" style={{fontSize:'1rem',color:'var(--tertiary)'}}/>
-                        : <Icon name="radio_button_unchecked" style={{fontSize:'1rem',color:'var(--outline-variant)'}}/>}
-                    </td>
-                    {/* Invitation Accepted */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',textAlign:'center'}}>
-                      {l.linkedin_invite_accepted
-                        ? <Icon name="check_circle" style={{fontSize:'1rem',color:'var(--tertiary)'}}/>
-                        : <Icon name="radio_button_unchecked" style={{fontSize:'1rem',color:'var(--outline-variant)'}}/>}
-                    </td>
-                    {/* Lead Share On */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',whiteSpace:'nowrap'}}>
-                      <span style={{fontSize:'0.7rem',color:'var(--on-surface-variant)',fontWeight:500}}>{l.lead_share_date||'—'}</span>
-                    </td>
-                    {/* Solution/Skills */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:150}}>
-                      <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{l.solution_skills||'—'}</span>
-                    </td>
-                    {/* Remarks */}
-                    <td style={{padding:'0.5rem 0.625rem',borderRight:'1px solid var(--surface-container)',maxWidth:160}}>
-                      <span style={{fontSize:'0.75rem',color:'var(--on-surface-variant)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}} title={l.notes}>{l.notes||'—'}</span>
-                    </td>
-                    {/* Actions */}
-                    <td style={{padding:'0.625rem 0.75rem',textAlign:'right',whiteSpace:'nowrap'}} onClick={e=>e.stopPropagation()}>
-                      <button className="btn-icon" title="Open" onClick={()=>navigate(`/sales/leads/${l.id}`)}><Icon name="open_in_new" style={{fontSize:'1rem'}}/></button>
+                  {th('Company', 'company', 160)}
+                  {th('Type', 'company_type', 100)}
+                  {th('Location', 'hq_location', 100)}
+                  {th('Domain / Skills', 'domain_focus', 120)}
+                  {th('Contact 1', 'cp1_name', 120)}
+                  {th('Email 1', 'cp1_email', 140)}
+                  {th('Contact 2', 'cp2_name', 110)}
+                  {th('Status', 'status', 100)}
+                  {th('Follow-up', 'next_follow_up', 90)}
+                  {th('Segment', 'segment', 110)}
+                  <th style={{ padding:'0.5rem 0.75rem', width:40 }} />
+                </tr>
+                {/* Per-column search row */}
+                <tr style={{ background:'var(--surface-container-lowest)', borderBottom:'1px solid var(--outline-variant)' }}>
+                  <td />
+                  <td style={{ padding:'0.25rem 0.75rem' }}><SearchInput col="company" width={140} /></td>
+                  <td style={{ padding:'0.25rem 0.5rem' }}><SearchInput col="company_type" width={80} /></td>
+                  <td style={{ padding:'0.25rem 0.5rem' }}><SearchInput col="hq_location" width={80} /></td>
+                  <td style={{ padding:'0.25rem 0.5rem' }}><SearchInput col="domain_focus" width={100} /></td>
+                  <td style={{ padding:'0.25rem 0.5rem' }}><SearchInput col="cp1_name" width={100} /></td>
+                  <td style={{ padding:'0.25rem 0.5rem' }}><SearchInput col="cp1_email" width={120} /></td>
+                  <td style={{ padding:'0.25rem 0.5rem' }}><SearchInput col="cp2_name" width={90} /></td>
+                  <td style={{ padding:'0.25rem 0.5rem' }}><SearchInput col="status" width={80} /></td>
+                  <td style={{ padding:'0.25rem 0.5rem' }}><SearchInput col="next_follow_up" width={80} /></td>
+                  <td colSpan={2} />
+                </tr>
+              </thead>
+              <tbody>
+                {paged.length === 0 && (
+                  <tr>
+                    <td colSpan={12} style={{ padding:'3rem', textAlign:'center', color:'var(--on-surface-variant)' }}>
+                      <Icon name="domain_disabled" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.5rem', opacity:0.3 }} />
+                      No companies found.
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        {/* Footer */}
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0.875rem 1.25rem',borderTop:'1px solid var(--ghost-border)',background:'var(--surface-container-low)'}}>
-          <p style={{fontSize:'0.8125rem',color:'var(--on-surface-variant)'}}>
-            Showing <b>{Math.min((page-1)*PER_PAGE+1,filtered.length)}–{Math.min(page*PER_PAGE,filtered.length)}</b> of <b>{filtered.length}</b> leads
-            {selected.size>0&&<> · <span style={{color:'var(--primary)',fontWeight:600}}>{selected.size} selected</span></>}
-          </p>
-          <div style={{display:'flex',gap:'0.375rem'}}>
-            <button className="btn-icon" disabled={page===1} onClick={()=>setPage(p=>p-1)} style={{opacity:page===1?0.35:1}}><Icon name="chevron_left"/></button>
-            {Array.from({length:totalPages},(_,i)=>i+1).filter(p=>p===1||p===totalPages||Math.abs(p-page)<=1).map((p,i,arr)=>(
-              <React.Fragment key={p}>{i>0&&arr[i-1]!==p-1&&<span style={{alignSelf:'center',color:'var(--on-surface-variant)',fontSize:'0.875rem'}}>…</span>}
-              <button onClick={()=>setPage(p)} style={{width:32,height:32,borderRadius:'0.375rem',border:'none',cursor:'pointer',fontFamily:'Inter,sans-serif',fontSize:'0.875rem',fontWeight:600,background:page===p?'var(--primary)':'transparent',color:page===p?'#fff':'var(--on-surface-variant)',transition:'all 0.15s'}}>{p}</button></React.Fragment>
-            ))}
-            <button className="btn-icon" disabled={page===totalPages||totalPages===0} onClick={()=>setPage(p=>p+1)} style={{opacity:(page===totalPages||totalPages===0)?0.35:1}}><Icon name="chevron_right"/></button>
+                )}
+                {paged.map((l, ri) => (
+                  <tr
+                    key={l.id}
+                    onClick={() => navigate(`/sales/leads/${l.id}`)}
+                    style={{
+                      cursor:'pointer', borderBottom:'1px solid var(--outline-variant)',
+                      background: selected.has(l.id) ? 'rgba(0,74,198,0.06)' : ri%2===0 ? 'transparent' : 'var(--surface-container-lowest)',
+                      transition:'background 0.1s',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-container)'}
+                    onMouseLeave={e => e.currentTarget.style.background = selected.has(l.id) ? 'rgba(0,74,198,0.06)' : ri%2===0 ? 'transparent' : 'var(--surface-container-lowest)'}
+                  >
+                    <td style={{ padding:'0.625rem 0.75rem' }} onClick={e => e.stopPropagation()}>
+                      <input type="checkbox"
+                        checked={selected.has(l.id)}
+                        onChange={e => {
+                          const s = new Set(selected);
+                          e.target.checked ? s.add(l.id) : s.delete(l.id);
+                          setSelected(s);
+                        }}
+                      />
+                    </td>
+                    <td style={{ padding:'0.625rem 0.75rem' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
+                        <div style={{
+                          width:30, height:30, borderRadius:'50%', flexShrink:0,
+                          background:'linear-gradient(135deg,var(--primary-container),var(--secondary-container))',
+                          display:'flex', alignItems:'center', justifyContent:'center',
+                        }}>
+                          <Icon name="business" style={{ fontSize:'0.875rem', color:'var(--primary)' }} />
+                        </div>
+                        <div style={{ minWidth:0 }}>
+                          <p style={{ fontWeight:600, color:'var(--on-surface)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:140 }}>{l.company}</p>
+                          {l.website && (
+                            <a href={l.website} target="_blank" rel="noopener noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              style={{ fontSize:'0.6875rem', color:'var(--primary)', textDecoration:'none' }}>
+                              {l.website.replace(/^https?:\/\//, '').split('/')[0]}
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{ padding:'0.625rem 0.5rem', color:'var(--on-surface-variant)', whiteSpace:'nowrap' }}>
+                      {l.company_type || '—'}
+                    </td>
+                    <td style={{ padding:'0.625rem 0.5rem', color:'var(--on-surface-variant)', whiteSpace:'nowrap' }}>
+                      {l.hq_location || '—'}
+                    </td>
+                    <td style={{ padding:'0.625rem 0.5rem', color:'var(--on-surface-variant)', maxWidth:120, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                      {l.domain_focus || '—'}
+                    </td>
+                    <td style={{ padding:'0.625rem 0.5rem' }}>
+                      {l.cp1_name ? (
+                        <div>
+                          <p style={{ fontWeight:500 }}>{l.cp1_name}</p>
+                          {l.cp1_designation && <p style={{ fontSize:'0.6875rem', color:'var(--on-surface-variant)' }}>{l.cp1_designation}</p>}
+                        </div>
+                      ) : <span style={{ color:'var(--outline)' }}>—</span>}
+                    </td>
+                    <td style={{ padding:'0.625rem 0.5rem' }}>
+                      {l.cp1_email ? (
+                        <a href={`mailto:${l.cp1_email}`} onClick={e => e.stopPropagation()}
+                          style={{ color:'var(--primary)', textDecoration:'none', fontSize:'0.8125rem' }}>
+                          {l.cp1_email}
+                        </a>
+                      ) : <span style={{ color:'var(--outline)' }}>—</span>}
+                    </td>
+                    <td style={{ padding:'0.625rem 0.5rem', color:'var(--on-surface-variant)' }}>
+                      {l.cp2_name || <span style={{ color:'var(--outline)' }}>—</span>}
+                    </td>
+                    <td style={{ padding:'0.625rem 0.5rem' }}><StatusBadge status={l.status} /></td>
+                    <td style={{ padding:'0.625rem 0.5rem', color: l.next_follow_up && l.next_follow_up < new Date().toISOString().slice(0,10) ? 'var(--error)' : 'var(--on-surface-variant)', whiteSpace:'nowrap', fontWeight: l.next_follow_up ? 500 : 400 }}>
+                      {l.next_follow_up || '—'}
+                    </td>
+                    <td style={{ padding:'0.625rem 0.5rem' }}><SegmentBadge segment={l.segment} /></td>
+                    <td style={{ padding:'0.625rem 0.5rem' }} onClick={e => e.stopPropagation()}>
+                      <button className="btn-icon" onClick={() => navigate(`/sales/leads/${l.id}`)} style={{ opacity:0.6 }}>
+                        <Icon name="open_in_new" style={{ fontSize:'1rem' }} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.75rem 1rem', borderTop:'1px solid var(--outline-variant)', background:'var(--surface-container-lowest)' }}>
+              <p style={{ fontSize:'0.8125rem', color:'var(--on-surface-variant)' }}>
+                Page {page} of {totalPages} · {filtered.length} total
+              </p>
+              <div style={{ display:'flex', gap:'0.375rem' }}>
+                <button className="btn-secondary" onClick={() => setPage(p => Math.max(1,p-1))} disabled={page===1} style={{ padding:'0.375rem 0.75rem', fontSize:'0.8125rem' }}>← Prev</button>
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  const pn = Math.max(1, Math.min(page-2, totalPages-4)) + i;
+                  return pn <= totalPages ? (
+                    <button key={pn} onClick={() => setPage(pn)} style={{
+                      padding:'0.375rem 0.625rem', fontSize:'0.8125rem', border:'none', borderRadius:'0.375rem',
+                      background: pn===page ? 'var(--primary)' : 'var(--surface-container)',
+                      color: pn===page ? '#fff' : 'var(--on-surface)', cursor:'pointer',
+                    }}>{pn}</button>
+                  ) : null;
+                })}
+                <button className="btn-secondary" onClick={() => setPage(p => Math.min(totalPages,p+1))} disabled={page===totalPages} style={{ padding:'0.375rem 0.75rem', fontSize:'0.8125rem' }}>Next →</button>
+              </div>
+            </div>
+          )}
         </div>
-      </div>
-      {showAdd&&<AddLeadModal onClose={()=>setShowAdd(false)} onAdd={l=>setLeads(ls=>[l,...ls])}/>}
-      </>}
+      )}
+
+      {showAdd && <AddCompanyModal onClose={() => setShowAdd(false)} onAdd={l => setLeads(prev => [l, ...prev])} />}
     </div>
   );
 }

@@ -22,7 +22,7 @@ import io
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, field_validator, model_validator
 from enum import Enum
 
 # ── Logging ──────────────────────────────────────────────────
@@ -109,20 +109,23 @@ class UserLogin(BaseModel):
     password: str
 
 class LeadCreate(BaseModel):
-    full_name:      str
-    email:          Optional[str]      = None
-    phone:          Optional[str]      = None
-    company:        Optional[str]      = None
-    job_title:      Optional[str]      = None
-    source:         Optional[str]      = None
-    status:         Optional[str]      = "new"
-    notes:          Optional[str]      = None
-    next_follow_up: Optional[str]      = None
-    deal_value:     Optional[float]    = None
-    linkedin_url:   Optional[str]      = None
-    # Extended fields v3
+    # Company (primary entity)
+    company:            str
+    company_type:       Optional[str]   = None
+    company_linkedin:   Optional[str]   = None
+    hq_location:        Optional[str]   = None
+    india_office:       Optional[str]   = None
+    segment:            Optional[str]   = None
+    domain_focus:       Optional[str]   = None
+    website:            Optional[str]   = None
+    source:             Optional[str]   = None
+    status:             Optional[str]   = "new"
+    notes:              Optional[str]   = None
+    next_follow_up:     Optional[str]   = None
+    assigned_owner_id:  Optional[str]   = None
+    deal_value:         Optional[float] = None
+    # Legacy / outreach tracking
     source_file:                    Optional[str]   = None
-    website:                        Optional[str]   = None
     industry:                       Optional[str]   = None
     business_type:                  Optional[str]   = None
     address:                        Optional[str]   = None
@@ -133,14 +136,24 @@ class LeadCreate(BaseModel):
     linkedin_invite_accepted:       Optional[bool]  = None
     lead_share_date:                Optional[str]   = None
     solution_skills:                Optional[str]   = None
+    # Contact person 1
+    full_name:                      Optional[str]   = None
+    job_title:                      Optional[str]   = None
+    email:                          Optional[str]   = None
+    phone:                          Optional[str]   = None
+    linkedin_url:                   Optional[str]   = None
+    # Contact person 2
     contact_person_2_name:          Optional[str]   = None
     contact_person_2_designation:   Optional[str]   = None
-    contact_person_2_phone:         Optional[str]   = None
     contact_person_2_email:         Optional[str]   = None
+    contact_person_2_phone:         Optional[str]   = None
+    contact_person_2_linkedin:      Optional[str]   = None
+    # Contact person 3
     contact_person_3_name:          Optional[str]   = None
     contact_person_3_designation:   Optional[str]   = None
-    contact_person_3_phone:         Optional[str]   = None
     contact_person_3_email:         Optional[str]   = None
+    contact_person_3_phone:         Optional[str]   = None
+    contact_person_3_linkedin:      Optional[str]   = None
 
     @field_validator('status', mode='before')
     @classmethod
@@ -160,22 +173,36 @@ class LeadCreate(BaseModel):
             return None
         return val
 
+    @model_validator(mode='after')
+    def ensure_full_name_from_company(self):
+        # full_name DB column is NOT NULL - default to company for company-only entries
+        if not self.full_name or not self.full_name.strip():
+            self.full_name = self.company or "Unknown"
+        # Back-fill aliases so both old and new column names work
+        if not self.hq_location and self.address:
+            self.hq_location = self.address
+        if not self.domain_focus and self.industry:
+            self.domain_focus = self.industry
+        return self
+
 class LeadUpdate(BaseModel):
-    full_name:        Optional[str]       = None
-    email:            Optional[str]       = None
-    phone:            Optional[str]       = None
-    company:          Optional[str]       = None
-    job_title:        Optional[str]       = None
-    source:           Optional[str]       = None
-    status:           Optional[str]       = None
-    notes:            Optional[str]       = None
-    next_follow_up:   Optional[str]       = None
-    assigned_owner_id:Optional[str]       = None
-    deal_value:       Optional[float]     = None
-    linkedin_url:     Optional[str]       = None
-    # Extended fields (v3)
+    # Company
+    company:            Optional[str]   = None
+    company_type:       Optional[str]   = None
+    company_linkedin:   Optional[str]   = None
+    hq_location:        Optional[str]   = None
+    india_office:       Optional[str]   = None
+    segment:            Optional[str]   = None
+    domain_focus:       Optional[str]   = None
+    website:            Optional[str]   = None
+    source:             Optional[str]   = None
+    status:             Optional[str]   = None
+    notes:              Optional[str]   = None
+    next_follow_up:     Optional[str]   = None
+    assigned_owner_id:  Optional[str]   = None
+    deal_value:         Optional[float] = None
+    # Legacy
     source_file:                    Optional[str]   = None
-    website:                        Optional[str]   = None
     industry:                       Optional[str]   = None
     business_type:                  Optional[str]   = None
     address:                        Optional[str]   = None
@@ -186,14 +213,24 @@ class LeadUpdate(BaseModel):
     linkedin_invite_accepted:       Optional[bool]  = None
     lead_share_date:                Optional[str]   = None
     solution_skills:                Optional[str]   = None
+    # Contact person 1
+    full_name:                      Optional[str]   = None
+    job_title:                      Optional[str]   = None
+    email:                          Optional[str]   = None
+    phone:                          Optional[str]   = None
+    linkedin_url:                   Optional[str]   = None
+    # Contact person 2
     contact_person_2_name:          Optional[str]   = None
     contact_person_2_designation:   Optional[str]   = None
-    contact_person_2_phone:         Optional[str]   = None
     contact_person_2_email:         Optional[str]   = None
+    contact_person_2_phone:         Optional[str]   = None
+    contact_person_2_linkedin:      Optional[str]   = None
+    # Contact person 3
     contact_person_3_name:          Optional[str]   = None
     contact_person_3_designation:   Optional[str]   = None
-    contact_person_3_phone:         Optional[str]   = None
     contact_person_3_email:         Optional[str]   = None
+    contact_person_3_phone:         Optional[str]   = None
+    contact_person_3_linkedin:      Optional[str]   = None
 
 class ActivityCreate(BaseModel):
     lead_id:       Optional[str]  = None
@@ -586,26 +623,26 @@ async def delete_user(user_id: str, request: Request):
 @api_router.post("/leads")
 async def create_lead(lead: LeadCreate, request: Request):
     user = await get_current_user(request)
-    doc_full = {
-        "full_name":         lead.full_name,
-        "email":             lead.email,
-        "phone":             lead.phone,
+    doc = {
+        # Company
         "company":           lead.company,
-        "job_title":         lead.job_title,
+        "company_type":      lead.company_type,
+        "company_linkedin":  lead.company_linkedin,
+        "hq_location":       lead.hq_location or lead.address,
+        "india_office":      lead.india_office,
+        "segment":           lead.segment,
+        "domain_focus":      lead.domain_focus or lead.industry,
+        "website":           lead.website,
         "source":            lead.source,
         "status":            lead.status or "new",
         "notes":             lead.notes,
         "next_follow_up":    lead.next_follow_up,
-        "assigned_owner_id": user["id"],
-        "created_by":        user["id"],
         "deal_value":        lead.deal_value,
-        "linkedin_url":      lead.linkedin_url,
-        # Extended v3 fields
+        # Legacy fields (kept for DB compat)
         "source_file":                  lead.source_file,
-        "website":                      lead.website,
-        "industry":                     lead.industry,
+        "industry":                     lead.industry or lead.domain_focus,
         "business_type":                lead.business_type,
-        "address":                      lead.address,
+        "address":                      lead.address or lead.hq_location,
         "country":                      lead.country,
         "turnover_headcount":           lead.turnover_headcount,
         "intro_sent":                   lead.intro_sent,
@@ -613,17 +650,30 @@ async def create_lead(lead: LeadCreate, request: Request):
         "linkedin_invite_accepted":     lead.linkedin_invite_accepted,
         "lead_share_date":              lead.lead_share_date,
         "solution_skills":              lead.solution_skills,
+        # Contact person 1
+        "full_name":         lead.full_name or lead.company,
+        "job_title":         lead.job_title,
+        "email":             lead.email,
+        "phone":             lead.phone,
+        "linkedin_url":      lead.linkedin_url,
+        # Contact person 2
         "contact_person_2_name":        lead.contact_person_2_name,
         "contact_person_2_designation": lead.contact_person_2_designation,
-        "contact_person_2_phone":       lead.contact_person_2_phone,
         "contact_person_2_email":       lead.contact_person_2_email,
+        "contact_person_2_phone":       lead.contact_person_2_phone,
+        "contact_person_2_linkedin":    lead.contact_person_2_linkedin,
+        # Contact person 3
         "contact_person_3_name":        lead.contact_person_3_name,
         "contact_person_3_designation": lead.contact_person_3_designation,
-        "contact_person_3_phone":       lead.contact_person_3_phone,
         "contact_person_3_email":       lead.contact_person_3_email,
+        "contact_person_3_phone":       lead.contact_person_3_phone,
+        "contact_person_3_linkedin":    lead.contact_person_3_linkedin,
+        # Audit
+        "assigned_owner_id": lead.assigned_owner_id or user["id"],
+        "created_by":        user["id"],
     }
-    # Strip None values — avoids inserting NULL for columns that may not exist yet
-    doc = {k: v for k, v in doc_full.items() if v is not None}
+    # Strip None values - avoids inserting NULL for columns that may not exist yet
+    doc = {k: v for k, v in doc.items() if v is not None}
 
     try:
         res = await run(lambda: sb("leads").insert(doc).execute())
@@ -759,62 +809,174 @@ async def import_leads(file: UploadFile, request: Request):
 
     content = await file.read()
     try:
-        df = pd.read_csv(io.BytesIO(content)) if ext == "csv" else pd.read_excel(io.BytesIO(content))
+        if ext == "csv":
+            df = pd.read_csv(io.BytesIO(content))
+        else:
+            df = pd.read_excel(io.BytesIO(content))
     except Exception as e:
         raise HTTPException(400, f"Error reading file: {e}")
 
-    # Normalise column names — handles Apollo, LinkedIn, HubSpot, manual CSVs
+    # 1. Normalize column names
+    # Strip whitespace, lowercase, then apply mapping.
+    # Pandas auto-renames duplicate column names with .1, .2 suffixes.
+    raw_cols = list(df.columns)
     df.columns = df.columns.str.lower().str.strip()
 
     col_map = {
-        # Name
-        "name": "full_name", "full name": "full_name", "fullname": "full_name",
-        "contact name": "full_name", "person name": "full_name",
-        # Apollo splits into first/last — handled below after rename
-        "first name": "_first_name", "firstname": "_first_name",
-        "last name": "_last_name", "lastname": "_last_name",
-        # Email
-        "email": "email", "email address": "email",
-        "work email": "email", "primary email": "email",
-        # Phone — Apollo has multiple phone columns, take first non-empty
-        "phone": "phone", "mobile": "phone", "mobile phone": "phone",
-        "phone number": "phone", "work direct phone": "phone",
-        "corporate phone": "_phone2", "other phone": "_phone3",
-        # Company
-        "company": "company", "organization": "company",
-        "account": "company", "company name": "company",
-        "company name for emails": "_company2",
-        # Job title
-        "title": "job_title", "job title": "job_title",
-        "position": "job_title", "role": "job_title",
-        # Source
-        "source": "source", "lead source": "source", "channel": "source",
-        # LinkedIn
-        "linkedin url": "linkedin_url", "linkedin": "linkedin_url",
+        # Company fields
+        "company name":     "company",
+        "company":          "company",
+        "organisation":     "company",
+        "organization":     "company",
+        "account":          "company",
+        # Company meta
+        "type":             "company_type",
+        "company type":     "company_type",
+        "segment":          "segment",
+        "location":         "hq_location",
+        "hq location":      "hq_location",
+        "irish hq":         "hq_location",
+        "india office(s)":  "india_office",
+        "india offices":    "india_office",
+        "domain focus":     "domain_focus",
+        "core services":    "domain_focus",
+        "industry":         "domain_focus",
+        "website":          "website",
+        # Company LinkedIn - the company page (not a person)
+        "linkedn":          "company_linkedin",
+        "linkedin":         "company_linkedin",
+        "linkedin url":     "company_linkedin",
+        "company linkedin": "company_linkedin",
+        # Status / tracking
+        "status":           "status",
+        "lead status":      "status",
+        "remark":           "notes",
+        "remarks":          "notes",
+        "remark ":          "notes",
+        "follow up":        "next_follow_up",
+        "follow-up":        "next_follow_up",
+        "next f date":      "next_follow_up",
+        "next follow date": "next_follow_up",
+        "intro sent":       "intro_sent",
+        "f- date":          "intro_sent",
+        "source":           "source",
+        "lead come from":   "source",
+        "data form":        "source_file",
+        "turnover/ headcount": "turnover_headcount",
+        "turnover/headcount":  "turnover_headcount",
+        "solution using/looking skills": "solution_skills",
+        "linkedin invite sent":     "linkedin_invite_sent",
+        "linkedin invite accepted": "linkedin_invite_accepted",
+        "in crm":           "_skip",
+        "sr. no":           "_skip",
+        "no.":              "_skip",
+        "sl. no.":          "_skip",
+
+        # Contact person 1
+        "contact person-1": "full_name",
+        "contact person 1": "full_name",
+        "name":             "full_name",
+        "full name":        "full_name",
+        "fullname":         "full_name",
+        # Designation / title (first occurrence)
+        "designtaion":      "job_title",
+        "designation":      "job_title",
+        "title":            "job_title",
+        "job title":        "job_title",
+        # Email (first occurrence)
+        "e-mail":           "email",
+        "email":            "email",
+        "email address":    "email",
+        # Phone (first occurrence)
+        "mobile number":    "phone",
+        "mobile":           "phone",
+        "phone":            "phone",
+        "contact":          "phone",
+        "contact no. ":     "phone",
+        # LinkedIn (first occurrence) - person LinkedIn
+        "linkden":          "linkedin_url",
+        "link":             "linkedin_url",
         "person linkedin url": "linkedin_url",
-        # Notes / extra
-        "stage": "_stage", "seniority": "_seniority",
+
+        # Contact person 2 (pandas renames duplicate cols with .1 suffix)
+        "contact person-2":     "contact_person_2_name",
+        "contact person 2":     "contact_person_2_name",
+        "contact person 1.1":   "contact_person_2_name",
+        "designtaion.1":        "contact_person_2_designation",
+        "designation.1":        "contact_person_2_designation",
+        "e-mail.1":             "contact_person_2_email",
+        "email.1":              "contact_person_2_email",
+        "email 1":              "contact_person_2_email",
+        "mobile number.1":      "contact_person_2_phone",
+        "mobile.1":             "contact_person_2_phone",
+        "contact person 1 mobile": "contact_person_2_phone",
+        "linkden.1":            "contact_person_2_linkedin",
+        "link.1":               "contact_person_2_linkedin",
+
+        # Contact person 3
+        "contact person-3":     "contact_person_3_name",
+        "contact person 3":     "contact_person_3_name",
+        "contact person 1.2":   "contact_person_3_name",
+        "designtaion.2":        "contact_person_3_designation",
+        "designation.2":        "contact_person_3_designation",
+        "e-mail.2":             "contact_person_3_email",
+        "email.2":              "contact_person_3_email",
+        "email 2":              "contact_person_3_email",
+        "mobile number.2":      "contact_person_3_phone",
+        "mobile.2":             "contact_person_3_phone",
+        "contact person 2 mobile": "contact_person_3_phone",
+        "linkden.2":            "contact_person_3_linkedin",
+        "link.2":               "contact_person_3_linkedin",
+
+        # Apollo / LinkedIn CSV format
+        "first name":           "_first_name",
+        "firstname":            "_first_name",
+        "last name":            "_last_name",
+        "lastname":             "_last_name",
+        "work email":           "email",
+        "work direct phone":    "phone",
+        "corporate phone":      "_phone2",
+        "person linkedin url":  "linkedin_url",
+        "company name for emails": "_company2",
+        "stage":                "_stage",
+        "seniority":            "_seniority",
     }
+
     df = df.rename(columns=col_map)
 
-    # Combine First Name + Last Name → full_name (Apollo format)
+    # Remove columns we want to skip
+    df = df.drop(columns=[c for c in df.columns if c == "_skip"], errors="ignore")
+
+    # 2. Handle Apollo first/last name split
     if "full_name" not in df.columns and "_first_name" in df.columns:
         first = df.get("_first_name", pd.Series([""] * len(df))).fillna("")
         last  = df.get("_last_name",  pd.Series([""] * len(df))).fillna("")
         df["full_name"] = (first + " " + last).str.strip()
 
-    # Fallback phone: if primary phone empty, use corporate/other
+    # 3. Phone fallback
     if "phone" in df.columns:
         for fallback in ["_phone2", "_phone3"]:
             if fallback in df.columns:
                 df["phone"] = df["phone"].fillna(df[fallback]).replace("", None)
 
-    # Fallback company: use company name for emails if company missing
+    # 4. Company fallback
     if "_company2" in df.columns:
         if "company" not in df.columns:
             df["company"] = df["_company2"]
         else:
             df["company"] = df["company"].fillna(df["_company2"])
+
+    # 5. Detect sheet segment from filename
+    fname_lower = file.filename.lower()
+    auto_segment = None
+    if "staffing" in fname_lower:
+        auto_segment = "staffing_partner"
+    elif "end client" in fname_lower or "end_client" in fname_lower:
+        auto_segment = "end_client"
+    elif "ireland" in fname_lower:
+        auto_segment = "ireland_company"
+    elif "spoc" in fname_lower:
+        auto_segment = "general"
 
     import_id  = str(uuid.uuid4())
     successful = 0
@@ -822,40 +984,129 @@ async def import_leads(file: UploadFile, request: Request):
     batch:     list = []
 
     for idx, row in df.iterrows():
+        company = str(row.get("company", "")).strip()
         full_name = str(row.get("full_name", "")).strip()
+
+        # Skip empty rows
+        if (not company or company.lower() == "nan") and            (not full_name or full_name.lower() == "nan"):
+            errors.append({"row": idx + 2, "error": "Missing company name"})
+            continue
+
+        # For company-centric import, company is primary
+        if not company or company.lower() == "nan":
+            company = full_name
         if not full_name or full_name.lower() == "nan":
-            errors.append({"row": idx + 2, "error": "Missing full name"})
-            continue
+            full_name = company
 
-        email = str(row.get("email", "")).strip()
-        email = None if email.lower() in ("nan", "") else email
+        def c(key):
+            # Clean a cell value to None or stripped string.
+            val = str(row.get(key, "")).strip()
+            return None if val.lower() in ("nan", "", "none") else val
 
-        # Duplicate check (in memory for the batch)
-        if email and any(r["email"] == email for r in batch):
-            errors.append({"row": idx + 2, "error": f"Duplicate email in file: {email}"})
-            continue
+        def cb(key):
+            # Clean boolean cell.
+            val = str(row.get(key, "")).strip().lower()
+            if val in ("yes", "true", "1", "y"):
+                return True
+            if val in ("no", "false", "0", "n"):
+                return False
+            return None
+
+        def cd(key):
+            # Clean date cell.
+            val = str(row.get(key, "")).strip()
+            if val.lower() in ("nan", "", "none"):
+                return None
+            try:
+                import re
+                # Accept YYYY-MM-DD or DD/MM/YYYY etc.
+                val = re.sub(r"[/\\]", "-", val)
+                parts = val.split("-")
+                if len(parts) == 3 and len(parts[0]) == 2:
+                    # Likely DD-MM-YYYY
+                    val = f"{parts[2]}-{parts[1]}-{parts[0]}"
+                return val[:10]
+            except Exception:
+                return None
+
+        segment = c("segment") or auto_segment
+        hq = c("hq_location") or c("address") or c("country")
 
         batch.append({
-            "full_name":        full_name,
-            "email":            email,
-            "phone":            _clean(row, "phone"),
-            "company":          _clean(row, "company"),
-            "job_title":        _clean(row, "job_title"),
-            "source":           _clean(row, "source") or "Apollo",
-            "linkedin_url":     _clean(row, "linkedin_url"),
-            "status":           "new",
-            "assigned_owner_id":user["id"],
-            "created_by":       user["id"],
-            "import_id":        import_id,
+            # Company
+            "company":           company,
+            "company_type":      c("company_type"),
+            "company_linkedin":  c("company_linkedin"),
+            "hq_location":       hq,
+            "india_office":      c("india_office"),
+            "segment":           segment,
+            "domain_focus":      c("domain_focus") or c("industry"),
+            "website":           c("website"),
+            "source":            c("source") or "Import",
+            "source_file":       f"{file.filename}",
+            "status":            "new",
+            "notes":             c("notes"),
+            "next_follow_up":    cd("next_follow_up"),
+            # Legacy aliases kept for DB completeness
+            "address":           hq,
+            "country":           c("country"),
+            "industry":          c("domain_focus") or c("industry"),
+            "business_type":     c("business_type"),
+            "turnover_headcount":c("turnover_headcount"),
+            "solution_skills":   c("solution_skills"),
+            "intro_sent":        cd("intro_sent"),
+            "linkedin_invite_sent":     cb("linkedin_invite_sent"),
+            "linkedin_invite_accepted": cb("linkedin_invite_accepted"),
+            "lead_share_date":   cd("lead_share_date"),
+            # CP1
+            "full_name":         full_name,
+            "job_title":         c("job_title"),
+            "email":             c("email"),
+            "phone":             c("phone"),
+            "linkedin_url":      c("linkedin_url"),
+            # CP2
+            "contact_person_2_name":        c("contact_person_2_name"),
+            "contact_person_2_designation": c("contact_person_2_designation"),
+            "contact_person_2_email":       c("contact_person_2_email"),
+            "contact_person_2_phone":       c("contact_person_2_phone"),
+            "contact_person_2_linkedin":    c("contact_person_2_linkedin"),
+            # CP3
+            "contact_person_3_name":        c("contact_person_3_name"),
+            "contact_person_3_designation": c("contact_person_3_designation"),
+            "contact_person_3_email":       c("contact_person_3_email"),
+            "contact_person_3_phone":       c("contact_person_3_phone"),
+            "contact_person_3_linkedin":    c("contact_person_3_linkedin"),
+            # Audit
+            "assigned_owner_id": user["id"],
+            "created_by":        user["id"],
+            "import_id":         import_id,
         })
 
-    # Bulk insert, collecting DB-level duplicate errors
+    # 6. Bulk insert with per-row error capture
+    SKIP_KEYS_ON_MISSING = {
+        "company_type", "company_linkedin", "hq_location", "india_office",
+        "segment", "domain_focus", "contact_person_2_linkedin",
+        "contact_person_3_linkedin",
+    }
+
     for record in batch:
         try:
             await run(lambda r=record: sb("leads").insert(r).execute())
             successful += 1
         except Exception as e:
-            errors.append({"row": "?", "error": str(e)})
+            err_str = str(e)
+            # If new columns don't exist yet (migration not run), retry without them
+            if "column" in err_str.lower() and "does not exist" in err_str.lower():
+                fallback = {k: v for k, v in record.items() if k not in SKIP_KEYS_ON_MISSING}
+                try:
+                    await run(lambda r=fallback: sb("leads").insert(r).execute())
+                    successful += 1
+                    logger.warning("[import_leads] New columns missing - run add_sales_v4.sql")
+                    continue
+                except Exception as e2:
+                    errors.append({"row": "?", "error": str(e2)})
+            else:
+                errors.append({"row": "?", "error": err_str})
 
     await run(lambda: sb("imports").insert({
         "id":         import_id,
@@ -874,7 +1125,6 @@ async def import_leads(file: UploadFile, request: Request):
         "failed":     len(errors),
         "errors":     errors[:20],
     }
-
 
 def _clean(row, key):
     val = str(row.get(key, "")).strip()
