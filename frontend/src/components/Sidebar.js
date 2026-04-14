@@ -27,7 +27,7 @@ const recruitNav = [
 ];
 
 const timesheetNav = [
-  { path: '/timesheet',           icon: 'schedule',     label: 'My Timesheet', exact: true },
+  { path: '/timesheet',           icon: 'schedule',     label: 'My Timesheet', exact: true, requiresPerm: 'viewOwnTimesheet' },
   { path: '/timesheet/approvals', icon: 'task_alt',     label: 'Approvals',    requiresPerm: 'viewTimesheetApprovals' },
 ];
 
@@ -167,7 +167,7 @@ const Sidebar = ({ isOpen, onClose }) => {
               </button>
             )}
             {canSeeTimesheet && (
-              <button onClick={() => navigate('/timesheet')} style={{
+              <button onClick={() => navigate(isViewer ? '/timesheet/approvals' : '/timesheet')} style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 gap: '0.375rem', padding: '0.5rem 0.5rem', borderRadius: '0.625rem',
                 border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif',

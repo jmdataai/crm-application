@@ -6,6 +6,7 @@ const Icon = ({ name, style = {} }) => (
 );
 
 const DAY_NAMES = ['Fri','Sat','Sun','Mon','Tue','Wed','Thu'];
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 function toISODate(d) {
@@ -180,7 +181,7 @@ const DetailModal = ({ ts, onClose, onReviewed, monthDate }) => {
 
 // ── Main ─────────────────────────────────────────────────────
 const TimesheetApprovals = () => {
-  const [view, setView]           = useState('pending');
+  const [view, setView]           = useState('all');
   const [timesheets, setTimesheets] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [selected, setSelected]   = useState(null);
@@ -188,7 +189,6 @@ const TimesheetApprovals = () => {
   const [filterUser, setFilterUser]     = useState('');
   const [filterEmployee, setFilterEmployee] = useState('');
   const [monthDate, setMonthDate] = useState(new Date());
-  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   const YEAR_OPTIONS = Array.from(new Set(timesheets.map(ts => new Date(ts.week_start + 'T00:00:00').getFullYear()))).sort((a,b) => b - a);
   const EMP_OPTIONS = Array.from(
     new Map(

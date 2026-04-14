@@ -31,6 +31,19 @@ const VisaBadge = ({ visa }) => {
   const style = VISA_COLORS[visa.trim()] || { bg:'rgba(217,119,6,0.1)', color:'#d97706' };
   return <span style={{ padding:'0.15rem 0.5rem', borderRadius:4, fontSize:'0.75rem', fontWeight:700, ...style }}>{visa.trim()}</span>;
 };
+const extractNumbers = (s) => (String(s).match(/\d+(\.\d+)?/g) || []).map(n => Number(n));
+const matchesExperience = (field, query) => {
+  if (!query) return true;
+  const q = String(query).toLowerCase().trim();
+  const f = String(field || '').toLowerCase();
+  if (!/\d/.test(q)) return f.includes(q);
+  const qNums = extractNumbers(q);
+  if (qNums.length === 0) return f.includes(q);
+  const fieldNums = extractNumbers(f);
+  if (fieldNums.length === 0) return false;
+  const qNum = qNums[0];
+  return fieldNums.some(n => Math.abs(n - qNum) < 0.01);
+};
 const AddCandidateModal = ({ onClose, onAdd, defaultType }) => {
   const [form, setForm] = useState({ full_name:'', email:'', phone:'', candidate_role:'', total_experience:'', relevant_experience:'', location:'', visa_status:'', relocation:'', source:'LinkedIn', status:'sourced', notes:'', candidate_type: defaultType || 'domestic' });
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
@@ -135,8 +148,8 @@ export default function CandidatesList() {
       const cs = colSearch;
       if (cs.name && !c.name?.toLowerCase().includes(cs.name.toLowerCase())) return false;
       if (cs.candidate_role && !c.candidate_role?.toLowerCase().includes(cs.candidate_role.toLowerCase())) return false;
-      if (cs.total_experience && !c.total_experience?.toLowerCase().includes(cs.total_experience.toLowerCase())) return false;
-      if (cs.relevant_experience && !c.relevant_experience?.toLowerCase().includes(cs.relevant_experience.toLowerCase())) return false;
+      if (cs.total_experience && !matchesExperience(c.total_experience, cs.total_experience)) return false;
+      if (cs.relevant_experience && !matchesExperience(c.relevant_experience, cs.relevant_experience)) return false;
       if (cs.location && !c.location?.toLowerCase().includes(cs.location.toLowerCase())) return false;
       if (cs.visa_status && !c.visa_status?.toLowerCase().includes(cs.visa_status.toLowerCase())) return false;
       if (cs.relocation && !c.relocation?.toLowerCase().includes(cs.relocation.toLowerCase())) return false;
