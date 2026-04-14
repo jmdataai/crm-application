@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { timesheetAPI, formatApiError } from '../../services/api';
+import { timesheetAPI, usersAPI, formatApiError } from '../../services/api';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
@@ -189,6 +189,7 @@ const TimesheetApprovals = () => {
   const [filterUser, setFilterUser]     = useState('');
   const [filterEmployee, setFilterEmployee] = useState('');
   const [monthDate, setMonthDate] = useState(new Date());
+  const [weekStart, setWeekStart] = useState(toISODate(getFridayOf(new Date())));
   const YEAR_OPTIONS = Array.from(new Set(timesheets.map(ts => new Date(ts.week_start + 'T00:00:00').getFullYear()))).sort((a,b) => b - a);
   const EMP_OPTIONS = Array.from(
     new Map(
@@ -197,21 +198,53 @@ const TimesheetApprovals = () => {
         const key = u.id || u.email || u.name;
         return [key, u];
       })
-    ).values()
+  ).values()
   ).filter(u => u && (u.id || u.email || u.name));
 
-  const load = useCallback(async (status) => {
+  const currentWeekStart = toISODate(getFridayOf(new Date()));
+  const isCurrentWeek = weekStart === currentWeekStart;
+  const goWeek = (dir) => {
+    const d = addDays(new Date(weekStart + 'T00:00:00'), dir * 7);
+    setWeekStart(toISODate(d));
+  };
+
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = {};
-      if (status) params.status = status;
-      const res = await timesheetAPI.getAll(params);
-      setTimesheets(res.data.timesheets || []);
+      if (view === 'all') {
+        const [tsRes, usersRes] = await Promise.all([
+          timesheetAPI.getAll({ week_start: weekStart }),
+          usersAPI.getAll(),
+        ]);
+        const allUsers = usersRes.data || [];
+        const employeeUsers = allUsers.filter(u => u.role !== 'viewer');
+        const list = tsRes.data.timesheets || [];
+        const byUser = new Map(list.map(ts => [ts.user_id, ts]));
+        const merged = employeeUsers.map(u => {
+          const existing = byUser.get(u.id);
+          if (existing) return existing;
+          return {
+            id: `synthetic-${u.id}-${weekStart}`,
+            user_id: u.id,
+            week_start: weekStart,
+            status: 'draft',
+            total_hours: 0,
+            entries: [],
+            users: u,
+          };
+        });
+        setTimesheets(merged);
+      } else {
+        const params = {};
+        if (view === 'pending') params.status = 'submitted';
+        const res = await timesheetAPI.getAll(params);
+        setTimesheets(res.data.timesheets || []);
+      }
     } catch {}
     setLoading(false);
-  }, []);
+  }, [view, weekStart]);
 
-  useEffect(() => { load(view === 'pending' ? 'submitted' : ''); }, [view, load]);
+  useEffect(() => { load(); }, [load]);
 
   const filtered = timesheets.filter(ts => {
     const emp = getUser(ts);
@@ -281,7 +314,16 @@ const TimesheetApprovals = () => {
 
       {/* Filters */}
       {view === 'all' && (
-        <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+          <button onClick={() => goWeek(-1)} style={navBtn}><Icon name="chevron_left" /></button>
+          <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--on-surface)', minWidth: 150, textAlign: 'center' }}>{weekLabel(weekStart)}</span>
+          <button onClick={() => goWeek(1)} disabled={isCurrentWeek} style={{ ...navBtn, opacity: isCurrentWeek ? 0.35 : 1, cursor: isCurrentWeek ? 'not-allowed' : 'pointer' }}><Icon name="chevron_right" /></button>
+          {!isCurrentWeek && (
+            <button onClick={() => setWeekStart(currentWeekStart)} style={{ padding: '6px 12px', borderRadius: 8, border: '1.5px solid rgba(234,88,12,0.4)', background: 'rgba(234,88,12,0.06)', color: '#ea580c', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              Current Week
+            </button>
+          )}
+
           <input type="text" placeholder="Search by name or email…" value={filterUser} onChange={e => setFilterUser(e.target.value)}
             style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid var(--surface-container-high)', fontSize: '0.875rem', background: 'var(--surface)', color: 'var(--on-surface)', outline: 'none', minWidth: 180 }}
           />
@@ -365,7 +407,7 @@ const TimesheetApprovals = () => {
         </div>
       )}
 
-      {selected && <DetailModal ts={selected} monthDate={view === 'monthly' ? monthDate : null} onClose={() => setSelected(null)} onReviewed={() => load(view === 'pending' ? 'submitted' : '')} />}
+      {selected && <DetailModal ts={selected} monthDate={view === 'monthly' ? monthDate : null} onClose={() => setSelected(null)} onReviewed={() => load()} />}
     </div>
   );
 };
