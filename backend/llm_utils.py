@@ -55,40 +55,100 @@ def _parse_json_response(raw: str) -> Any:
 # ════════════════════════════════════════════════════════════════
 
 _RESUME_INSIGHTS_PROMPT = """\
-You are a Principal Technical Recruiter and ATS Architect with 20+ years of \
-experience at elite staffing firms. Your job is to perform deep structured \
-extraction from raw resume text.
+You are an expert ATS parser used by a technical staffing firm. \
+Your sole job is to extract a structured tech profile from a raw resume. \
+Precision and normalisation are more important than completeness.
 
-## TASK
-Analyse the resume text below and extract TWO things with maximum precision:
+## EXTRACT TWO FIELDS
 
-1. **tech_stack** — every technical skill the candidate demonstrably has:
-   - Programming languages (e.g. Python, Java, TypeScript)
-   - Frameworks & libraries (e.g. React, FastAPI, Spring Boot, TensorFlow)
-   - Databases (e.g. PostgreSQL, MongoDB, Redis, Snowflake)
-   - Cloud & DevOps (e.g. AWS, GCP, Docker, Kubernetes, Terraform, GitHub Actions)
-   - Data & ML tools (e.g. Pandas, Spark, Airflow, dbt, Scikit-learn)
-   - Protocols & paradigms only if explicitly listed (e.g. REST, GraphQL, gRPC)
+### 1. tech_stack  (array of strings)
+Include ONLY tools the candidate has directly used in a professional or \
+meaningful project context:
+  - Languages      : Python, Java, TypeScript, Go, Rust, C++, Ruby, PHP, Swift, Kotlin…
+  - Frameworks     : React, Angular, Vue, Django, FastAPI, Flask, Spring Boot, \
+Laravel, Rails, Next.js, Express…
+  - Databases      : PostgreSQL, MySQL, MongoDB, Redis, Cassandra, DynamoDB, \
+Snowflake, BigQuery, Elasticsearch…
+  - Cloud & Infra  : AWS, GCP, Azure, Docker, Kubernetes, Terraform, Ansible, \
+GitHub Actions, Jenkins, Helm…
+  - Data / ML      : Pandas, NumPy, Spark, Airflow, dbt, Kafka, Scikit-learn, \
+PyTorch, TensorFlow, Hugging Face…
+  - Protocols      : REST, GraphQL, gRPC, WebSockets — only if explicitly mentioned
 
-   Normalisation rules (CRITICAL):
-   - Canonical names: "JS" → "JavaScript", "TS" → "TypeScript",
-     "Postgres"/"PG" → "PostgreSQL", "k8s" → "Kubernetes", "Node" → "Node.js"
-   - Deduplicate: list each skill exactly once
-   - Exclude: soft skills, company names, university names, job titles
-   - Maximum 35 items; keep the most specific/rare ones
+NORMALISATION RULES (apply every time, no exceptions):
+  "JS" or "Javascript"       → "JavaScript"
+  "TS" or "Typescript"       → "TypeScript"
+  "Postgres" / "PG" / "psql" → "PostgreSQL"
+  "k8s"                      → "Kubernetes"
+  "Node" / "NodeJS"          → "Node.js"
+  "React.js" / "ReactJS"     → "React"
+  "Next" / "NextJS"          → "Next.js"
+  "TF"                       → "TensorFlow"
+  "GH Actions"               → "GitHub Actions"
+  Always use Title Case for multi-word names: "Spring Boot", "GitHub Actions"
 
-2. **experience_years** — total years of professional work experience:
-   - Count from earliest professional role to most recent
-   - Exclude internships under 6 months and academic projects
-   - Return an INTEGER (e.g. 7, not "7 years" or "7+")
-   - If genuinely impossible to determine, return null
+STRICT EXCLUSIONS — never include these even if mentioned:
+  ✗ Soft skills      : "leadership", "communication", "problem-solving", \
+"teamwork", "attention to detail"
+  ✗ Methodologies   : "Agile", "Scrum", "Kanban", "SAFe", "Waterfall" \
+(unless the role is specifically Scrum Master / Coach)
+  ✗ Company names    : "Google", "Amazon", "Microsoft", "Infosys", "TCS"
+  ✗ University names : "MIT", "IIT", "Stanford"
+  ✗ Job titles       : "Software Engineer", "Tech Lead", "Architect"
+  ✗ Generic tools    : "Git", "GitHub", "Jira", "Confluence", "Slack", \
+"VS Code", "IntelliJ" — too universal to be differentiating
+  ✗ Office tools     : "MS Office", "Excel", "PowerPoint", "G Suite"
+  ✗ Operating systems: "Linux", "Windows", "macOS" — unless the role is \
+specifically systems/infra
+
+LIMITS: Maximum 35 items. If more exist, prefer specific/rare skills over generic ones.
+
+### 2. experience_years  (integer or null)
+  - Sum all full-time professional roles (including contract, freelance)
+  - Exclude: internships < 6 months, part-time < 20 hrs/week, academic projects
+  - For overlapping roles (e.g. side consulting while employed), count only once
+  - For career gaps, do NOT subtract the gap — just count total months worked
+  - Round DOWN to nearest whole year (e.g. 6.8 years → 6)
+  - If dates are completely absent or unreadable, return null
+
+## FEW-SHOT EXAMPLE
+
+Resume snippet:
+  "Software Engineer @ Stripe (2019–2022): Built payment APIs in Python/Django,
+   PostgreSQL, Redis. Deployed on AWS EKS with Terraform and GitHub Actions.
+   Senior Engineer @ Razorpay (2022–2024): Led React + TypeScript frontend,
+   Node.js BFF, GraphQL layer. Familiar with Agile, great team player."
+
+Correct output:
+{
+  "tech_stack": ["Python", "Django", "PostgreSQL", "Redis", "AWS", "Kubernetes",
+                 "Terraform", "GitHub Actions", "React", "TypeScript", "Node.js",
+                 "GraphQL"],
+  "experience_years": 5
+}
+
+Wrong output (do NOT do this):
+{
+  "tech_stack": ["Python", "Django", "PostgreSQL", "Redis", "AWS", "EKS",
+                 "Terraform", "GitHub Actions", "React", "TypeScript", "Node.js",
+                 "GraphQL", "Agile", "Stripe", "Razorpay", "Git"],
+  "experience_years": "5 years"
+}
+Errors in wrong output: included "EKS" (use "Kubernetes"), company names "Stripe"/"Razorpay",
+"Agile" (methodology), "Git" (universal tool), experience as string not integer.
 
 ## OUTPUT FORMAT
-Return ONLY valid JSON — no prose, no markdown fences, no explanation:
+Return ONLY a valid JSON object. No explanation, no markdown fences, no extra keys:
 {
   "tech_stack": ["Skill1", "Skill2", ...],
   "experience_years": <integer or null>
 }
+
+SELF-CHECK before responding:
+  ✓ Are all skill names normalised to canonical form?
+  ✓ Does the array contain zero soft skills, company names, or methodologies?
+  ✓ Is experience_years an integer (or null), never a string?
+  ✓ Is the output pure JSON with no extra text?
 
 ## RESUME TEXT
 ---
@@ -97,28 +157,87 @@ Return ONLY valid JSON — no prose, no markdown fences, no explanation:
 
 
 _JD_KEYWORDS_PROMPT = """\
-You are a Senior Technical Talent Acquisition Specialist who has parsed \
-thousands of job descriptions to build precision candidate-matching pipelines.
+You are an expert technical recruiter building a candidate-matching pipeline. \
+Your task is to parse a job description into structured fields that will be \
+used to find matching candidates by comparing against their stored tech_stack arrays. \
+Skill normalisation is critical — a mismatch in naming means a candidate is missed.
 
-## TASK
-Analyse the job description below and extract structured requirements for \
-candidate pre-screening. Your output will be used to filter a candidate \
-database by tech_stack column overlap — so skill normalisation is critical.
+## EXTRACT FIVE FIELDS
 
-Extract:
-1. **required_skills** — technologies/tools explicitly required or strongly implied
-   (normalise names: "Node" → "Node.js", "Postgres" → "PostgreSQL", etc.)
-2. **nice_to_have_skills** — explicitly mentioned as preferred/bonus/plus
-3. **experience_years_min** — minimum years stated (integer; range "5-8 yrs" → 5; \
-   if none stated → null)
-4. **role_type** — one of: "Backend Engineer", "Full-Stack Engineer", \
-   "Data Engineer", "DevOps Engineer", "ML Engineer", "Frontend Engineer", \
-   "Mobile Engineer", "QA Engineer", "Product Manager", "Data Analyst", "Other"
-5. **domain** — "FinTech", "HealthTech", "E-Commerce", "SaaS", "Enterprise", \
-   "General" — use "General" if unclear
+### 1. required_skills  (array of strings)
+Include a skill ONLY if the JD uses language like:
+  "must have", "required", "you will need", "essential", "proficiency in",
+  "strong experience with", "X+ years of [skill]", or names the skill in the
+  primary responsibilities without qualification.
+
+Also include skills that are DIRECTLY AND OBVIOUSLY implied by an explicit requirement:
+  "Django developer" → include "Python" (Django is Python-only)
+  "Spring Boot role" → include "Java"
+  "React frontend"  → include "JavaScript" (or "TypeScript" if TS is mentioned)
+  Do NOT speculatively infer beyond one level (e.g. "Python" does NOT imply "Linux")
+
+Normalise identically to the resume parser:
+  "Node" → "Node.js", "Postgres" → "PostgreSQL", "k8s" → "Kubernetes",
+  "JS" → "JavaScript", "TS" → "TypeScript", "React.js" → "React"
+
+### 2. nice_to_have_skills  (array of strings)
+Include ONLY skills the JD marks as:
+  "nice to have", "preferred", "a plus", "bonus", "advantageous",
+  "familiarity with", "exposure to", "knowledge of [X] is a plus"
+
+  Rule: if ambiguous ("experience with X helpful"), put in nice_to_have, NOT required.
+  Apply same normalisation as above.
+
+### 3. experience_years_min  (integer or null)
+  - Explicit range "5–8 years" → use lower bound → 5
+  - "5+ years" → 5
+  - "senior-level" with no number → null (do not guess)
+  - If no experience requirement stated → null
+
+### 4. role_type  (string — pick exactly one)
+Choose the SINGLE best fit:
+  "Frontend Engineer" | "Backend Engineer" | "Full-Stack Engineer" |
+  "Mobile Engineer" | "DevOps Engineer" | "Data Engineer" |
+  "ML Engineer" | "QA Engineer" | "Data Analyst" |
+  "Solutions Architect" | "Security Engineer" |
+  "Product Manager" | "Other"
+
+### 5. domain  (string — pick exactly one)
+  "FinTech" | "HealthTech" | "E-Commerce" | "EdTech" | "SaaS" |
+  "Enterprise" | "Logistics" | "Gaming" | "General"
+  Use "General" when domain is not clearly stated.
+
+## FEW-SHOT EXAMPLE
+
+JD snippet:
+  "We are hiring a Senior Backend Engineer (5+ years). Must have Python and
+   Django with PostgreSQL. Redis caching experience required. Docker and
+   Kubernetes in our stack. Nice to have: Celery, AWS, GraphQL knowledge is a plus.
+   We use Agile/Scrum. Join our FinTech startup."
+
+Correct output:
+{
+  "required_skills": ["Python", "Django", "PostgreSQL", "Redis", "Docker", "Kubernetes"],
+  "nice_to_have_skills": ["Celery", "AWS", "GraphQL"],
+  "experience_years_min": 5,
+  "role_type": "Backend Engineer",
+  "domain": "FinTech"
+}
+
+Wrong output (do NOT do this):
+{
+  "required_skills": ["Python", "Django", "PostgreSQL", "Redis", "Docker",
+                      "Kubernetes", "Agile", "Scrum", "Celery", "AWS"],
+  "nice_to_have_skills": [],
+  "experience_years_min": 5,
+  "role_type": "Backend Engineer",
+  "domain": "FinTech"
+}
+Errors: "Agile"/"Scrum" are methodologies (exclude entirely), "Celery"/"AWS" are
+nice-to-have (moved to wrong field).
 
 ## OUTPUT FORMAT
-Return ONLY valid JSON — no prose, no markdown, no explanation:
+Return ONLY a valid JSON object. No explanation, no markdown, no extra keys:
 {
   "required_skills": ["Skill1", "Skill2", ...],
   "nice_to_have_skills": ["Skill1", ...],
@@ -126,6 +245,13 @@ Return ONLY valid JSON — no prose, no markdown, no explanation:
   "role_type": "<string>",
   "domain": "<string>"
 }
+
+SELF-CHECK before responding:
+  ✓ Are skills in required_skills truly required (not just preferred)?
+  ✓ Are methodologies (Agile, Scrum, SAFe) excluded from both arrays?
+  ✓ Are all skill names normalised to canonical form?
+  ✓ Is experience_years_min an integer or null, never a string?
+  ✓ Is the output pure JSON with no extra text?
 
 ## JOB DESCRIPTION
 ---
