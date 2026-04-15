@@ -29,8 +29,12 @@ from enum import Enum
 # ── Google Drive helpers ──────────────────────────────────────
 try:
     from google_drive import upload_resume, delete_resume, ALLOWED_MIME_TYPES, MAX_FILE_BYTES
-except ImportError:
+    _GDRIVE_OK = True
+except Exception as _gdrive_err:
+    import logging as _l
+    _l.getLogger(__name__).warning(f"[google_drive] import failed — resume upload disabled: {_gdrive_err}")
     upload_resume = delete_resume = None
+    _GDRIVE_OK = False
     ALLOWED_MIME_TYPES = {
         "application/pdf": "pdf",
         "application/msword": "doc",
@@ -42,7 +46,9 @@ except ImportError:
 try:
     from llm_utils import extract_resume_insights, extract_jd_keywords
     LLM_AVAILABLE = True
-except ImportError:
+except Exception as _llm_err:
+    import logging as _l
+    _l.getLogger(__name__).warning(f"[llm_utils] import failed — LLM disabled: {_llm_err}")
     LLM_AVAILABLE = False
 
 # ── Logging ──────────────────────────────────────────────────
@@ -88,6 +94,11 @@ JWT_ALGORITHM = "HS256"
 # ── App ───────────────────────────────────────────────────────
 app        = FastAPI(title="Nexus CRM + ATS")
 api_router = APIRouter(prefix="/api")
+
+# Startup diagnostics — visible in HuggingFace / container logs
+logger.info("=== Nexus CRM startup ===")
+logger.info(f"  Google Drive : {'✓ loaded' if _GDRIVE_OK else '✗ DISABLED (check logs above)'}")
+logger.info(f"  LLM (Gemini) : {'✓ loaded' if LLM_AVAILABLE else '✗ DISABLED (check logs above)'}")
 
 
 # ============================================================
