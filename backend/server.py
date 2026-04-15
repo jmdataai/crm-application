@@ -1618,6 +1618,9 @@ async def upload_candidate_resume(
     filename  = f"Resume_{safe_name}_{short_id}.{ext}"
  
     # ── Upload to Google Drive ───────────────────────────────
+    if upload_resume is None:
+        raise HTTPException(503, "Google Drive integration not configured. "
+                                 "Ensure google_drive.py and service account credentials are present.")
     try:
         result = await run(
             lambda: upload_resume(contents, filename, file.content_type)
