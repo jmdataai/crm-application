@@ -62,6 +62,7 @@ def upload_resume(file_bytes: bytes, filename: str, mime_type: str) -> dict:
           "view_url":   str,   # Direct link that opens in Drive
         }
     """
+    from googleapiclient.errors import HttpError
     from googleapiclient.http import MediaIoBaseUpload
 
     service   = _get_service()
@@ -74,11 +75,23 @@ def upload_resume(file_bytes: bytes, filename: str, mime_type: str) -> dict:
     media = MediaIoBaseUpload(
         io.BytesIO(file_bytes), mimetype=mime_type, resumable=False
     )
-    created = service.files().create(
-        body=metadata,
-        media_body=media,
-        fields="id,name",
-    ).execute()
+    try:
+        created = service.files().create(
+            body=metadata,
+            media_body=media,
+            fields="id,name",
+            supportsAllDrives=True,
+        ).execute()
+    except HttpError as exc:
+        details = _extract_drive_error(exc)
+        if _is_storage_quota_error(details):
+            raise RuntimeError(
+                "Google Drive rejected the upload because this service account "
+                "has no personal storage quota. Configure GOOGLE_DRIVE_FOLDER_ID "
+                "to point to a shared drive folder that is shared with the service "
+                "account, or use OAuth delegation instead."
+            ) from exc
+        raise RuntimeError(f"Google Drive upload failed: {details}") from exc
 
     file_id = created["id"]
 
@@ -87,6 +100,7 @@ def upload_resume(file_bytes: bytes, filename: str, mime_type: str) -> dict:
         fileId=file_id,
         body={"type": "anyone", "role": "reader"},
         fields="id",
+        supportsAllDrives=True,
     ).execute()
 
     view_url    = f"https://drive.google.com/file/d/{file_id}/view"
@@ -115,3 +129,28 @@ def delete_resume(drive_url: str) -> bool:
     except Exception as exc:
         logger.warning(f"[Drive] Could not delete {file_id}: {exc}")
         return False
+
+
+def _extract_drive_error(exc: Exception) -> str:
+    content = getattr(exc, "content", b"") or b""
+    if isinstance(content, bytes):
+        content = content.decode("utf-8", errors="ignore")
+
+    try:
+        payload = json.loads(content) if content else {}
+    except json.JSONDecodeError:
+        payload = {}
+
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict):
+            message = error.get("message")
+            if message:
+                return str(message)
+
+    return str(exc)
+
+
+def _is_storage_quota_error(message: str) -> bool:
+    normalized = (message or "").lower()
+    return "storage quota" in normalized or "storagequotaexceeded" in normalized

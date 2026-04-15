@@ -1637,7 +1637,10 @@ async def upload_candidate_resume(
             lambda: upload_resume(contents, filename, file.content_type)
         )
     except RuntimeError as exc:
-        raise HTTPException(500, f"Google Drive upload failed: {exc}")
+        raise HTTPException(503, str(exc))
+    except Exception as exc:
+        logger.exception("Unexpected Google Drive upload failure")
+        raise HTTPException(500, "Unexpected Google Drive upload failure.")
  
     preview_url = result["preview_url"]
 
