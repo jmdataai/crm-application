@@ -98,7 +98,7 @@ export default function ATSMatch() {
           <p className="label-sm" style={{ marginBottom: '0.25rem', color: 'var(--tertiary)' }}>Recruitment ATS</p>
           <h1 className="headline-sm">ATS Match</h1>
           <p style={{ fontSize: '0.875rem', color: 'var(--on-surface-variant)', marginTop: '0.25rem' }}>
-            Paste a job description — find top-10 matching candidates instantly
+            Paste a job description — ranked by tech stack match score instantly
           </p>
         </div>
       </div>
@@ -170,7 +170,7 @@ export default function ATSMatch() {
           <Icon name="progress_activity" style={{ fontSize: '2.5rem', display: 'block', margin: '0 auto 1rem', color: 'var(--tertiary)', animation: 'spin 1s linear infinite' }} />
           <p style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '0.375rem' }}>Matching in progress…</p>
           <p style={{ fontSize: '0.875rem', color: 'var(--on-surface-variant)' }}>
-            Extracting JD requirements → filtering by tech stack → scoring candidates with AI
+            Parsing JD requirements → matching against candidate tech stacks…
           </p>
         </div>
       )}

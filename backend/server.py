@@ -40,7 +40,7 @@ except ImportError:
 
 # ── LLM helpers ──────────────────────────────────────────────
 try:
-    from llm_utils import extract_resume_insights, extract_jd_keywords, score_candidate_vs_jd
+    from llm_utils import extract_resume_insights, extract_jd_keywords
     LLM_AVAILABLE = True
 except ImportError:
     LLM_AVAILABLE = False
@@ -1722,30 +1722,31 @@ class ATSMatchRequest(BaseModel):
 @api_router.post("/candidates/ats-match")
 async def ats_match(body: ATSMatchRequest, request: Request):
     """
-    Given a job description, find and score the top-10 best-fit candidates
-    using a two-stage approach:
-      1. Fast pre-filter  — candidates whose tech_stack overlaps with JD keywords
-      2. LLM scoring      — parallel ATS scores for each pre-filtered candidate
-    Only candidates of the requested type (domestic / international) are considered.
+    Given a job description, find the top-10 best-fit candidates using:
+      1. LLM (Gemini Flash, 1 call total) — parse JD into required/nice skills
+      2. Pure-code scoring — tech_stack column overlap, zero per-candidate LLM calls
+
+    Scoring formula (0-100):
+      required_match% * 75  +  nice_to_have_match% * 25
+    matched_skills / missing_skills computed locally from set intersection.
     """
     user = await get_current_user(request)
     if user.get("role") not in ("admin", "sales", "viewer"):
         raise HTTPException(403, "ATS matching is not available for your role.")
 
     if not LLM_AVAILABLE:
-        raise HTTPException(503, "LLM service not configured. Set LLM_PROVIDER and the matching API key.")
+        raise HTTPException(503, "LLM service not configured. Set LLM_PROVIDER and API key.")
 
     jd_text = (body.jd_text or "").strip()
     if len(jd_text) < 30:
         raise HTTPException(400, "Job description is too short. Please provide more detail.")
 
-    # ── Step 1: parse JD to get structured requirements ──────
-    jd_meta = await extract_jd_keywords(jd_text)
-    required = set(s.lower() for s in jd_meta.get("required_skills") or [])
+    # ── Step 1: 1 LLM call — parse JD into structured skills ─
+    jd_meta  = await extract_jd_keywords(jd_text)
+    required = set(s.lower() for s in jd_meta.get("required_skills")     or [])
     nice     = set(s.lower() for s in jd_meta.get("nice_to_have_skills") or [])
-    all_jd_skills = required | nice
 
-    # ── Step 2: fetch candidates (this type only) ────────────
+    # ── Step 2: fetch all candidates of this type ─────────────
     res = await run(
         lambda: sb("candidates")
         .select("id,full_name,candidate_role,experience_years,tech_stack,"
@@ -1756,38 +1757,47 @@ async def ats_match(body: ATSMatchRequest, request: Request):
     all_candidates = res.data or []
 
     if not all_candidates:
-        return {"matches": [], "jd_meta": jd_meta, "total_scanned": 0}
+        return {"matches": [], "jd_meta": jd_meta, "total_scanned": 0, "pre_filtered": 0}
 
-    # ── Step 3: pre-filter by tech_stack overlap ─────────────
-    def _overlap_score(cand: dict) -> float:
-        cand_stack = set(s.lower() for s in (cand.get("tech_stack") or []))
-        if not cand_stack or not all_jd_skills:
-            return 0.0
-        req_hits  = len(cand_stack & required)
-        nice_hits = len(cand_stack & nice)
-        # Weight: required skill hits count double
-        return (req_hits * 2 + nice_hits) / max(len(required) * 2 + len(nice), 1)
+    # ── Step 3: pure-code scoring (no LLM per candidate) ──────
+    def _score_candidate(cand: dict) -> dict:
+        cand_set = set(s.lower() for s in (cand.get("tech_stack") or []))
 
-    # Keep candidates with at least 1 skill overlap; sort by overlap desc
-    scored_pre = sorted(
-        [c for c in all_candidates if _overlap_score(c) > 0],
-        key=_overlap_score,
-        reverse=True,
-    )
+        # Set intersections for matched / missing
+        req_hits  = cand_set & required
+        nice_hits = cand_set & nice
 
-    # If no overlap matches, fall back to all candidates (capped at 40 for performance)
-    pool = scored_pre[:40] if scored_pre else all_candidates[:40]
+        # ATS score: required skills worth 75 pts, nice-to-have worth 25 pts
+        req_pct  = len(req_hits)  / max(len(required), 1)
+        nice_pct = len(nice_hits) / max(len(nice), 1) if nice else 0.0
+        if not required and not nice:
+            ats_score = 0
+        elif not required:
+            ats_score = round(nice_pct * 60)   # no required skills defined → cap at 60
+        else:
+            ats_score = round(req_pct * 75 + nice_pct * 25)
 
-    # ── Step 4: parallel LLM scoring ─────────────────────────
-    tasks = [score_candidate_vs_jd(c, jd_text, jd_meta) for c in pool]
-    scores = await asyncio.gather(*tasks, return_exceptions=True)
+        # Keep original-case skill names for display
+        cand_stack_orig = {s.lower(): s for s in (cand.get("tech_stack") or [])}
+        jd_required_orig = {s.lower(): s for s in jd_meta.get("required_skills") or []}
+        jd_nice_orig     = {s.lower(): s for s in jd_meta.get("nice_to_have_skills") or []}
 
-    results = []
-    for cand, score_result in zip(pool, scores):
-        if isinstance(score_result, Exception):
-            logger.warning(f"[ATS] scoring failed for {cand.get('full_name')}: {score_result}")
-            continue
-        results.append({
+        matched  = sorted(jd_required_orig.get(k, k) for k in req_hits)
+        matched += sorted(jd_nice_orig.get(k, k) for k in nice_hits)
+        missing  = sorted(jd_required_orig.get(k, k) for k in (required - cand_set))
+
+        # Templated fit summary (no LLM needed)
+        nr, nt = len(required), len(req_hits)
+        if ats_score >= 75:
+            summary = f"Strong match: {nt}/{nr} required skills covered."
+        elif ats_score >= 50:
+            summary = f"Good match: {nt}/{nr} required skills found. Gaps are bridgeable."
+        elif ats_score >= 25:
+            summary = f"Partial match: only {nt}/{nr} required skills present."
+        else:
+            summary = f"Limited overlap: {nt}/{nr} required skills found in tech stack."
+
+        return {
             "id":               cand["id"],
             "full_name":        cand.get("full_name"),
             "candidate_role":   cand.get("candidate_role"),
@@ -1797,20 +1807,24 @@ async def ats_match(body: ATSMatchRequest, request: Request):
             "location":         cand.get("location"),
             "visa_status":      cand.get("visa_status"),
             "status":           cand.get("status"),
-            "ats_score":        score_result["ats_score"],
-            "matched_skills":   score_result["matched_skills"],
-            "missing_skills":   score_result["missing_skills"],
-            "fit_summary":      score_result["fit_summary"],
-        })
+            "ats_score":        ats_score,
+            "matched_skills":   matched,
+            "missing_skills":   missing,
+            "fit_summary":      summary,
+        }
 
-    # Sort by ATS score descending, return top 10
-    top10 = sorted(results, key=lambda x: x["ats_score"], reverse=True)[:10]
+    # Score every candidate, keep those with at least 1 skill match for pre_filtered count
+    all_scored   = [_score_candidate(c) for c in all_candidates]
+    pre_filtered = [s for s in all_scored if s["ats_score"] > 0]
+
+    # Sort by score desc, return top 10
+    top10 = sorted(all_scored, key=lambda x: x["ats_score"], reverse=True)[:10]
 
     return {
         "matches":       top10,
         "jd_meta":       jd_meta,
-        "total_scanned": len(pool),
-        "pre_filtered":  len(scored_pre),
+        "total_scanned": len(all_candidates),
+        "pre_filtered":  len(pre_filtered),
     }
 
 
