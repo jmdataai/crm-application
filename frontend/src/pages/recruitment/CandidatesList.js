@@ -456,7 +456,7 @@ export default function CandidatesList() {
   const PER_PAGE = 25;
 
   // Column text searches
-  const [colSearch, setColSearch] = useState({ name:'', candidate_role:'', location:'', visa_status:'', relocation:'', source:'' });
+  const [colSearch, setColSearch] = useState({ name:'', candidate_role:'', total_experience:'', relevant_experience:'', location:'', visa_status:'', relocation:'', source:'' });
   const setCS = (k, v) => { setColSearch(s => ({ ...s, [k]: v })); setPage(1); };
 
   // Advanced filters
@@ -501,6 +501,8 @@ export default function CandidatesList() {
       const cs = colSearch;
       if (cs.name && !c.name?.toLowerCase().includes(cs.name.toLowerCase())) return false;
       if (cs.candidate_role && !c.candidate_role?.toLowerCase().includes(cs.candidate_role.toLowerCase())) return false;
+      if (cs.total_experience && !c.total_experience?.toLowerCase().includes(cs.total_experience.toLowerCase())) return false;
+      if (cs.relevant_experience && !c.relevant_experience?.toLowerCase().includes(cs.relevant_experience.toLowerCase())) return false;
       if (cs.location && !c.location?.toLowerCase().includes(cs.location.toLowerCase())) return false;
       if (cs.visa_status && !c.visa_status?.toLowerCase().includes(cs.visa_status.toLowerCase())) return false;
       if (cs.relocation && !c.relocation?.toLowerCase().includes(cs.relocation.toLowerCase())) return false;
@@ -551,7 +553,7 @@ export default function CandidatesList() {
   const hasColSearch = Object.values(colSearch).some(v => v) || expFilter.years !== '' || hasResumeOnly || techSelected.size > 0;
 
   const clearAllFilters = () => {
-    setColSearch({ name:'', candidate_role:'', location:'', visa_status:'', relocation:'', source:'' });
+    setColSearch({ name:'', candidate_role:'', total_experience:'', relevant_experience:'', location:'', visa_status:'', relocation:'', source:'' });
     setExpFilter({ op: '>', years: '' });
     setHasResumeOnly(false);
     setTechSelected(new Set());
@@ -560,26 +562,30 @@ export default function CandidatesList() {
   };
 
   const domCols  = [
-    {label:'Candidate',       key:'name'},
+    {label:'Candidate',        key:'name'},
     {label:'Role / Technology',key:'candidate_role'},
-    {label:'Tech Stack',      key:'tech_stack'},
-    {label:'Exp (yrs)',       key:'experience_years'},
-    {label:'Source',          key:'source'},
-    {label:'Resume',          key:'resume_url'},
-    {label:'Stage',           key:'status'},
-    {label:'Added',           key:'applied'},
+    {label:'Tech Stack',       key:'tech_stack'},
+    {label:'Total Exp',        key:'total_experience'},
+    {label:'Rel. Exp',         key:'relevant_experience'},
+    {label:'Exp (yrs)',        key:'experience_years'},
+    {label:'Source',           key:'source'},
+    {label:'Resume',           key:'resume_url'},
+    {label:'Stage',            key:'status'},
+    {label:'Added',            key:'applied'},
   ];
   const intlCols = [
-    {label:'Candidate',       key:'name'},
-    {label:'VISA',            key:'visa_status'},
+    {label:'Candidate',        key:'name'},
+    {label:'VISA',             key:'visa_status'},
     {label:'Role / Technology',key:'candidate_role'},
-    {label:'Tech Stack',      key:'tech_stack'},
-    {label:'Exp (yrs)',       key:'experience_years'},
-    {label:'Location',        key:'location'},
-    {label:'Relocation',      key:'relocation'},
-    {label:'Resume',          key:'resume_url'},
-    {label:'Stage',           key:'status'},
-    {label:'Added',           key:'applied'},
+    {label:'Tech Stack',       key:'tech_stack'},
+    {label:'Total Exp',        key:'total_experience'},
+    {label:'Rel. Exp',         key:'relevant_experience'},
+    {label:'Exp (yrs)',        key:'experience_years'},
+    {label:'Location',         key:'location'},
+    {label:'Relocation',       key:'relocation'},
+    {label:'Resume',           key:'resume_url'},
+    {label:'Stage',            key:'status'},
+    {label:'Added',            key:'applied'},
   ];
   const cols = isIntl ? intlCols : domCols;
 
@@ -731,8 +737,10 @@ export default function CandidatesList() {
                             {(c.tech_stack||[]).length===0&&<span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>}
                           </div>
                         </td>
+                        <td style={{padding:'0.75rem 1rem',fontSize:'0.8125rem',color:'var(--on-surface-variant)',whiteSpace:'nowrap'}}>{c.total_experience||'—'}</td>
+                        <td style={{padding:'0.75rem 1rem',fontSize:'0.8125rem',color:'var(--on-surface-variant)',whiteSpace:'nowrap'}}>{c.relevant_experience||'—'}</td>
                         <td style={{padding:'0.75rem 1rem',fontSize:'0.8125rem',fontWeight:600,whiteSpace:'nowrap'}}>
-                          {c.experience_years!=null?`${c.experience_years} yrs`:c.total_experience||'—'}
+                          {c.experience_years!=null?`${c.experience_years} yrs`:'—'}
                         </td>
                         <td style={{padding:'0.75rem 1rem',fontSize:'0.8125rem',color:'var(--on-surface-variant)',whiteSpace:'nowrap'}}>{c.location||'—'}</td>
                         <td style={{padding:'0.75rem 1rem',fontSize:'0.75rem',color:'var(--on-surface-variant)',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.relocation||'—'}</td>
@@ -750,8 +758,10 @@ export default function CandidatesList() {
                             {(c.tech_stack||[]).length===0&&<span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>}
                           </div>
                         </td>
+                        <td style={{padding:'0.75rem 1rem',fontSize:'0.8125rem',color:'var(--on-surface-variant)',whiteSpace:'nowrap'}}>{c.total_experience||'—'}</td>
+                        <td style={{padding:'0.75rem 1rem',fontSize:'0.8125rem',color:'var(--on-surface-variant)',whiteSpace:'nowrap'}}>{c.relevant_experience||'—'}</td>
                         <td style={{padding:'0.75rem 1rem',fontSize:'0.8125rem',fontWeight:600,whiteSpace:'nowrap'}}>
-                          {c.experience_years!=null?`${c.experience_years} yrs`:c.total_experience||'—'}
+                          {c.experience_years!=null?`${c.experience_years} yrs`:'—'}
                         </td>
                         <td style={{padding:'0.75rem 1rem'}}><span style={{fontSize:'0.75rem',fontWeight:600,padding:'0.175rem 0.5rem',borderRadius:4,background:'rgba(0,74,198,0.08)',color:'var(--primary)'}}>{c.source}</span></td>
                       </>
