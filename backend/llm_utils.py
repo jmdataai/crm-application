@@ -18,7 +18,7 @@ ENV VARS:
   GOOGLE_API_KEY        = AIza...
   OPENAI_API_KEY        = sk-...
   ANTHROPIC_API_KEY     = sk-ant-...
-  LLM_MODEL_GEMINI      = gemini-1.5-flash     (optional override)
+  LLM_MODEL_GEMINI      = gemini-2.0-flash-lite (optional override)
   LLM_MODEL_OPENAI      = gpt-4o-mini          (optional override)
   LLM_MODEL_ANTHROPIC   = claude-haiku-4-5-20251001  (optional override)
 """
@@ -32,7 +32,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ── Defaults ──────────────────────────────────────────────────
-DEFAULT_GEMINI_MODEL    = "gemini-1.5-flash"
+DEFAULT_GEMINI_MODEL    = "gemini-2.0-flash-lite"
 DEFAULT_OPENAI_MODEL    = "gpt-4o-mini"
 DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
 
