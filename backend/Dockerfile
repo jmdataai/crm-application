@@ -18,6 +18,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend source
 COPY server.py .
+COPY google_drive.py .
+COPY llm_utils.py .
 
 # Hugging Face Spaces expects the app on port 7860
 EXPOSE 7860
