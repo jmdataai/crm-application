@@ -564,8 +564,8 @@ export default function CandidatesList() {
     {label:'Role / Technology',key:'candidate_role'},
     {label:'Tech Stack',      key:'tech_stack'},
     {label:'Exp (yrs)',       key:'experience_years'},
-    {label:'Resume',          key:'resume_url'},
     {label:'Source',          key:'source'},
+    {label:'Resume',          key:'resume_url'},
     {label:'Stage',           key:'status'},
     {label:'Added',           key:'applied'},
   ];

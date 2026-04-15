@@ -250,7 +250,7 @@ async def extract_resume_insights(resume_text: str) -> dict:
     prompt = _RESUME_INSIGHTS_PROMPT.replace("{resume_text}", resume_text[:12000])
 
     try:
-        loop   = asyncio.get_event_loop()
+        loop   = asyncio.get_running_loop()
         raw    = await loop.run_in_executor(None, _call_llm, prompt)
         result = _parse_json_response(raw)
 
@@ -291,7 +291,7 @@ async def extract_jd_keywords(jd_text: str) -> dict:
     prompt = _JD_KEYWORDS_PROMPT.replace("{jd_text}", jd_text[:8000])
 
     try:
-        loop   = asyncio.get_event_loop()
+        loop   = asyncio.get_running_loop()
         raw    = await loop.run_in_executor(None, _call_llm, prompt)
         result = _parse_json_response(raw)
 
@@ -355,7 +355,7 @@ async def score_candidate_vs_jd(candidate: dict, jd_text: str, jd_meta: dict) ->
     )
 
     try:
-        loop   = asyncio.get_event_loop()
+        loop   = asyncio.get_running_loop()
         raw    = await loop.run_in_executor(None, _call_llm, prompt)
         result = _parse_json_response(raw)
 
