@@ -9,7 +9,7 @@ ATS scoring itself is done in pure Python (tech_stack overlap) — zero per-cand
 LLM calls, so free-tier limits are never hit during a search.
 
 PROVIDER PRIORITY  (set LLM_PROVIDER env var to override):
-  1. gemini   — google-genai          gemini-1.5-flash   FREE: 1M TPM, 1500 req/day
+  1. gemini   — google-genai          gemini-2.5-flash   FREE tier available
   2. openai   — openai                gpt-4o-mini        ~$0 credit only
   3. anthropic— anthropic             claude-haiku       limited free
 
@@ -18,7 +18,7 @@ ENV VARS:
   GOOGLE_API_KEY        = AIza...
   OPENAI_API_KEY        = sk-...
   ANTHROPIC_API_KEY     = sk-ant-...
-  LLM_MODEL_GEMINI      = gemini-1.5-flash (optional override)
+  LLM_MODEL_GEMINI      = gemini-2.5-flash (optional override)
   LLM_MODEL_OPENAI      = gpt-4o-mini          (optional override)
   LLM_MODEL_ANTHROPIC   = claude-haiku-4-5-20251001  (optional override)
 """
@@ -32,7 +32,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ── Defaults ──────────────────────────────────────────────────
-DEFAULT_GEMINI_MODEL    = "gemini-1.5-flash"
+DEFAULT_GEMINI_MODEL    = "gemini-2.5-flash"
 DEFAULT_OPENAI_MODEL    = "gpt-4o-mini"
 DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
 
