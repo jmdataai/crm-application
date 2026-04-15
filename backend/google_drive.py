@@ -1,13 +1,29 @@
 """
-google_drive.py — Resume upload/delete via Google Service Account.
+google_drive.py — Resume upload/delete via Google OAuth 2.0 (refresh token).
 
 Setup:
-  1. Create a Google Cloud project → Enable the Drive API
-  2. Create a Service Account → Download JSON key
-  3. Create a folder in Google Drive → Share it with the service account email (Editor)
-  4. Set env vars:
-       GOOGLE_SERVICE_ACCOUNT_JSON = <entire contents of the JSON key file>
-       GOOGLE_DRIVE_FOLDER_ID      = <folder ID from the Drive URL>
+  1. Go to https://console.cloud.google.com/
+     - Create (or reuse) a project → Enable the Drive API
+     - APIs & Services → Credentials → Create Credentials → OAuth client ID
+       - Application type: Desktop app  →  Download the JSON (client_id + client_secret)
+
+  2. Get a refresh token via OAuth Playground:
+     - Open https://developers.google.com/oauthplayground/
+     - Click the gear icon (top-right) → check "Use your own OAuth credentials"
+       → paste your Client ID and Client Secret → close gear
+     - In Step 1, type "https://www.googleapis.com/auth/drive" → click Authorize APIs
+     - Sign in with the Google account that OWNS the target Drive folder
+     - Step 2 → "Exchange authorization code for tokens" → copy the refresh_token
+
+  3. Create a folder in your personal Google Drive (or My Drive root is fine).
+     Copy the folder ID from the URL:
+       https://drive.google.com/drive/folders/<FOLDER_ID>
+
+  4. Set these env vars (HuggingFace Secrets or .env):
+       GOOGLE_CLIENT_ID      = <OAuth client_id>
+       GOOGLE_CLIENT_SECRET  = <OAuth client_secret>
+       GOOGLE_REFRESH_TOKEN  = <refresh_token from step 2>
+       GOOGLE_DRIVE_FOLDER_ID = <folder ID from step 3>  (optional but recommended)
 """
 
 import os
@@ -30,9 +46,10 @@ MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
 def _get_service():
-    """Build and return an authenticated Drive v3 service."""
+    """Build and return an authenticated Drive v3 service via OAuth refresh token."""
     try:
-        from google.oauth2 import service_account
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request
         from googleapiclient.discovery import build
     except ImportError:
         raise RuntimeError(
@@ -40,14 +57,30 @@ def _get_service():
             "Run: pip install google-api-python-client google-auth"
         )
 
-    creds_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
-    if not creds_json:
-        raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_JSON env var is not set.")
+    client_id     = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "").strip()
+    refresh_token = os.environ.get("GOOGLE_REFRESH_TOKEN", "").strip()
 
-    creds_info = json.loads(creds_json)
-    creds = service_account.Credentials.from_service_account_info(
-        creds_info, scopes=SCOPES
+    missing = [k for k, v in {
+        "GOOGLE_CLIENT_ID":     client_id,
+        "GOOGLE_CLIENT_SECRET": client_secret,
+        "GOOGLE_REFRESH_TOKEN": refresh_token,
+    }.items() if not v]
+    if missing:
+        raise RuntimeError(
+            f"Missing required env vars: {', '.join(missing)}. "
+            "See google_drive.py docstring for setup instructions."
+        )
+
+    creds = Credentials(
+        token=None,
+        refresh_token=refresh_token,
+        client_id=client_id,
+        client_secret=client_secret,
+        token_uri="https://oauth2.googleapis.com/token",
     )
+    # Force-refresh so we have a valid access token before making API calls
+    creds.refresh(Request())
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
@@ -86,10 +119,8 @@ def upload_resume(file_bytes: bytes, filename: str, mime_type: str) -> dict:
         details = _extract_drive_error(exc)
         if _is_storage_quota_error(details):
             raise RuntimeError(
-                "Google Drive rejected the upload because this service account "
-                "has no personal storage quota. Configure GOOGLE_DRIVE_FOLDER_ID "
-                "to point to a shared drive folder that is shared with the service "
-                "account, or use OAuth delegation instead."
+                "Google Drive rejected the upload: storage quota exceeded. "
+                "Free up space in your Google Drive or upgrade your storage plan."
             ) from exc
         raise RuntimeError(f"Google Drive upload failed: {details}") from exc
 
