@@ -9,7 +9,7 @@ ATS scoring itself is done in pure Python (tech_stack overlap) — zero per-cand
 LLM calls, so free-tier limits are never hit during a search.
 
 PROVIDER PRIORITY  (set LLM_PROVIDER env var to override):
-  1. gemini   — google-generativeai   gemini-1.5-flash   FREE: 1M TPM, 1500 req/day
+  1. gemini   — google-genai          gemini-1.5-flash   FREE: 1M TPM, 1500 req/day
   2. openai   — openai                gpt-4o-mini        ~$0 credit only
   3. anthropic— anthropic             claude-haiku       limited free
 
@@ -18,7 +18,7 @@ ENV VARS:
   GOOGLE_API_KEY        = AIza...
   OPENAI_API_KEY        = sk-...
   ANTHROPIC_API_KEY     = sk-ant-...
-  LLM_MODEL_GEMINI      = gemini-2.0-flash-lite (optional override)
+  LLM_MODEL_GEMINI      = gemini-1.5-flash (optional override)
   LLM_MODEL_OPENAI      = gpt-4o-mini          (optional override)
   LLM_MODEL_ANTHROPIC   = claude-haiku-4-5-20251001  (optional override)
 """
@@ -32,7 +32,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ── Defaults ──────────────────────────────────────────────────
-DEFAULT_GEMINI_MODEL    = "gemini-2.0-flash-lite"
+DEFAULT_GEMINI_MODEL    = "gemini-1.5-flash"
 DEFAULT_OPENAI_MODEL    = "gpt-4o-mini"
 DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
 
@@ -270,14 +270,17 @@ _SYSTEM_JSON = (
 
 
 def _call_gemini(full_prompt: str) -> str:
-    import google.generativeai as genai  # lazy import
-    genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+    from google import genai                  # lazy import (google-genai package)
+    from google.genai import types
+    client     = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
     model_name = os.environ.get("LLM_MODEL_GEMINI", DEFAULT_GEMINI_MODEL)
-    model = genai.GenerativeModel(
-        model_name=model_name,
-        system_instruction=_SYSTEM_JSON,
+    resp = client.models.generate_content(
+        model=model_name,
+        contents=full_prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=_SYSTEM_JSON,
+        ),
     )
-    resp = model.generate_content(full_prompt)
     return resp.text
 
 
