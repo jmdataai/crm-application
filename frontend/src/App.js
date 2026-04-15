@@ -24,6 +24,7 @@ import ImportCandidates     from './pages/recruitment/ImportCandidates';
 import Pipeline             from './pages/recruitment/Pipeline';
 import Interviews           from './pages/recruitment/Interviews';
 import RecruitmentTasks     from './pages/recruitment/RecruitmentTasks';
+import ATSMatch             from './pages/recruitment/ATSMatch';
 
 // Timesheet
 import Timesheet          from './pages/timesheet/Timesheet';
@@ -87,6 +88,7 @@ function AppRoutes() {
       <Route path="/recruitment/pipeline"          element={<Page module="recruitment"><Pipeline /></Page>} />
       <Route path="/recruitment/interviews"        element={<Page module="recruitment"><Interviews /></Page>} />
       <Route path="/recruitment/tasks"             element={<Page module="recruitment"><RecruitmentTasks /></Page>} />
+      <Route path="/recruitment/ats-match"         element={<Page module="recruitment"><ATSMatch /></Page>} />
 
       {/* ── Timesheet — all roles ── */}
       <Route path="/timesheet"           element={<TimesheetRoute />} />

@@ -26,6 +26,25 @@ from typing import List, Optional
 from pydantic import BaseModel, EmailStr, field_validator, model_validator
 from enum import Enum
 
+# ── Google Drive helpers ──────────────────────────────────────
+try:
+    from google_drive import upload_resume, delete_resume, ALLOWED_MIME_TYPES, MAX_FILE_BYTES
+except ImportError:
+    upload_resume = delete_resume = None
+    ALLOWED_MIME_TYPES = {
+        "application/pdf": "pdf",
+        "application/msword": "doc",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    }
+    MAX_FILE_BYTES = 10 * 1024 * 1024
+
+# ── LLM helpers ──────────────────────────────────────────────
+try:
+    from llm_utils import extract_resume_insights, extract_jd_keywords, score_candidate_vs_jd
+    LLM_AVAILABLE = True
+except ImportError:
+    LLM_AVAILABLE = False
+
 # ── Logging ──────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -326,6 +345,8 @@ class CandidateCreate(BaseModel):
     relevant_experience:  Optional[str]  = None
     location:             Optional[str]  = None
     relocation:           Optional[str]  = None
+    # LLM-extracted fields (populated on resume upload)
+    tech_stack:           List[str]      = []
 
     @field_validator("status", mode="before")
     @classmethod
@@ -366,6 +387,8 @@ class CandidateUpdate(BaseModel):
     relevant_experience:  Optional[str]  = None
     location:             Optional[str]  = None
     relocation:           Optional[str]  = None
+    # LLM-extracted fields
+    tech_stack:           Optional[List[str]] = None
 
 class SubmissionCreate(BaseModel):
     lead_id:      str
@@ -1365,6 +1388,32 @@ async def delete_job(job_id: str, request: Request):
 
 
 # ============================================================
+# RESUME TEXT EXTRACTION HELPER
+# ============================================================
+def _extract_resume_text(file_bytes: bytes, content_type: str) -> str:
+    """Extract plain text from PDF or DOCX bytes for LLM analysis."""
+    try:
+        if content_type == "application/pdf":
+            import pdfplumber, io as _io
+            with pdfplumber.open(_io.BytesIO(file_bytes)) as pdf:
+                return "\n".join(
+                    page.extract_text() or "" for page in pdf.pages
+                ).strip()
+        elif content_type in (
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ):
+            import docx, io as _io
+            doc = docx.Document(_io.BytesIO(file_bytes))
+            return "\n".join(p.text for p in doc.paragraphs).strip()
+        elif content_type == "application/msword":
+            # Legacy .doc — best-effort UTF-8 decode
+            return file_bytes.decode("utf-8", errors="ignore")
+    except Exception as exc:
+        logger.warning(f"[resume-extract] text extraction failed: {exc}")
+    return ""
+
+
+# ============================================================
 # CANDIDATES
 # ============================================================
 @api_router.post("/candidates")
@@ -1394,9 +1443,12 @@ async def create_candidate(candidate: CandidateCreate, request: Request):
         "relevant_experience":  candidate.relevant_experience,
         "location":             candidate.location,
         "relocation":           candidate.relocation,
+        # LLM-extracted fields
+        "tech_stack":           candidate.tech_stack or [],
     }
     doc_c = {k: v for k, v in doc_c.items() if v is not None and v != [] }
     if candidate.skills: doc_c["skills"] = candidate.skills
+    if candidate.tech_stack is not None: doc_c["tech_stack"] = candidate.tech_stack
     try:
         res = await run(lambda: sb("candidates").insert(doc_c).execute())
     except Exception as e:
@@ -1513,6 +1565,253 @@ async def delete_candidate(candidate_id: str, request: Request):
     await get_current_user(request)
     await run(lambda: sb("candidates").delete().eq("id", candidate_id).execute())
     return {"message": "Candidate deleted"}
+
+
+@api_router.post("/candidates/{candidate_id}/resume")
+async def upload_candidate_resume(
+    candidate_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+):
+    """
+    Upload a resume (PDF / DOC / DOCX) to Google Drive and store the
+    preview URL in the candidate's resume_url column in Supabase.
+ 
+    The stored URL is a Google Drive /preview link so the frontend
+    can embed it directly in an <iframe> without opening a new tab.
+    """
+    user = await get_current_user(request)
+ 
+    # ── Validate MIME type ───────────────────────────────────
+    if file.content_type not in ALLOWED_MIME_TYPES:
+        raise HTTPException(
+            400,
+            f"Unsupported file type '{file.content_type}'. "
+            "Only PDF, DOC, and DOCX are accepted."
+        )
+ 
+    # ── Read bytes ──────────────────────────────────────────
+    contents = await file.read()
+    if len(contents) > MAX_FILE_BYTES:
+        raise HTTPException(400, "File too large. Maximum allowed size is 10 MB.")
+ 
+    # ── Fetch candidate (need name + existing resume_url) ────
+    existing = await safe_single(
+        lambda: sb("candidates")
+        .select("id,full_name,resume_url")
+        .eq("id", candidate_id)
+        .single()
+        .execute()
+    )
+    if not existing:
+        raise HTTPException(404, "Candidate not found")
+ 
+    # ── Delete old resume from Drive if one exists ───────────
+    old_url = existing.get("resume_url") or ""
+    if "drive.google.com" in old_url:
+        await run(lambda: delete_resume(old_url))
+ 
+    # ── Build a clean filename: Resume_John_Doe_abc12345.pdf ─
+    ext       = ALLOWED_MIME_TYPES[file.content_type]
+    safe_name = (existing.get("full_name") or "Candidate").replace(" ", "_")
+    short_id  = candidate_id.replace("-", "")[:8]
+    filename  = f"Resume_{safe_name}_{short_id}.{ext}"
+ 
+    # ── Upload to Google Drive ───────────────────────────────
+    try:
+        result = await run(
+            lambda: upload_resume(contents, filename, file.content_type)
+        )
+    except RuntimeError as exc:
+        raise HTTPException(500, f"Google Drive upload failed: {exc}")
+ 
+    preview_url = result["preview_url"]
+
+    # ── Extract text + call LLM for tech_stack / experience ──
+    db_patch: dict = {"resume_url": preview_url}
+    tech_stack_extracted: list = []
+    experience_extracted = None
+
+    if LLM_AVAILABLE:
+        try:
+            resume_text = _extract_resume_text(contents, file.content_type)
+            if resume_text:
+                insights = await extract_resume_insights(resume_text)
+                tech_stack_extracted = insights.get("tech_stack") or []
+                experience_extracted = insights.get("experience_years")
+                if tech_stack_extracted:
+                    db_patch["tech_stack"] = tech_stack_extracted
+                if experience_extracted is not None:
+                    db_patch["experience_years"] = experience_extracted
+        except Exception as llm_exc:
+            logger.warning(f"[LLM] Resume insights failed (non-fatal): {llm_exc}")
+
+    # ── Persist URL + LLM fields in Supabase ─────────────────
+    await run(
+        lambda: sb("candidates")
+        .update(db_patch)
+        .eq("id", candidate_id)
+        .execute()
+    )
+
+    await _log_activity(
+        candidate_id=candidate_id,
+        user=user,
+        atype="note",
+        desc=f"Resume uploaded: {filename}"
+              + (f" | {len(tech_stack_extracted)} skills extracted" if tech_stack_extracted else ""),
+    )
+
+    return {
+        "resume_url":        preview_url,
+        "view_url":          result["view_url"],
+        "file_id":           result["file_id"],
+        "filename":          filename,
+        "tech_stack":        tech_stack_extracted,
+        "experience_years":  experience_extracted,
+    }
+ 
+ 
+@api_router.delete("/candidates/{candidate_id}/resume")
+async def delete_candidate_resume(candidate_id: str, request: Request):
+    """
+    Remove the candidate's resume from Google Drive and clear resume_url
+    in Supabase.
+    """
+    user = await get_current_user(request)
+ 
+    existing = await safe_single(
+        lambda: sb("candidates")
+        .select("id,resume_url")
+        .eq("id", candidate_id)
+        .single()
+        .execute()
+    )
+    if not existing:
+        raise HTTPException(404, "Candidate not found")
+ 
+    url = existing.get("resume_url") or ""
+    if "drive.google.com" in url:
+        await run(lambda: delete_resume(url))
+ 
+    await run(
+        lambda: sb("candidates")
+        .update({"resume_url": None})
+        .eq("id", candidate_id)
+        .execute()
+    )
+ 
+    await _log_activity(
+        candidate_id=candidate_id,
+        user=user,
+        atype="note",
+        desc="Resume removed",
+    )
+ 
+    return {"message": "Resume deleted successfully"}
+
+
+# ============================================================
+# ATS MATCH — JD → Top-10 candidates
+# ============================================================
+class ATSMatchRequest(BaseModel):
+    jd_text:        str
+    candidate_type: str = "domestic"   # domestic | international
+
+
+@api_router.post("/candidates/ats-match")
+async def ats_match(body: ATSMatchRequest, request: Request):
+    """
+    Given a job description, find and score the top-10 best-fit candidates
+    using a two-stage approach:
+      1. Fast pre-filter  — candidates whose tech_stack overlaps with JD keywords
+      2. LLM scoring      — parallel ATS scores for each pre-filtered candidate
+    Only candidates of the requested type (domestic / international) are considered.
+    """
+    user = await get_current_user(request)
+    if user.get("role") not in ("admin", "sales", "viewer"):
+        raise HTTPException(403, "ATS matching is not available for your role.")
+
+    if not LLM_AVAILABLE:
+        raise HTTPException(503, "LLM service not configured. Set LLM_PROVIDER and the matching API key.")
+
+    jd_text = (body.jd_text or "").strip()
+    if len(jd_text) < 30:
+        raise HTTPException(400, "Job description is too short. Please provide more detail.")
+
+    # ── Step 1: parse JD to get structured requirements ──────
+    jd_meta = await extract_jd_keywords(jd_text)
+    required = set(s.lower() for s in jd_meta.get("required_skills") or [])
+    nice     = set(s.lower() for s in jd_meta.get("nice_to_have_skills") or [])
+    all_jd_skills = required | nice
+
+    # ── Step 2: fetch candidates (this type only) ────────────
+    res = await run(
+        lambda: sb("candidates")
+        .select("id,full_name,candidate_role,experience_years,tech_stack,"
+                "location,visa_status,candidate_type,total_experience,status")
+        .eq("candidate_type", body.candidate_type)
+        .execute()
+    )
+    all_candidates = res.data or []
+
+    if not all_candidates:
+        return {"matches": [], "jd_meta": jd_meta, "total_scanned": 0}
+
+    # ── Step 3: pre-filter by tech_stack overlap ─────────────
+    def _overlap_score(cand: dict) -> float:
+        cand_stack = set(s.lower() for s in (cand.get("tech_stack") or []))
+        if not cand_stack or not all_jd_skills:
+            return 0.0
+        req_hits  = len(cand_stack & required)
+        nice_hits = len(cand_stack & nice)
+        # Weight: required skill hits count double
+        return (req_hits * 2 + nice_hits) / max(len(required) * 2 + len(nice), 1)
+
+    # Keep candidates with at least 1 skill overlap; sort by overlap desc
+    scored_pre = sorted(
+        [c for c in all_candidates if _overlap_score(c) > 0],
+        key=_overlap_score,
+        reverse=True,
+    )
+
+    # If no overlap matches, fall back to all candidates (capped at 40 for performance)
+    pool = scored_pre[:40] if scored_pre else all_candidates[:40]
+
+    # ── Step 4: parallel LLM scoring ─────────────────────────
+    tasks = [score_candidate_vs_jd(c, jd_text, jd_meta) for c in pool]
+    scores = await asyncio.gather(*tasks, return_exceptions=True)
+
+    results = []
+    for cand, score_result in zip(pool, scores):
+        if isinstance(score_result, Exception):
+            logger.warning(f"[ATS] scoring failed for {cand.get('full_name')}: {score_result}")
+            continue
+        results.append({
+            "id":               cand["id"],
+            "full_name":        cand.get("full_name"),
+            "candidate_role":   cand.get("candidate_role"),
+            "experience_years": cand.get("experience_years"),
+            "total_experience": cand.get("total_experience"),
+            "tech_stack":       cand.get("tech_stack") or [],
+            "location":         cand.get("location"),
+            "visa_status":      cand.get("visa_status"),
+            "status":           cand.get("status"),
+            "ats_score":        score_result["ats_score"],
+            "matched_skills":   score_result["matched_skills"],
+            "missing_skills":   score_result["missing_skills"],
+            "fit_summary":      score_result["fit_summary"],
+        })
+
+    # Sort by ATS score descending, return top 10
+    top10 = sorted(results, key=lambda x: x["ats_score"], reverse=True)[:10]
+
+    return {
+        "matches":       top10,
+        "jd_meta":       jd_meta,
+        "total_scanned": len(pool),
+        "pre_filtered":  len(scored_pre),
+    }
 
 
 # ============================================================

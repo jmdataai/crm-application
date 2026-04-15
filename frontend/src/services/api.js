@@ -121,6 +121,25 @@ export const candidatesAPI = {
   update: (id, data) => api.put(`/candidates/${id}`, data),
   delete: (id) => api.delete(`/candidates/${id}`),
   getPipeline: (params) => api.get('/candidates/pipeline', { params }),
+
+  // Resume — upload file to Google Drive via backend
+  uploadResume: (candidateId, file, onProgress) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post(`/candidates/${candidateId}/resume`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: onProgress
+        ? (e) => onProgress(Math.round((e.loaded * 100) / e.total))
+        : undefined,
+    });
+  },
+
+  // Resume — delete from Google Drive + clear in Supabase
+  deleteResume: (candidateId) => api.delete(`/candidates/${candidateId}/resume`),
+
+  // ATS Match — score candidates against a job description
+  atsMatch: (jd_text, candidate_type = 'domestic') =>
+    api.post('/candidates/ats-match', { jd_text, candidate_type }),
 };
 
 // Interviews APIs

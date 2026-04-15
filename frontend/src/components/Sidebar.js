@@ -24,6 +24,7 @@ const recruitNav = [
   { path: '/recruitment/pipeline',          icon: 'account_tree',   label: 'Pipeline' },
   { path: '/recruitment/interviews',        icon: 'event',          label: 'Interviews' },
   { path: '/recruitment/tasks',             icon: 'task_alt',       label: 'Tasks' },
+  { path: '/recruitment/ats-match',         icon: 'manage_search',  label: 'ATS Match' },
 ];
 
 const timesheetNav = [
