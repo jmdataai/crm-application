@@ -8,22 +8,31 @@ Only TWO public functions are needed:
 ATS scoring itself is done in pure Python (tech_stack overlap) — zero per-candidate
 LLM calls, so free-tier limits are never hit during a search.
 
-PROVIDER PRIORITY  (set LLM_PROVIDER env var to override):
-  1. gemini   — google-genai          gemini-2.5-flash   FREE tier available
-  2. openai   — openai                gpt-4o-mini        ~$0 credit only
-  3. anthropic— anthropic             claude-haiku       limited free
+PROVIDER PRIORITY  (free-tier limits, highest first):
+  1. groq      — openai SDK + groq base_url  llama-3.3-70b-versatile  14,400 req/day FREE
+  2. gemini    — google-genai                gemini-2.5-flash-lite     1,000 req/day FREE
+  3. openai    — openai                      gpt-4o-mini               paid only
+  4. anthropic — anthropic                   claude-haiku              paid only
 
-ENV VARS:
-  LLM_PROVIDER          = "gemini" | "openai" | "anthropic"   (default: gemini)
-  GOOGLE_API_KEY        = AIza...
-  OPENAI_API_KEY        = sk-...
-  ANTHROPIC_API_KEY     = sk-ant-...
-  LLM_MODEL_GEMINI      = gemini-2.5-flash (optional override)
-  LLM_MODEL_OPENAI      = gpt-4o-mini          (optional override)
-  LLM_MODEL_ANTHROPIC   = claude-haiku-4-5-20251001  (optional override)
+  Configured LLM_PROVIDER is tried first; others follow in the priority order above.
+  NOTE: gemini-2.0-flash is DEPRECATED and retires June 1 2026 — do not use.
+
+ENV VARS (add to HuggingFace Spaces secrets):
+  LLM_PROVIDER          = "groq" | "gemini" | "openai" | "anthropic"  (default: groq)
+
+  GROQ_API_KEY          = gsk_...      ← get free at console.groq.com
+  GOOGLE_API_KEY        = AIza...      ← get free at aistudio.google.com
+  OPENAI_API_KEY        = sk-...       ← paid only
+  ANTHROPIC_API_KEY     = sk-ant-...   ← paid only
+
+  LLM_MODEL_GROQ        = llama-3.3-70b-versatile      (optional override)
+  LLM_MODEL_GEMINI      = gemini-2.5-flash-lite         (optional override)
+  LLM_MODEL_OPENAI      = gpt-4o-mini                  (optional override)
+  LLM_MODEL_ANTHROPIC   = claude-haiku-4-5-20251001    (optional override)
 """
 
 import os
+import re
 import json
 import logging
 import asyncio
@@ -32,13 +41,14 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ── Defaults ──────────────────────────────────────────────────
-DEFAULT_GEMINI_MODEL    = "gemini-2.5-flash"
-DEFAULT_OPENAI_MODEL    = "gpt-4o-mini"
-DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_GROQ_MODEL      = "llama-3.3-70b-versatile"   # 14,400 req/day FREE
+DEFAULT_GEMINI_MODEL    = "gemini-2.5-flash-lite"     # 1,000 req/day FREE (2.0-flash DEPRECATED Jun 2026)
+DEFAULT_OPENAI_MODEL    = "gpt-4o-mini"               # paid only
+DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001" # paid only
 
 
 def _provider() -> str:
-    return os.environ.get("LLM_PROVIDER", "gemini").lower().strip()
+    return os.environ.get("LLM_PROVIDER", "groq").lower().strip()
 
 
 def _parse_json_response(raw: str) -> Any:
@@ -438,6 +448,26 @@ _SYSTEM_JSON = (
 )
 
 
+def _call_groq(full_prompt: str) -> str:
+    """Groq via OpenAI-compatible endpoint. 14,400 req/day FREE."""
+    from openai import OpenAI  # Groq uses OpenAI SDK with custom base_url
+    client = OpenAI(
+        api_key=os.environ["GROQ_API_KEY"],
+        base_url="https://api.groq.com/openai/v1",
+    )
+    model = os.environ.get("LLM_MODEL_GROQ", DEFAULT_GROQ_MODEL)
+    resp = client.chat.completions.create(
+        model=model,
+        max_tokens=1024,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": _SYSTEM_JSON},
+            {"role": "user",   "content": full_prompt},
+        ],
+    )
+    return resp.choices[0].message.content
+
+
 def _call_gemini(full_prompt: str) -> str:
     from google import genai                  # lazy import (google-genai package)
     from google.genai import types
@@ -483,13 +513,49 @@ def _call_anthropic(full_prompt: str) -> str:
 
 
 def _call_llm(full_prompt: str) -> str:
-    provider = _provider()
-    if provider == "openai":
-        return _call_openai(full_prompt)
-    elif provider == "anthropic":
-        return _call_anthropic(full_prompt)
-    else:
-        return _call_gemini(full_prompt)
+    """
+    Cascade through all providers in free-tier priority order:
+      1. Groq         — llama-3.3-70b-versatile   14,400 req/day FREE
+      2. Gemini       — gemini-2.5-flash-lite       1,000 req/day FREE
+      3. OpenAI       — gpt-4o-mini                paid only
+      4. Anthropic    — claude-haiku                paid only
+
+    Configured LLM_PROVIDER is tried first; remaining providers follow in
+    the priority order above. Only providers with a key set are attempted.
+    Raises RuntimeError if all configured providers fail.
+
+    NOTE: Puter.js is a browser-only JS library and cannot be called from
+    a Python/FastAPI backend — excluded from this cascade.
+    """
+    configured = _provider()
+
+    # Free-tier priority order
+    _PRIORITY = ["groq", "gemini", "openai", "anthropic"]
+    ordered = [configured] + [p for p in _PRIORITY if p != configured]
+
+    _callers = {
+        "groq":      (_call_groq,      "GROQ_API_KEY"),
+        "gemini":    (_call_gemini,    "GOOGLE_API_KEY"),
+        "openai":    (_call_openai,    "OPENAI_API_KEY"),
+        "anthropic": (_call_anthropic, "ANTHROPIC_API_KEY"),
+    }
+
+    last_exc: Exception = RuntimeError("No LLM provider available — set at least one API key")
+    for prov in ordered:
+        caller, key_var = _callers[prov]
+        if not os.environ.get(key_var):
+            logger.debug(f"[LLM] Skipping {prov} — {key_var} not set")
+            continue
+        try:
+            result = caller(full_prompt)
+            if prov != configured:
+                logger.info(f"[LLM] Fell back to {prov} (primary={configured} failed)")
+            return result
+        except Exception as exc:
+            logger.warning(f"[LLM] {prov} failed: {exc}")
+            last_exc = exc
+
+    raise last_exc
 
 
 # ════════════════════════════════════════════════════════════════
@@ -543,9 +609,37 @@ async def extract_resume_insights(resume_text: str) -> dict:
     return {"tech_stack": tech, "experience_years": exp}
 
 
+def _jd_keyword_fallback(jd_text: str) -> dict:
+    """
+    Keyword scan of JD text — no LLM needed.
+    All extracted skills treated as required (can't distinguish required vs
+    nice-to-have without language understanding).
+    """
+    skills = _extract_tech_stack_keywords(jd_text)
+
+    exp = None
+    m = re.search(r"\b(\d+)\+?\s*(?:years?|yrs?)\b", jd_text, re.IGNORECASE)
+    if m:
+        val = int(m.group(1))
+        exp = val if 0 < val <= 40 else None
+
+    logger.info(f"[JD] Keyword fallback — {len(skills)} skills, {exp} yrs min exp")
+    return {
+        "required_skills":      skills,
+        "nice_to_have_skills":  [],
+        "experience_years_min": exp,
+        "role_type":            "Other",
+        "domain":               "General",
+    }
+
+
 async def extract_jd_keywords(jd_text: str) -> dict:
     """
     Parse a job description into structured requirements. Called ONCE per ATS search.
+
+    Strategy:
+      1. Try LLM cascade (Gemini → OpenAI → Anthropic, whichever has a key).
+      2. If all LLMs fail OR return empty required_skills, fall back to keyword scan.
 
     Returns:
     {
@@ -556,8 +650,15 @@ async def extract_jd_keywords(jd_text: str) -> dict:
       "domain": str
     }
     """
+    if not jd_text or not jd_text.strip():
+        return {
+            "required_skills": [], "nice_to_have_skills": [],
+            "experience_years_min": None, "role_type": "Other", "domain": "General",
+        }
+
     prompt = _JD_KEYWORDS_PROMPT.replace("{jd_text}", jd_text[:8000])
 
+    # ── 1. Try LLM cascade ────────────────────────────────────────
     try:
         loop   = asyncio.get_running_loop()
         raw    = await loop.run_in_executor(None, _call_llm, prompt)
@@ -570,16 +671,20 @@ async def extract_jd_keywords(jd_text: str) -> dict:
             try:   exp = int(float(str(exp)))
             except: exp = None
 
-        return {
-            "required_skills":      req,
-            "nice_to_have_skills":  nice,
-            "experience_years_min": exp,
-            "role_type":            str(result.get("role_type") or "Other"),
-            "domain":               str(result.get("domain")    or "General"),
-        }
+        if req:
+            logger.info(f"[LLM] JD keywords — {len(req)} required, {len(nice)} nice-to-have")
+            return {
+                "required_skills":      req,
+                "nice_to_have_skills":  nice,
+                "experience_years_min": exp,
+                "role_type":            str(result.get("role_type") or "Other"),
+                "domain":               str(result.get("domain")    or "General"),
+            }
+
+        logger.info("[LLM] JD returned empty required_skills — falling back to keyword scan")
+
     except Exception as exc:
-        logger.warning(f"[LLM] extract_jd_keywords failed: {exc}")
-        return {
-            "required_skills": [], "nice_to_have_skills": [],
-            "experience_years_min": None, "role_type": "Other", "domain": "General",
-        }
+        logger.warning(f"[LLM] extract_jd_keywords failed: {exc} — falling back to keyword scan")
+
+    # ── 2. Keyword fallback ────────────────────────────────────────
+    return _jd_keyword_fallback(jd_text)

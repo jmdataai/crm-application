@@ -40,13 +40,22 @@ google-api-python-client==2.120.0
 google-auth>=2.48.1
 google-auth-httplib2==0.2.0
 
-# LLM — resume tech-stack extraction (pick one provider, default: gemini)
-# Gemini: FREE 1M TPM, 1500 req/day — best free tier
-# google-genai is the new official SDK (google-generativeai is EOL)
+# LLM — resume tech-stack extraction + JD parsing
+# Provider cascade: Groq → Gemini → OpenAI → Anthropic → keyword fallback
+#
+# Groq  : 14,400 req/day FREE  — llama-3.3-70b-versatile  (uses openai SDK)
+# Gemini: 1,000  req/day FREE  — gemini-2.5-flash-lite     (google-genai SDK)
+# OpenAI: paid only            — gpt-4o-mini
+# Anthropic: paid only         — claude-haiku-4-5-20251001
+#
+# NOTE: gemini-2.0-flash is DEPRECATED, retiring June 1 2026.
+#
+# google-genai is the official SDK (google-generativeai is EOL)
 google-genai>=1.0.0
-# Alternatives (optional):
+# openai SDK also handles Groq (same SDK, different base_url)
+openai>=1.50.0
+# Optional paid providers:
 # anthropic>=0.40.0
-# openai>=1.50.0
 
 # Resume text extraction
 pdfplumber>=0.11.0
