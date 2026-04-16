@@ -260,7 +260,176 @@ SELF-CHECK before responding:
 
 
 # ════════════════════════════════════════════════════════════════
-# LLM CALLERS
+# KEYWORD-BASED RESUME EXTRACTION (no LLM, instant, always works)
+# ════════════════════════════════════════════════════════════════
+
+# Maps lowercase search alias → canonical display name.
+# Searched with non-alphanumeric word boundaries, case-insensitive.
+_TECH_ALIAS: dict[str, str] = {
+    # Languages
+    "python": "Python", "java": "Java",
+    "javascript": "JavaScript", "typescript": "TypeScript",
+    "golang": "Go", "rust": "Rust",
+    "c++": "C++", "c#": "C#", "ruby": "Ruby", "php": "PHP",
+    "swift": "Swift", "kotlin": "Kotlin", "scala": "Scala",
+    "perl": "Perl", "haskell": "Haskell", "elixir": "Elixir",
+    "dart": "Dart", "groovy": "Groovy", "lua": "Lua",
+    "matlab": "MATLAB", "cobol": "COBOL", "powershell": "PowerShell",
+    "objective-c": "Objective-C", "solidity": "Solidity",
+    # Frontend
+    "react": "React", "react.js": "React", "reactjs": "React",
+    "angular": "Angular", "angularjs": "Angular",
+    "vue": "Vue", "vue.js": "Vue", "vuejs": "Vue",
+    "next.js": "Next.js", "nextjs": "Next.js",
+    "nuxt": "Nuxt", "svelte": "Svelte", "gatsby": "Gatsby",
+    "tailwind": "Tailwind CSS", "tailwindcss": "Tailwind CSS",
+    "bootstrap": "Bootstrap", "redux": "Redux", "mobx": "MobX",
+    "webpack": "Webpack", "vite": "Vite",
+    "react query": "React Query", "tanstack": "React Query",
+    "zustand": "Zustand", "storybook": "Storybook",
+    # Backend
+    "node.js": "Node.js", "nodejs": "Node.js", "node": "Node.js",
+    "express": "Express", "express.js": "Express",
+    "nestjs": "NestJS", "nest.js": "NestJS",
+    "fastapi": "FastAPI", "flask": "Flask", "django": "Django",
+    "spring boot": "Spring Boot",
+    "rails": "Rails", "ruby on rails": "Rails",
+    "laravel": "Laravel", "symfony": "Symfony",
+    "asp.net": "ASP.NET", ".net core": ".NET Core", ".net": ".NET",
+    "gin": "Gin", "fiber": "Fiber",
+    "graphql": "GraphQL", "apollo": "Apollo",
+    "grpc": "gRPC", "websockets": "WebSockets", "websocket": "WebSockets",
+    "rest api": "REST", "restful": "REST",
+    "openapi": "OpenAPI", "swagger": "Swagger",
+    "socket.io": "Socket.IO", "prisma": "Prisma",
+    "sqlalchemy": "SQLAlchemy", "sequelize": "Sequelize", "typeorm": "TypeORM",
+    # Databases – SQL
+    "postgresql": "PostgreSQL", "postgres": "PostgreSQL",
+    "mysql": "MySQL", "sqlite": "SQLite",
+    "sql server": "SQL Server", "mssql": "SQL Server",
+    "mariadb": "MariaDB", "cockroachdb": "CockroachDB",
+    # Databases – NoSQL
+    "mongodb": "MongoDB", "mongo": "MongoDB",
+    "redis": "Redis", "cassandra": "Cassandra",
+    "dynamodb": "DynamoDB", "elasticsearch": "Elasticsearch",
+    "opensearch": "OpenSearch", "neo4j": "Neo4j",
+    "influxdb": "InfluxDB", "firebase": "Firebase",
+    "firestore": "Firestore",
+    # Data warehouses
+    "snowflake": "Snowflake", "bigquery": "BigQuery",
+    "redshift": "Redshift", "databricks": "Databricks", "dbt": "dbt",
+    # Cloud
+    "aws": "AWS", "amazon web services": "AWS",
+    "gcp": "GCP", "google cloud": "GCP",
+    "azure": "Azure", "microsoft azure": "Azure",
+    "digitalocean": "DigitalOcean", "heroku": "Heroku",
+    "vercel": "Vercel", "netlify": "Netlify", "cloudflare": "Cloudflare",
+    # AWS services
+    "ec2": "AWS EC2", "aws s3": "AWS S3", "aws lambda": "AWS Lambda",
+    "ecs": "AWS ECS", "eks": "Kubernetes",
+    "sqs": "AWS SQS", "sns": "AWS SNS", "cloudformation": "CloudFormation",
+    # GCP services
+    "gke": "Kubernetes", "cloud run": "Cloud Run", "pubsub": "Pub/Sub",
+    # Container / Infra
+    "docker": "Docker", "kubernetes": "Kubernetes", "k8s": "Kubernetes",
+    "helm": "Helm", "istio": "Istio",
+    "terraform": "Terraform", "ansible": "Ansible",
+    "puppet": "Puppet", "chef": "Chef", "vagrant": "Vagrant",
+    # CI/CD
+    "github actions": "GitHub Actions", "jenkins": "Jenkins",
+    "circleci": "CircleCI", "gitlab ci": "GitLab CI",
+    "travis ci": "Travis CI", "argocd": "ArgoCD",
+    # Monitoring
+    "prometheus": "Prometheus", "grafana": "Grafana",
+    "datadog": "Datadog", "new relic": "New Relic",
+    "splunk": "Splunk", "kibana": "Kibana", "logstash": "Logstash",
+    # Messaging
+    "kafka": "Kafka", "apache kafka": "Kafka",
+    "rabbitmq": "RabbitMQ", "celery": "Celery", "nats": "NATS",
+    # ML / AI / Data
+    "pytorch": "PyTorch", "tensorflow": "TensorFlow",
+    "keras": "Keras", "scikit-learn": "Scikit-learn", "sklearn": "Scikit-learn",
+    "hugging face": "Hugging Face", "huggingface": "Hugging Face",
+    "langchain": "LangChain", "opencv": "OpenCV",
+    "nltk": "NLTK", "spacy": "spaCy",
+    "xgboost": "XGBoost", "lightgbm": "LightGBM",
+    "pandas": "Pandas", "numpy": "NumPy", "scipy": "SciPy",
+    "matplotlib": "Matplotlib", "plotly": "Plotly",
+    # Big Data
+    "apache spark": "Apache Spark", "pyspark": "Apache Spark",
+    "hadoop": "Hadoop",
+    "airflow": "Airflow", "apache airflow": "Airflow",
+    "apache flink": "Apache Flink", "flink": "Apache Flink",
+    "presto": "Presto", "trino": "Trino",
+    # Testing
+    "jest": "Jest", "pytest": "pytest", "junit": "JUnit",
+    "cypress": "Cypress", "selenium": "Selenium", "playwright": "Playwright",
+    "vitest": "Vitest",
+    # Mobile
+    "react native": "React Native", "flutter": "Flutter",
+    "swiftui": "SwiftUI",
+}
+
+# Build sorted list: longer aliases first so "spring boot" matches before "spring"
+_SORTED_ALIASES = sorted(_TECH_ALIAS.items(), key=lambda x: -len(x[0]))
+
+
+def _extract_tech_stack_keywords(text: str) -> list[str]:
+    """
+    Scan resume text for known tech keywords. No LLM — instant and reliable.
+    Uses non-alphanumeric word boundaries to avoid partial matches.
+    """
+    found: dict[str, bool] = {}
+    text_lower = text.lower()
+
+    for alias, canonical in _SORTED_ALIASES:
+        if canonical in found:
+            continue  # already captured via another alias
+        pattern = r"(?<![a-zA-Z0-9])" + re.escape(alias) + r"(?![a-zA-Z0-9])"
+        if re.search(pattern, text_lower):
+            found[canonical] = True
+
+    return sorted(found.keys())[:35]
+
+
+def _estimate_experience_years(text: str) -> int | None:
+    """
+    Estimate years of experience from date ranges in resume text.
+    Handles: "2019 – 2022", "Jan 2020 - Present", "2018 – current", etc.
+    """
+    current_year = 2026
+    present_tokens = {"present", "current", "now", "ongoing", "date"}
+
+    ranges = re.findall(
+        r"\b((?:19|20)\d{2})\s*[-–—]\s*((?:19|20)\d{2}|present|current|now|till\s+date|ongoing)",
+        text, re.IGNORECASE,
+    )
+
+    if ranges:
+        total_months = 0
+        for start_str, end_str in ranges:
+            start = int(start_str)
+            end_clean = end_str.lower().strip()
+            end = current_year if any(t in end_clean for t in present_tokens) else int(end_str)
+            if 1980 <= start <= end <= current_year:
+                total_months += (end - start) * 12
+        if total_months > 0:
+            return min(total_months // 12, 50)
+
+    # Fallback: year-span heuristic (deduct 4 yrs for education)
+    years = sorted({
+        int(y) for y in re.findall(r"\b(19[89]\d|20[0-2]\d)\b", text)
+        if 1990 <= int(y) <= current_year
+    })
+    if len(years) >= 2:
+        span = years[-1] - years[0]
+        return max(0, span - 4) if span >= 5 else None
+
+    return None
+
+
+# ════════════════════════════════════════════════════════════════
+# LLM CALLERS  (used only for JD keyword extraction)
 # ════════════════════════════════════════════════════════════════
 
 _SYSTEM_JSON = (
@@ -332,36 +501,46 @@ async def extract_resume_insights(resume_text: str) -> dict:
     Extract tech_stack (list[str]) and experience_years (int | None)
     from raw resume text. Called ONCE per resume upload.
 
+    Strategy:
+      1. Try LLM — best quality when available.
+      2. If LLM fails OR returns empty tech_stack, fall back to keyword scan.
     Returns: {"tech_stack": [...], "experience_years": int | None}
     """
     if not resume_text or not resume_text.strip():
         return {"tech_stack": [], "experience_years": None}
 
-    prompt = _RESUME_INSIGHTS_PROMPT.replace("{resume_text}", resume_text[:12000])
-
+    # ── 1. Try LLM ────────────────────────────────────────────────
     try:
+        prompt = _RESUME_INSIGHTS_PROMPT.replace("{resume_text}", resume_text[:12000])
         loop   = asyncio.get_running_loop()
         raw    = await loop.run_in_executor(None, _call_llm, prompt)
         result = _parse_json_response(raw)
 
-        tech = result.get("tech_stack") or []
+        tech = [str(s).strip() for s in (result.get("tech_stack") or [])
+                if isinstance(s, (str, int)) and str(s).strip()][:35]
         exp  = result.get("experience_years")
-
-        tech = [str(s).strip() for s in tech if isinstance(s, (str, int)) and str(s).strip()][:35]
         if exp is not None:
             try:
                 exp = int(float(str(exp)))
-                if exp < 0 or exp > 60:
+                if not (0 <= exp <= 60):
                     exp = None
             except (ValueError, TypeError):
                 exp = None
 
-        logger.info(f"[LLM] Resume insights — {len(tech)} skills, {exp} yrs exp")
-        return {"tech_stack": tech, "experience_years": exp}
+        if tech:
+            logger.info(f"[LLM] Resume insights — {len(tech)} skills, {exp} yrs exp")
+            return {"tech_stack": tech, "experience_years": exp}
+
+        logger.info("[LLM] Returned empty tech_stack — falling back to keyword scan")
 
     except Exception as exc:
-        logger.warning(f"[LLM] extract_resume_insights failed: {exc}")
-        return {"tech_stack": [], "experience_years": None}
+        logger.warning(f"[LLM] extract_resume_insights failed: {exc} — falling back to keyword scan")
+
+    # ── 2. Keyword fallback ────────────────────────────────────────
+    tech = _extract_tech_stack_keywords(resume_text)
+    exp  = _estimate_experience_years(resume_text)
+    logger.info(f"[Resume] Keyword scan — {len(tech)} skills, {exp} yrs exp")
+    return {"tech_stack": tech, "experience_years": exp}
 
 
 async def extract_jd_keywords(jd_text: str) -> dict:
