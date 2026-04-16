@@ -389,9 +389,17 @@ export default function CandidateDetail() {
   const stageIdx = STAGES_ORDER.indexOf(candidate.status);
   const cand = {
     ...candidate, name: candidate.full_name, candidate_role: candidate.candidate_role||'',
-    job: candidate.job?.title||'', dept: candidate.job?.department||'', exp: candidate.experience_years||0,
+    job: candidate.job?.title||'', dept: candidate.job?.department||'',
+    // experience_years = LLM-extracted relevant exp; fall back to total_experience string from Excel
+    exp: candidate.experience_years || null,
+    expDisplay: candidate.experience_years
+      ? `${candidate.experience_years} yrs (relevant)`
+      : candidate.total_experience || '—',
     linkedin: candidate.linkedin_url||'', portfolio: candidate.portfolio_url||'',
-    activities, interviews, skills: candidate.skills||[], applied: candidate.created_at?.slice(0,10)||'',
+    activities, interviews,
+    skills: candidate.skills||[],
+    tech_stack: candidate.tech_stack || [],   // LLM-extracted from resume
+    applied: candidate.created_at?.slice(0,10)||'',
   };
 
   const TABS = [
@@ -479,7 +487,7 @@ export default function CandidateDetail() {
               { icon:'phone',          label:'Phone',       val: cand.phone   || '—' },
               { icon:'work',           label:'Applying For',val: cand.job     || '—' },
               { icon:'corporate_fare', label:'Department',  val: cand.dept    || '—' },
-              { icon:'schedule',       label:'Experience',  val: cand.exp ? `${cand.exp} years` : '—' },
+              { icon:'schedule',       label:'Experience',  val: cand.expDisplay },
               { icon:'hub',            label:'Source',      val: cand.source  || '—' },
               { icon:'calendar_today', label:'Applied',     val: cand.applied || '—' },
               { icon:'link',           label:'LinkedIn',    val: cand.linkedin|| '—' },
@@ -503,6 +511,32 @@ export default function CandidateDetail() {
               </div>
             )}
           </div>
+
+          {/* ── Tech Stack Card ── */}
+          {cand.tech_stack.length > 0 && (
+            <div className="card">
+              <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.875rem' }}>
+                <Icon name="code" style={{ fontSize:'1.125rem', color:'var(--tertiary)' }} />
+                <h3 style={{ fontWeight:700, fontSize:'0.9375rem' }}>Tech Stack</h3>
+                <span style={{ marginLeft:'auto', fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:'rgba(0,98,67,0.1)', color:'var(--tertiary)' }}>
+                  {cand.tech_stack.length} skills
+                </span>
+              </div>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:'0.375rem' }}>
+                {cand.tech_stack.map(s => (
+                  <span key={s} style={{
+                    fontSize:'0.8125rem', fontWeight:600,
+                    padding:'0.25rem 0.625rem', borderRadius:9999,
+                    background:'rgba(0,74,198,0.08)', color:'var(--primary)',
+                    border:'1px solid rgba(0,74,198,0.15)',
+                  }}>{s}</span>
+                ))}
+              </div>
+              <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', marginTop:'0.75rem' }}>
+                Extracted from resume via AI
+              </p>
+            </div>
+          )}
 
           {/* ── Resume Card ── */}
           <ResumeCard
