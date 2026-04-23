@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { timesheetAPI, usersAPI, formatApiError } from '../../services/api';
+import NexusTutorial from '../../components/NexusTutorial';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
@@ -299,7 +300,7 @@ const TimesheetApprovals = () => {
       </div>
 
       {/* View tabs */}
-      <div style={{ display: 'flex', gap: 4, background: 'var(--surface-container-high)', borderRadius: 10, padding: 4, marginBottom: 14, width: 'fit-content', flexWrap: 'wrap' }}>
+      <div data-tour="approvals-history" style={{ display: 'flex', gap: 4, background: 'var(--surface-container-high)', borderRadius: 10, padding: 4, marginBottom: 14, width: 'fit-content', flexWrap: 'wrap' }}>
         {[
           { key: 'pending', label: `Pending (${pendingCount})` },
           { key: 'all',     label: 'All' },
@@ -373,7 +374,7 @@ const TimesheetApprovals = () => {
           <p style={{ fontWeight: 600 }}>{view === 'pending' ? '🎉 No pending timesheets!' : 'No timesheets found'}</p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div data-tour="approvals-pending" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {filtered.map(ts => {
             const emp = getUser(ts);
             const initials = (emp.name || 'U').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
@@ -408,6 +409,7 @@ const TimesheetApprovals = () => {
       )}
 
       {selected && <DetailModal ts={selected} monthDate={view === 'monthly' ? monthDate : null} onClose={() => setSelected(null)} onReviewed={() => load()} />}
+      <NexusTutorial page="approvals" />
     </div>
   );
 };

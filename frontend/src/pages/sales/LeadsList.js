@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { leadsAPI } from '../../services/api';
 import { useNavigate, useLocation } from 'react-router-dom';
+import NexusTutorial from '../../components/NexusTutorial';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
@@ -435,17 +436,17 @@ export default function LeadsList() {
               <Icon name="filter_alt_off" style={{ fontSize:'1rem' }} /> Clear Filters
             </button>
           )}
-          <button onClick={() => navigate('/sales/import')} className="btn-secondary">
+          <button data-tour="leads-import" onClick={() => navigate('/sales/import')} className="btn-secondary">
             <Icon name="upload_file" style={{ fontSize:'1rem' }} /> Import Sheet
           </button>
-          <button onClick={() => setShowAdd(true)} className="btn-primary">
+          <button data-tour="leads-add" onClick={() => setShowAdd(true)} className="btn-primary">
             <Icon name="add_business" style={{ fontSize:'1rem', color:'#fff' }} /> Add Company
           </button>
         </div>
       </div>
 
       {/* Segment filter tabs */}
-      <div style={{ display:'flex', gap:'0.375rem', marginBottom:'0.875rem', flexWrap:'wrap' }}>
+      <div data-tour="leads-filter" style={{ display:'flex', gap:'0.375rem', marginBottom:'0.875rem', flexWrap:'wrap' }}>
         {[['all','All'], ...Object.entries(SEGMENT_META).map(([k,v]) => [k, v.label])].map(([key, label]) => (
           <button
             key={key}
@@ -506,7 +507,7 @@ export default function LeadsList() {
           Loading companies…
         </div>
       ) : (
-        <div className="card" style={{ padding:0, overflow:'hidden' }}>
+        <div data-tour="leads-list" className="card" style={{ padding:0, overflow:'hidden' }}>
           <div style={{ overflowX:'auto' }}>
             <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.8125rem' }}>
               <thead>
@@ -666,6 +667,7 @@ export default function LeadsList() {
       )}
 
       {showAdd && <AddCompanyModal onClose={() => setShowAdd(false)} onAdd={l => setLeads(prev => [l, ...prev])} />}
+      <NexusTutorial page="leads" />
     </div>
   );
 }

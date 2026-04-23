@@ -138,7 +138,7 @@ export const AuthProvider = ({ children }) => {
     const userData = await res.json();
     localStorage.setItem('crm_user', JSON.stringify(userData));
     setUser(userData);
-    return { success: true };
+    return userData; // return full user so callers can redirect by role
   };
 
   // ── Logout ──────────────────────────────────────────────────

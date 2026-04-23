@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { timesheetAPI, formatApiError } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import NexusTutorial from '../../components/NexusTutorial';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
@@ -216,7 +217,7 @@ const WeekForm = ({ weekStart, onSaved }) => {
             </button>
           )}
           {isEditable && (
-            <button onClick={handleSubmit} disabled={submitting || totalHours === 0}
+            <button data-tour="timesheet-submit" onClick={handleSubmit} disabled={submitting || totalHours === 0}
               style={{ padding: '10px 24px', borderRadius: 10, border: 'none', background: totalHours === 0 ? '#e2e8f0' : 'linear-gradient(135deg,#ea580c,#f97316)', color: totalHours === 0 ? '#94a3b8' : '#fff', fontSize: '0.875rem', fontWeight: 700, cursor: totalHours === 0 ? 'not-allowed' : 'pointer' }}>
               {submitting ? 'Submitting...' : '✈️ Submit for Approval'}
             </button>
@@ -336,7 +337,7 @@ const Timesheet = () => {
       </div>
 
       {/* Controls */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 12 }}>
+      <div data-tour="timesheet-history" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', background: 'var(--surface-container-high)', borderRadius: 10, padding: 4, gap: 4 }}>
           {['weekly','monthly'].map(v => (
             <button key={v} onClick={() => setView(v)} style={{ padding: '6px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', fontSize: '0.875rem', fontWeight: view === v ? 700 : 500, background: view === v ? 'var(--surface)' : 'transparent', color: view === v ? '#ea580c' : 'var(--on-surface-variant)', boxShadow: view === v ? 'var(--ambient-shadow)' : 'none', transition: 'all 0.15s', textTransform: 'capitalize' }}>
@@ -372,10 +373,12 @@ const Timesheet = () => {
         <span>Please submit your timesheet every <strong>Friday</strong> — you'll receive an automatic email reminder.</span>
       </div>
 
-      <div style={{ background: 'var(--surface-container-lowest)', borderRadius: 16, border: '1px solid var(--surface-container-high)', padding: 20 }}>
+      <div data-tour="timesheet-week" style={{ background: 'var(--surface-container-lowest)', borderRadius: 16, border: '1px solid var(--surface-container-high)', padding: 20 }}>
         {view === 'weekly' && <WeekForm key={weekStart + refreshKey} weekStart={weekStart} onSaved={() => setRefreshKey(k => k + 1)} />}
         {view === 'monthly' && <MonthlyView key={monthDate.toISOString() + refreshKey} year={monthDate.getFullYear()} month={monthDate.getMonth()} />}
       </div>
+
+      <NexusTutorial page="timesheet" />
 
       <style>{`
         @media (max-width:560px) {

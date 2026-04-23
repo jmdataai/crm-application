@@ -482,7 +482,25 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(401, "User not found")
     return user
 
-async def send_email(to: str, subject: str, html: str):
+# ── Module-level role guard ───────────────────────────────────
+# Call after get_current_user() on any sales or recruitment endpoint.
+# Workers are timesheet-only; this blocks them from all other data.
+_MODULE_ROLES: dict = {
+    "sales":       {"admin", "sales", "viewer"},
+    "recruitment": {"admin", "sales", "viewer"},
+}
+
+def _require_module(user: dict, module: str) -> None:
+    """Raise 403 if user's role is not permitted to access this module."""
+    allowed = _MODULE_ROLES.get(module, set())
+    role = user.get("role", "")
+    if role not in allowed:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Your role '{role}' does not have access to the {module} module.",
+        )
+
+
     if not resend.api_key:
         logger.info(f"[email-sim] To: {to} | {subject}")
         return {"status": "simulated"}
@@ -671,6 +689,7 @@ async def delete_user(user_id: str, request: Request):
 @api_router.post("/leads")
 async def create_lead(lead: LeadCreate, request: Request):
     user = await get_current_user(request)
+    _require_module(user, "sales")
     doc = {
         # Company
         "company":           lead.company,
@@ -757,7 +776,8 @@ async def get_leads(
     skip:        int = 0,
     limit:       int = 50,
 ):
-    await get_current_user(request)
+    user = await get_current_user(request)
+    _require_module(user, "sales")
     q = sb("leads").select(
         "*, assigned_owner:assigned_owner_id(name)",
         count="exact"
@@ -781,6 +801,7 @@ async def get_leads(
 @api_router.get("/leads/{lead_id}")
 async def get_lead(lead_id: str, request: Request):
     user = await get_current_user(request)
+    _require_module(user, "sales")
     lead = await safe_single(lambda: sb("leads").select("*, assigned_owner:assigned_owner_id(name), submissions:candidate_submissions(*, candidate:candidate_id(id,full_name,candidate_role,status))").eq("id", lead_id).single().execute())
     if not lead:
         raise HTTPException(404, "Lead not found")
@@ -800,6 +821,7 @@ async def get_lead(lead_id: str, request: Request):
 @api_router.put("/leads/{lead_id}")
 async def update_lead(lead_id: str, lead: LeadUpdate, request: Request):
     user = await get_current_user(request)
+    _require_module(user, "sales")
 
     existing = await safe_single(lambda: sb("leads").select("status").eq("id", lead_id).single().execute())
     if not existing:
@@ -835,6 +857,7 @@ async def update_lead(lead_id: str, lead: LeadUpdate, request: Request):
 @api_router.delete("/leads/{lead_id}")
 async def delete_lead(lead_id: str, request: Request):
     user = await get_current_user(request)
+    _require_module(user, "sales")
     lead = await safe_single(lambda: sb("leads").select("full_name").eq("id", lead_id).single().execute())
     await run(lambda: sb("leads").delete().eq("id", lead_id).execute())
     asyncio.create_task(_audit("delete", user=user, entity_type="lead", entity_id=lead_id,
@@ -849,6 +872,7 @@ async def delete_lead(lead_id: str, request: Request):
 @api_router.post("/leads/import")
 async def import_leads(file: UploadFile, request: Request):
     user = await get_current_user(request)
+    _require_module(user, "sales")
     if not file.filename:
         raise HTTPException(400, "No file provided")
     ext = file.filename.rsplit(".", 1)[-1].lower()
@@ -1181,7 +1205,8 @@ def _clean(row, key):
 
 @api_router.get("/imports")
 async def get_imports(request: Request):
-    await get_current_user(request)
+    user = await get_current_user(request)
+    _require_module(user, "sales")
     res = await run(lambda: sb("imports").select("*").order("created_at", desc=True).limit(100).execute())
     return res.data or []
 
@@ -1204,6 +1229,7 @@ async def _log_activity(*, lead_id=None, candidate_id=None, user: dict, atype: s
 @api_router.post("/activities")
 async def create_activity(activity: ActivityCreate, request: Request):
     user = await get_current_user(request)
+    _require_module(user, "sales")
     await _log_activity(
         lead_id=activity.lead_id, candidate_id=activity.candidate_id,
         user=user, atype=activity.activity_type.value, desc=activity.description
@@ -1213,7 +1239,8 @@ async def create_activity(activity: ActivityCreate, request: Request):
 
 @api_router.get("/activities")
 async def get_activities(request: Request, lead_id: Optional[str] = None, candidate_id: Optional[str] = None):
-    await get_current_user(request)
+    user = await get_current_user(request)
+    _require_module(user, "sales")
     q = sb("activities").select("*").order("created_at", desc=True)
     if lead_id:      q = q.eq("lead_id", lead_id)
     if candidate_id: q = q.eq("candidate_id", candidate_id)
@@ -1227,6 +1254,7 @@ async def get_activities(request: Request, lead_id: Optional[str] = None, candid
 @api_router.post("/tasks")
 async def create_task(task: TaskCreate, request: Request):
     user = await get_current_user(request)
+    _require_module(user, "sales")
     res = await run(lambda: sb("tasks").insert({
         "title":           task.title,
         "description":     task.description,
@@ -1269,7 +1297,8 @@ async def get_tasks(
 
 @api_router.put("/tasks/{task_id}")
 async def update_task(task_id: str, task: TaskUpdate, request: Request):
-    await get_current_user(request)
+    user = await get_current_user(request)
+    _require_module(user, "sales")
     patch = {k: v for k, v in task.model_dump().items() if v is not None}
     if "priority" in patch and isinstance(patch["priority"], TaskPriority):
         patch["priority"] = patch["priority"].value
@@ -1281,7 +1310,8 @@ async def update_task(task_id: str, task: TaskUpdate, request: Request):
 
 @api_router.delete("/tasks/{task_id}")
 async def delete_task(task_id: str, request: Request):
-    await get_current_user(request)
+    user = await get_current_user(request)
+    _require_module(user, "sales")
     await run(lambda: sb("tasks").delete().eq("id", task_id).execute())
     return {"message": "Task deleted"}
 
@@ -1292,6 +1322,7 @@ async def delete_task(task_id: str, request: Request):
 @api_router.post("/reminders")
 async def create_reminder(reminder: ReminderCreate, request: Request):
     user = await get_current_user(request)
+    _require_module(user, "sales")
     res = await run(lambda: sb("reminders").insert({
         "title":        reminder.title,
         "note":         reminder.note,
@@ -1310,6 +1341,7 @@ async def create_reminder(reminder: ReminderCreate, request: Request):
 @api_router.get("/reminders")
 async def get_reminders(request: Request, upcoming: Optional[bool] = None):
     user = await get_current_user(request)
+    _require_module(user, "sales")
     q = sb("reminders").select("*").eq("user_id", user["id"]).order("due_date")
     if upcoming:
         q = q.gte("due_date", datetime.now(timezone.utc).date().isoformat())
@@ -1319,7 +1351,8 @@ async def get_reminders(request: Request, upcoming: Optional[bool] = None):
 
 @api_router.put("/reminders/{reminder_id}/dismiss")
 async def dismiss_reminder(reminder_id: str, request: Request):
-    await get_current_user(request)
+    user = await get_current_user(request)
+    _require_module(user, "sales")
     await run(lambda: sb("reminders").update({
         "dismissed": True,
         "dismissed_at": datetime.now(timezone.utc).isoformat()
@@ -1329,7 +1362,8 @@ async def dismiss_reminder(reminder_id: str, request: Request):
 
 @api_router.delete("/reminders/{reminder_id}")
 async def delete_reminder(reminder_id: str, request: Request):
-    await get_current_user(request)
+    user = await get_current_user(request)
+    _require_module(user, "sales")
     await run(lambda: sb("reminders").delete().eq("id", reminder_id).execute())
     return {"message": "Reminder deleted"}
 
@@ -1340,6 +1374,7 @@ async def delete_reminder(reminder_id: str, request: Request):
 @api_router.post("/jobs")
 async def create_job(job: JobCreate, request: Request):
     user = await get_current_user(request)
+    _require_module(user, "recruitment")
     res = await run(lambda: sb("jobs").insert({
         "title":           job.title,
         "department":      job.department,
@@ -1358,7 +1393,8 @@ async def create_job(job: JobCreate, request: Request):
 
 @api_router.get("/jobs")
 async def get_jobs(request: Request, is_active: Optional[bool] = None, search: Optional[str] = None):
-    await get_current_user(request)
+    user = await get_current_user(request)
+    _require_module(user, "recruitment")
     q = sb("jobs").select("*").order("created_at", desc=True)
     if is_active is not None: q = q.eq("is_active", is_active)
     if search: q = q.or_(f"title.ilike.%{search}%,department.ilike.%{search}%")
@@ -1374,7 +1410,8 @@ async def get_jobs(request: Request, is_active: Optional[bool] = None, search: O
 
 @api_router.get("/jobs/{job_id}")
 async def get_job(job_id: str, request: Request):
-    await get_current_user(request)
+    user = await get_current_user(request)
+    _require_module(user, "recruitment")
     job = await safe_single(lambda: sb("jobs").select("*").eq("id", job_id).single().execute())
     if not job:
         raise HTTPException(404, "Job not found")
@@ -1385,7 +1422,8 @@ async def get_job(job_id: str, request: Request):
 
 @api_router.put("/jobs/{job_id}")
 async def update_job(job_id: str, job: JobUpdate, request: Request):
-    await get_current_user(request)
+    user = await get_current_user(request)
+    _require_module(user, "recruitment")
     patch = {k: v for k, v in job.model_dump().items() if v is not None}
     await run(lambda: sb("jobs").update(patch).eq("id", job_id).execute())
     return {"message": "Job updated"}
@@ -1393,7 +1431,8 @@ async def update_job(job_id: str, job: JobUpdate, request: Request):
 
 @api_router.delete("/jobs/{job_id}")
 async def delete_job(job_id: str, request: Request):
-    await get_current_user(request)
+    user = await get_current_user(request)
+    _require_module(user, "recruitment")
     await run(lambda: sb("jobs").delete().eq("id", job_id).execute())
     return {"message": "Job deleted"}
 
@@ -1430,6 +1469,7 @@ def _extract_resume_text(file_bytes: bytes, content_type: str) -> str:
 @api_router.post("/candidates")
 async def create_candidate(candidate: CandidateCreate, request: Request):
     user = await get_current_user(request)
+    _require_module(user, "recruitment")
     doc_c = {
         "full_name":            candidate.full_name,
         "email":                candidate.email,
@@ -1492,7 +1532,8 @@ async def get_candidates(
     skip:         int = 0,
     limit:        int = 50,
 ):
-    await get_current_user(request)
+    user = await get_current_user(request)
+    _require_module(user, "recruitment")
     q = sb("candidates").select(
         "*, job:job_id(title)",
         count="exact"
@@ -1515,7 +1556,8 @@ async def get_candidates(
 
 @api_router.get("/candidates/pipeline")
 async def get_pipeline(request: Request, job_id: Optional[str] = None):
-    await get_current_user(request)
+    user = await get_current_user(request)
+    _require_module(user, "recruitment")
     pipeline = {}
     for s in CandidateStatus:
         q = sb("candidates").select("*").eq("status", s.value)
@@ -1528,6 +1570,7 @@ async def get_pipeline(request: Request, job_id: Optional[str] = None):
 @api_router.get("/candidates/{candidate_id}")
 async def get_candidate(candidate_id: str, request: Request):
     user = await get_current_user(request)
+    _require_module(user, "recruitment")
     candidate_data = await safe_single(lambda: sb("candidates").select("*, job:job_id(title)").eq("id", candidate_id).single().execute())
     if not candidate_data:
         raise HTTPException(404, "Candidate not found")
@@ -1547,6 +1590,7 @@ async def get_candidate(candidate_id: str, request: Request):
 @api_router.put("/candidates/{candidate_id}")
 async def update_candidate(candidate_id: str, candidate: CandidateUpdate, request: Request):
     user = await get_current_user(request)
+    _require_module(user, "recruitment")
     existing = await safe_single(lambda: sb("candidates").select("status").eq("id", candidate_id).single().execute())
     if not existing:
         raise HTTPException(404, "Candidate not found")
@@ -1573,7 +1617,8 @@ async def update_candidate(candidate_id: str, candidate: CandidateUpdate, reques
 
 @api_router.delete("/candidates/{candidate_id}")
 async def delete_candidate(candidate_id: str, request: Request):
-    await get_current_user(request)
+    user = await get_current_user(request)
+    _require_module(user, "recruitment")
     await run(lambda: sb("candidates").delete().eq("id", candidate_id).execute())
     return {"message": "Candidate deleted"}
 
@@ -1592,7 +1637,8 @@ async def upload_candidate_resume(
     can embed it directly in an <iframe> without opening a new tab.
     """
     user = await get_current_user(request)
- 
+    _require_module(user, "recruitment")
+
     # ── Validate MIME type ───────────────────────────────────
     if file.content_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(
@@ -1696,6 +1742,7 @@ async def delete_candidate_resume(candidate_id: str, request: Request):
     in Supabase.
     """
     user = await get_current_user(request)
+    _require_module(user, "recruitment")
  
     existing = await safe_single(
         lambda: sb("candidates")
@@ -1851,6 +1898,7 @@ async def ats_match(body: ATSMatchRequest, request: Request):
 @api_router.post("/interviews")
 async def create_interview(interview: InterviewCreate, request: Request):
     user = await get_current_user(request)
+    _require_module(user, "recruitment")
     res = await run(lambda: sb("interviews").insert({
         "candidate_id":  interview.candidate_id,
         "job_id":        interview.job_id,
@@ -1874,7 +1922,8 @@ async def get_interviews(
     candidate_id: Optional[str]  = None,
     upcoming:     Optional[bool] = None,
 ):
-    await get_current_user(request)
+    user = await get_current_user(request)
+    _require_module(user, "recruitment")
     q = sb("interviews").select(
         "*, candidate:candidate_id(full_name), job:job_id(title)"
     ).order("scheduled_at")
@@ -1889,6 +1938,7 @@ async def get_interviews(
 @api_router.put("/interviews/{interview_id}")
 async def update_interview(interview_id: str, interview: InterviewUpdate, request: Request):
     user = await get_current_user(request)
+    _require_module(user, "recruitment")
     patch = {k: v for k, v in interview.model_dump().items() if v is not None}
     if interview.completed:
         patch["completed_at"] = datetime.now(timezone.utc).isoformat()
@@ -1912,6 +1962,7 @@ async def update_interview(interview_id: str, interview: InterviewUpdate, reques
 @api_router.get("/dashboard/sales")
 async def sales_dashboard(request: Request):
     user  = await get_current_user(request)
+    _require_module(user, "sales")
     today = datetime.now(timezone.utc).date().isoformat()
 
     lead_stats = {}
@@ -1965,6 +2016,7 @@ async def sales_dashboard(request: Request):
 @api_router.get("/dashboard/recruitment")
 async def recruitment_dashboard(request: Request):
     user  = await get_current_user(request)
+    _require_module(user, "recruitment")
     today = datetime.now(timezone.utc).date().isoformat()
 
     cand_stats = {}
@@ -1994,6 +2046,7 @@ async def recruitment_dashboard(request: Request):
 @api_router.post("/reminders/{reminder_id}/send-email")
 async def send_reminder_email(reminder_id: str, request: Request):
     user = await get_current_user(request)
+    _require_module(user, "sales")
     reminder_data = await safe_single(lambda: sb("reminders").select("*").eq("id", reminder_id).single().execute())
     if not reminder_data:
         raise HTTPException(404, "Reminder not found")
@@ -2162,7 +2215,8 @@ class EnrichRequest(BaseModel):
 @api_router.post("/enrich/start")
 async def enrich_start(body: EnrichRequest, request: Request):
     """Start an Apify enrichment run. Returns run_id to poll."""
-    await get_current_user(request)   # must be logged in
+    user = await get_current_user(request)
+    _require_module(user, "sales")
 
     if not APIFY_API_KEY:
         raise HTTPException(503, "Apify API key not configured on server. Contact admin.")
@@ -2193,7 +2247,8 @@ async def enrich_start(body: EnrichRequest, request: Request):
 @api_router.get("/enrich/status/{run_id}")
 async def enrich_status(run_id: str, request: Request):
     """Poll Apify run status. Returns results when SUCCEEDED."""
-    await get_current_user(request)
+    user = await get_current_user(request)
+    _require_module(user, "sales")
 
     if not APIFY_API_KEY:
         raise HTTPException(503, "Apify API key not configured.")
@@ -2244,6 +2299,7 @@ async def enrich_status(run_id: str, request: Request):
 @api_router.post("/submissions")
 async def create_submission(body: SubmissionCreate, request: Request):
     user = await get_current_user(request)
+    _require_module(user, "sales")
     doc = {
         "lead_id":      body.lead_id,
         "candidate_id": body.candidate_id,
@@ -2258,7 +2314,8 @@ async def create_submission(body: SubmissionCreate, request: Request):
 
 @api_router.get("/submissions")
 async def get_submissions(request: Request, lead_id: Optional[str] = None, candidate_id: Optional[str] = None):
-    await get_current_user(request)
+    user = await get_current_user(request)
+    _require_module(user, "sales")
     q = sb("candidate_submissions").select(
         "*, candidate:candidate_id(id,full_name,candidate_role,status,email), lead:lead_id(id,full_name,company,status)"
     ).order("created_at", desc=True)
@@ -2269,14 +2326,16 @@ async def get_submissions(request: Request, lead_id: Optional[str] = None, candi
 
 @api_router.put("/submissions/{submission_id}")
 async def update_submission(submission_id: str, body: SubmissionUpdate, request: Request):
-    await get_current_user(request)
+    user = await get_current_user(request)
+    _require_module(user, "sales")
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
     await run(lambda: sb("candidate_submissions").update(patch).eq("id", submission_id).execute())
     return {"message": "Updated"}
 
 @api_router.delete("/submissions/{submission_id}")
 async def delete_submission(submission_id: str, request: Request):
-    await get_current_user(request)
+    user = await get_current_user(request)
+    _require_module(user, "sales")
     await run(lambda: sb("candidate_submissions").delete().eq("id", submission_id).execute())
     return {"message": "Deleted"}
 
@@ -2746,6 +2805,24 @@ async def startup():
         # Ensure existing admin always has the admin role (fixes missing role on older installs)
         await run(lambda: sb("users").update({"role": "admin"}).eq("email", admin_email).execute())
         logger.info(f"Admin role confirmed for: {admin_email}")
+
+
+@api_router.get("/tutorials")
+async def get_tutorials(request: Request):
+    user = await get_current_user(request)
+    res = await run(lambda: sb("user_tutorials")
+        .select("page")
+        .eq("user_id", user["id"])
+        .execute())
+    return {"pages": [r["page"] for r in (res.data or [])]}
+
+@api_router.post("/tutorials/{page}")
+async def mark_tutorial_seen(page: str, request: Request):
+    user = await get_current_user(request)
+    await run(lambda: sb("user_tutorials")
+        .upsert({"user_id": user["id"], "page": page})
+        .execute())
+    return {"ok": True}
 
 
 # ============================================================

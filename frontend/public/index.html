@@ -16,6 +16,36 @@
       rel="stylesheet"
     />
     <title>Nexus CRM</title>
+    <!-- Critical CSS: prevents flash of unstyled content before JS bundle loads -->
+    <style>
+      :root {
+        --primary: #004ac6;
+        --surface: #faf8ff;
+        --surface-container-lowest: #ffffff;
+        --on-surface: #131b2e;
+        --on-surface-variant: #434655;
+        --tertiary: #006243;
+        --error: #ba1a1a;
+        --error-container: #ffdad6;
+        --outline-variant: #c3c6d7;
+        --ambient-shadow: 0px 4px 20px rgba(19,27,46,0.06);
+      }
+      *, *::before, *::after { box-sizing: border-box; }
+      html { -webkit-font-smoothing: antialiased; }
+      body {
+        margin: 0;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        background-color: var(--surface);
+        color: var(--on-surface);
+        font-size: 0.875rem;
+        line-height: 1.5;
+      }
+      /* Prevent layout shift during hydration */
+      #root { min-height: 100vh; }
+    </style>
+    <!-- Intro.js onboarding -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/intro.js/7.2.0/introjs.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/intro.js/7.2.0/intro.min.js" defer></script>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>

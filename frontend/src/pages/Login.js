@@ -13,14 +13,21 @@ const Login = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
 
+  const getRedirectPath = (userData) => {
+    if (!userData?.role) return '/sales';
+    if (userData.role === 'worker') return '/timesheet';
+    if (userData.role === 'viewer') return '/timesheet/approvals';
+    return '/sales';
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
     try {
-      await login(email, password);
-      navigate('/sales');
+      const userData = await login(email, password);
+      navigate(getRedirectPath(userData));
     } catch (err) {
       setError(err.message || 'Something went wrong. Please try again.');
     } finally {

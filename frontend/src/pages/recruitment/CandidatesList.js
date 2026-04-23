@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { candidatesAPI } from '../../services/api';
 import { useNavigate, useLocation } from 'react-router-dom';
+import NexusTutorial from '../../components/NexusTutorial';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
@@ -598,8 +599,8 @@ export default function CandidatesList() {
         <div><p className="label-sm" style={{marginBottom:'0.25rem',color:'var(--tertiary)'}}>Recruitment ATS</p><h1 className="headline-sm">Candidates</h1></div>
         <div style={{display:'flex',gap:'0.625rem'}}>
           <a href="/recruitment/import-candidates" className="btn-secondary"><Icon name="upload_file" style={{fontSize:'1rem'}}/> Import</a>
-          <a href="/recruitment/pipeline" className="btn-secondary"><Icon name="account_tree" style={{fontSize:'1rem'}}/> Pipeline</a>
-          <button onClick={()=>setShowAdd(true)} style={{display:'inline-flex',alignItems:'center',gap:'0.5rem',padding:'0.5rem 1.25rem',borderRadius:'0.5rem',fontSize:'0.875rem',fontWeight:600,color:'#fff',border:'none',cursor:'pointer',background:'linear-gradient(135deg,var(--tertiary),#009966)',boxShadow:'0 2px 8px rgba(0,98,67,0.25)'}}>
+          <a data-tour="candidates-pipeline" href="/recruitment/pipeline" className="btn-secondary"><Icon name="account_tree" style={{fontSize:'1rem'}}/> Pipeline</a>
+          <button data-tour="candidates-add" onClick={()=>setShowAdd(true)} style={{display:'inline-flex',alignItems:'center',gap:'0.5rem',padding:'0.5rem 1.25rem',borderRadius:'0.5rem',fontSize:'0.875rem',fontWeight:600,color:'#fff',border:'none',cursor:'pointer',background:'linear-gradient(135deg,var(--tertiary),#009966)',boxShadow:'0 2px 8px rgba(0,98,67,0.25)'}}>
             <Icon name="person_add" style={{fontSize:'1rem',color:'#fff'}}/> Add Candidate
           </button>
         </div>
@@ -675,7 +676,7 @@ export default function CandidatesList() {
         {selected.size>0&&<div style={{display:'flex',alignItems:'center',gap:'0.75rem',marginTop:'0.875rem',padding:'0.625rem 0.875rem',background:'rgba(0,98,67,0.06)',borderRadius:'0.5rem'}}><span style={{fontSize:'0.875rem',fontWeight:600,color:'var(--tertiary)'}}>{selected.size} selected</span><button className="btn-ghost" onClick={()=>{setCandidates(cs=>cs.filter(c=>!selected.has(c.id)));setSelected(new Set());}} style={{fontSize:'0.8125rem',color:'var(--error)',marginLeft:'auto'}}><Icon name="delete" style={{fontSize:'1rem',color:'var(--error)'}}/> Remove</button></div>}
       </div>
       {/* Table */}
-      <div className="card" style={{padding:0,overflow:'hidden'}}>
+      <div data-tour="candidates-list" className="card" style={{padding:0,overflow:'hidden'}}>
         <div style={{overflowX:'auto'}}>
           <table className="data-table" style={{margin:0}}>
             <thead>
@@ -816,6 +817,7 @@ export default function CandidatesList() {
         />
       )}
       </>}
+      <NexusTutorial page="candidates" />
     </div>
   );
 }
