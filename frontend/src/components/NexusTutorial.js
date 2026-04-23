@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTutorial } from '../hooks/useTutorial';
 
 // Custom intro.js theme injected once
@@ -181,7 +181,7 @@ export default function NexusTutorial({ page, autoRun = true, delay = 800 }) {
   const [ready, setReady] = useState(false);
   const introRef = useRef(null);
 
-  const steps = TOURS[page] || [];
+  const steps = useMemo(() => TOURS[page] || [], [page]);
 
   // Wait for intro.js CDN to load
   useEffect(() => {
