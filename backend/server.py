@@ -501,6 +501,7 @@ def _require_module(user: dict, module: str) -> None:
         )
 
 
+async def send_email(to: str, subject: str, html: str):
     if not resend.api_key:
         logger.info(f"[email-sim] To: {to} | {subject}")
         return {"status": "simulated"}
@@ -2341,6 +2342,33 @@ async def delete_submission(submission_id: str, request: Request):
 
 
 # ============================================================
+# TUTORIALS  (first-time onboarding — stored per user in Supabase)
+# ============================================================
+@api_router.get("/tutorials")
+async def get_tutorials(request: Request):
+    """Return list of tutorial page keys the current user has already seen."""
+    user = await get_current_user(request)
+    res = await run(lambda: sb("user_tutorials")
+        .select("page")
+        .eq("user_id", user["id"])
+        .execute())
+    return {"pages": [r["page"] for r in (res.data or [])]}
+
+
+@api_router.post("/tutorials/{page}")
+async def mark_tutorial_seen(page: str, request: Request):
+    """Mark a tutorial page as seen for the current user (upsert — safe to call multiple times)."""
+    user = await get_current_user(request)
+    allowed_pages = {"timesheet", "leads", "candidates", "approvals"}
+    if page not in allowed_pages:
+        raise HTTPException(400, f"Unknown tutorial page '{page}'")
+    await run(lambda: sb("user_tutorials")
+        .upsert({"user_id": user["id"], "page": page}, on_conflict="user_id,page")
+        .execute())
+    return {"ok": True}
+
+
+# ============================================================
 # CEO DASHBOARD
 # ============================================================
 @api_router.get("/dashboard/ceo")
@@ -2805,24 +2833,6 @@ async def startup():
         # Ensure existing admin always has the admin role (fixes missing role on older installs)
         await run(lambda: sb("users").update({"role": "admin"}).eq("email", admin_email).execute())
         logger.info(f"Admin role confirmed for: {admin_email}")
-
-
-@api_router.get("/tutorials")
-async def get_tutorials(request: Request):
-    user = await get_current_user(request)
-    res = await run(lambda: sb("user_tutorials")
-        .select("page")
-        .eq("user_id", user["id"])
-        .execute())
-    return {"pages": [r["page"] for r in (res.data or [])]}
-
-@api_router.post("/tutorials/{page}")
-async def mark_tutorial_seen(page: str, request: Request):
-    user = await get_current_user(request)
-    await run(lambda: sb("user_tutorials")
-        .upsert({"user_id": user["id"], "page": page})
-        .execute())
-    return {"ok": True}
 
 
 # ============================================================

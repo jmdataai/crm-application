@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTutorial } from '../hooks/useTutorial';
 
 // Custom intro.js theme injected once
@@ -189,7 +189,7 @@ export default function NexusTutorial({ page, autoRun = true, delay = 800 }) {
     check();
   }, []);
 
-  const runTour = () => {
+  const runTour = useCallback(() => {
     if (!ready || !steps.length) return;
     injectStyle();
 
@@ -225,20 +225,26 @@ export default function NexusTutorial({ page, autoRun = true, delay = 800 }) {
     intro.oncomplete(() => markTutorialDone(page));
     intro.onexit(() => markTutorialDone(page));
     intro.start();
-  };
+  }, [ready, steps, page, markTutorialDone]);
 
-  // Auto-run on first visit
+  // Auto-run on first visit — async safe, all deps declared
   useEffect(() => {
-	  if (!autoRun || !ready) return;
-	  let cancelled = false;
-	  hasSeenTutorial(page).then(seen => {
-		if (!seen && !cancelled) {
-		  const t = setTimeout(runTour, delay);
-		  return () => clearTimeout(t);
-		}
-	  });
-	  return () => { cancelled = true; introRef.current?.exit(true); };
-	}, [ready, page]);
+    if (!autoRun || !ready) return;
+    let cancelled = false;
+    let timer = null;
+
+    hasSeenTutorial(page).then(seen => {
+      if (!seen && !cancelled) {
+        timer = setTimeout(runTour, delay);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      introRef.current?.exit(true);
+    };
+  }, [autoRun, ready, page, delay, hasSeenTutorial, runTour]);
 
   if (!steps.length) return null;
 
