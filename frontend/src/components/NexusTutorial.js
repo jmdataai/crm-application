@@ -82,10 +82,16 @@ const TOURS = {
       intro: 'This is your work week. Each row is a day — fill in your hours and what you worked on.',
     },
     {
+      element: '[data-tour="timesheet-save-draft"]',
+      icon: '💾',
+      title: 'Save as Draft',
+      intro: 'Use Save Draft whenever you want to keep working later. Drafts stay editable, so submit only when the week is final.',
+    },
+    {
       element: '[data-tour="timesheet-submit"]',
       icon: '✅',
       title: 'Submit for Approval',
-      intro: 'Once your week is complete, hit Submit. Your manager gets notified and will approve it.',
+      intro: 'When the week is ready, click Submit. That locks the sheet for review and notifies the CEO.',
     },
     {
       element: '[data-tour="timesheet-history"]',
@@ -209,12 +215,11 @@ export default function NexusTutorial({ page, autoRun = true, delay = 800 }) {
           </div>
           <p>${s.intro}</p>
         `,
-        tooltipClass: 'nexus-tooltip',
       })),
       showProgress: true,
       showBullets: false,
       exitOnOverlayClick: false,
-      nextLabel: i => i === steps.length - 1 ? 'Finish 🎉' : 'Next →',
+      nextLabel: 'Next →',
       prevLabel: '← Back',
       skipLabel: 'Skip tour',
       doneLabel: 'Finish 🎉',

@@ -211,7 +211,7 @@ const WeekForm = ({ weekStart, onSaved }) => {
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           {isEditable && (
-            <button onClick={handleSave} disabled={saving}
+            <button data-tour="timesheet-save-draft" onClick={handleSave} disabled={saving}
               style={{ padding: '10px 20px', borderRadius: 10, border: '1.5px solid var(--surface-container-high)', background: 'var(--surface)', color: 'var(--on-surface)', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' }}>
               {saving ? 'Saving...' : '💾 Save Draft'}
             </button>
