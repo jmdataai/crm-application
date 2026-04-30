@@ -249,6 +249,7 @@ const TimesheetApprovals = () => {
   const [yearlySummary, setYearlySummary] = useState([]);
   const [chartYear, setChartYear]         = useState(new Date().getFullYear());
   const [selectedEmps, setSelectedEmps]   = useState(new Set());
+  const [listEmpFilter, setListEmpFilter] = useState(''); // monthly list employee filter (independent of chart)
 
   const YEAR_OPTIONS = useMemo(()=>Array.from(new Set(timesheets.map(ts=>new Date(ts.week_start+'T00:00:00').getFullYear()))).sort((a,b)=>b-a),[timesheets]);
   const EMP_OPTIONS  = useMemo(()=>Array.from(new Map(timesheets.map(ts=>{const u=getUser(ts);return[u.id||u.email||u.name,u];})).values()).filter(u=>u&&(u.id||u.email||u.name)),[timesheets]);
@@ -319,15 +320,18 @@ const TimesheetApprovals = () => {
     const emp=getUser(ts);
     if(filterUser&&!emp.name?.toLowerCase().includes(filterUser.toLowerCase())&&!emp.email?.toLowerCase().includes(filterUser.toLowerCase())) return false;
     if(filterEmployee){const key=emp.id||emp.email||emp.name;if(key!==filterEmployee)return false;}
+    // monthly view: use its own list employee filter
+    if(view==='monthly'&&listEmpFilter){const key=emp.id||emp.email||emp.name;if(key!==listEmpFilter)return false;}
     if(filterStatus&&ts.status!==filterStatus) return false;
     if(view==='monthly'&&!['submitted','approved'].includes(ts.status)) return false;
     if(view==='monthly') return (ts.entries||[]).some(e=>isInMonth(e.entry_date,monthDate));
     return true;
-  }),[timesheets,filterUser,filterEmployee,filterStatus,view,monthDate]);
+  }),[timesheets,filterUser,filterEmployee,listEmpFilter,filterStatus,view,monthDate]);
 
   const stats = useMemo(()=>{
-    const base = view==='monthly'&&selectedEmps.size>0
-      ? timesheets.filter(ts=>selectedEmps.has(getUser(ts).id))
+    // KPI cards reflect the list — filtered by listEmpFilter in monthly view
+    const base = view==='monthly'&&listEmpFilter
+      ? timesheets.filter(ts=>{const key=getUser(ts).id||getUser(ts).email||getUser(ts).name; return key===listEmpFilter;})
       : timesheets;
     return {
       submitted:  base.filter(t=>t.status==='submitted').length,
@@ -335,7 +339,7 @@ const TimesheetApprovals = () => {
       rejected:   base.filter(t=>t.status==='rejected').length,
       totalHours: base.filter(t=>t.status==='approved').reduce((s,t)=>s+parseFloat(t.total_hours||0),0),
     };
-  },[timesheets,view,selectedEmps]);
+  },[timesheets,view,listEmpFilter]);
 
   const pendingCount = timesheets.filter(ts=>ts.status==='submitted').length;
   const navBtn = {display:'flex',alignItems:'center',justifyContent:'center',width:32,height:32,borderRadius:8,border:'1px solid var(--surface-container-high)',background:'var(--surface-container-lowest)',color:'var(--on-surface)',cursor:'pointer'};
@@ -393,57 +397,20 @@ const TimesheetApprovals = () => {
         </div>
       )}
 
-      {/* Monthly view */}
+      {/* Monthly view — list controls only (employee dropdown + month nav) */}
       {view==='monthly'&&(
-        <div>
-          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:16,flexWrap:'wrap'}}>
-            {isCEO
-              ? <MultiSelect options={chartEmployees} selected={selectedEmps} onChange={setSelectedEmps}/>
-              : <select value={filterEmployee} onChange={e=>setFilterEmployee(e.target.value)} style={{padding:'7px 12px',borderRadius:8,border:'1px solid var(--surface-container-high)',fontSize:'0.875rem',background:'var(--surface)',color:'var(--on-surface)',outline:'none',minWidth:200}}>
-                  <option value="">All Employees</option>
-                  {EMP_OPTIONS.map(u=>{const k=u.id||u.email||u.name;return<option key={k} value={k}>{u.name||u.email}</option>;})}
-                </select>
-            }
-            <button onClick={()=>setMonthDate(d=>new Date(d.getFullYear(),d.getMonth()-1,1))} style={navBtn}><Icon name="chevron_left"/></button>
-            <span style={{fontWeight:700,fontSize:'0.9rem',color:'var(--on-surface)',minWidth:130,textAlign:'center'}}>{MONTH_NAMES[monthDate.getMonth()]} {monthDate.getFullYear()}</span>
-            <button onClick={()=>setMonthDate(d=>new Date(d.getFullYear(),d.getMonth()+1,1))} style={navBtn}><Icon name="chevron_right"/></button>
-            <select value={chartYear} onChange={e=>{ const y=parseInt(e.target.value,10); setChartYear(y); setMonthDate(d=>new Date(y,d.getMonth(),1)); }}
-              style={{padding:'7px 12px',borderRadius:8,border:'1px solid var(--surface-container-high)',fontSize:'0.875rem',background:'var(--surface)',color:'var(--on-surface)',outline:'none'}}>
-              {(YEAR_OPTIONS.length>0?YEAR_OPTIONS:[new Date().getFullYear()]).map(y=><option key={y} value={y}>{y}</option>)}
-            </select>
-          </div>
-
-          {/* Bar chart — CEO/viewer only */}
-          {isCEO&&(
-            <div style={{background:'var(--surface-container-lowest)',border:'1px solid var(--surface-container-high)',borderRadius:16,padding:'20px 16px 8px',marginBottom:20}}>
-              <div style={{marginBottom:14}}>
-                <h3 style={{margin:0,fontWeight:800,fontSize:'1rem',color:'var(--on-surface)'}}>Hours by Employee — {chartYear}</h3>
-                <p style={{margin:'3px 0 0',fontSize:'0.8rem',color:'var(--on-surface-variant)'}}>
-                  Approved hours · {activeMonths.length} month{activeMonths.length!==1?'s':''} with data
-                  {selectedEmps.size>0?` · ${visibleEmps.length} employee${visibleEmps.length!==1?'s':''} selected`:''}
-                </p>
-              </div>
-              {chartData.length===0?(
-                <div style={{textAlign:'center',padding:'40px 0',color:'var(--on-surface-variant)'}}>
-                  <Icon name="bar_chart" style={{fontSize:'2.5rem',marginBottom:8}}/>
-                  <p style={{margin:0,fontWeight:600}}>No approved hours found for {chartYear}</p>
-                </div>
-              ):(
-                <ResponsiveContainer width="100%" height={320}>
-                  <BarChart data={chartData} margin={{top:4,right:16,left:-8,bottom:4}} barCategoryGap="25%" barGap={2}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--outline-variant)" vertical={false}/>
-                    <XAxis dataKey="month" tickFormatter={m=>MONTH_SHORT[parseInt(m)-1]} tick={{fontSize:12,fill:'var(--on-surface-variant)',fontFamily:'Inter,sans-serif'}} axisLine={false} tickLine={false}/>
-                    <YAxis tickFormatter={v=>`${v}h`} tick={{fontSize:12,fill:'var(--on-surface-variant)',fontFamily:'Inter,sans-serif'}} axisLine={false} tickLine={false}/>
-                    <Tooltip content={<ChartTooltip/>} cursor={{fill:'rgba(0,74,198,0.05)'}}/>
-                    <Legend wrapperStyle={{fontSize:'0.8125rem',fontFamily:'Inter,sans-serif',paddingTop:12}} iconType="square" iconSize={10}/>
-                    {visibleEmps.map((emp,i)=>(
-                      <Bar key={emp.id} dataKey={emp.name} fill={BAR_COLORS[i%BAR_COLORS.length]} radius={[4,4,0,0]} maxBarSize={40}/>
-                    ))}
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          )}
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:16,flexWrap:'wrap'}}>
+          <select
+            value={listEmpFilter}
+            onChange={e=>setListEmpFilter(e.target.value)}
+            style={{padding:'7px 12px',borderRadius:8,border:'1px solid var(--surface-container-high)',fontSize:'0.875rem',background:'var(--surface)',color:'var(--on-surface)',outline:'none',minWidth:200}}
+          >
+            <option value="">All Employees</option>
+            {EMP_OPTIONS.map(u=>{const k=u.id||u.email||u.name;return<option key={k} value={k}>{u.name||u.email}</option>;})}
+          </select>
+          <button onClick={()=>setMonthDate(d=>new Date(d.getFullYear(),d.getMonth()-1,1))} style={navBtn}><Icon name="chevron_left"/></button>
+          <span style={{fontWeight:700,fontSize:'0.9rem',color:'var(--on-surface)',minWidth:130,textAlign:'center'}}>{MONTH_NAMES[monthDate.getMonth()]} {monthDate.getFullYear()}</span>
+          <button onClick={()=>setMonthDate(d=>new Date(d.getFullYear(),d.getMonth()+1,1))} style={navBtn}><Icon name="chevron_right"/></button>
         </div>
       )}
 
@@ -489,6 +456,54 @@ const TimesheetApprovals = () => {
       )}
 
       {selected&&<DetailModal ts={selected} monthDate={view==='monthly'?monthDate:null} onClose={()=>setSelected(null)} onReviewed={()=>load()}/>}
+
+      {/* ── Annual hours chart — CEO/viewer, monthly tab only ── */}
+      {view==='monthly'&&isCEO&&(
+        <div style={{marginTop:28,background:'var(--surface-container-lowest)',border:'1px solid var(--surface-container-high)',borderRadius:16,padding:'20px 20px 12px'}}>
+          {/* Chart header + its own independent controls */}
+          <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12,marginBottom:16,flexWrap:'wrap'}}>
+            <div>
+              <h3 style={{margin:0,fontWeight:800,fontSize:'1rem',color:'var(--on-surface)'}}>Annual Hours Overview</h3>
+              <p style={{margin:'3px 0 0',fontSize:'0.8rem',color:'var(--on-surface-variant)'}}>
+                Approved hours only · {activeMonths.length} month{activeMonths.length!==1?'s':''} with data
+                {selectedEmps.size>0?` · ${visibleEmps.length} of ${chartEmployees.length} employees`:'· all employees'}
+              </p>
+            </div>
+            {/* Chart's own filters */}
+            <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+              <MultiSelect options={chartEmployees} selected={selectedEmps} onChange={setSelectedEmps}/>
+              <select
+                value={chartYear}
+                onChange={e=>setChartYear(parseInt(e.target.value,10))}
+                style={{padding:'7px 12px',borderRadius:8,border:'1px solid var(--surface-container-high)',fontSize:'0.875rem',background:'var(--surface)',color:'var(--on-surface)',outline:'none'}}
+              >
+                {(YEAR_OPTIONS.length>0?YEAR_OPTIONS:[new Date().getFullYear()]).map(y=><option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {chartData.length===0?(
+            <div style={{textAlign:'center',padding:'40px 0',color:'var(--on-surface-variant)'}}>
+              <Icon name="bar_chart" style={{fontSize:'2.5rem',marginBottom:8}}/>
+              <p style={{margin:0,fontWeight:600}}>No approved hours found for {chartYear}</p>
+            </div>
+          ):(
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={chartData} margin={{top:4,right:16,left:-8,bottom:4}} barCategoryGap="25%" barGap={2}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--outline-variant)" vertical={false}/>
+                <XAxis dataKey="month" tickFormatter={m=>MONTH_SHORT[parseInt(m)-1]} tick={{fontSize:12,fill:'var(--on-surface-variant)',fontFamily:'Inter,sans-serif'}} axisLine={false} tickLine={false}/>
+                <YAxis tickFormatter={v=>`${v}h`} tick={{fontSize:12,fill:'var(--on-surface-variant)',fontFamily:'Inter,sans-serif'}} axisLine={false} tickLine={false}/>
+                <Tooltip content={<ChartTooltip/>} cursor={{fill:'rgba(0,74,198,0.05)'}}/>
+                <Legend wrapperStyle={{fontSize:'0.8125rem',fontFamily:'Inter,sans-serif',paddingTop:12}} iconType="square" iconSize={10}/>
+                {visibleEmps.map((emp,i)=>(
+                  <Bar key={emp.id} dataKey={emp.name} fill={BAR_COLORS[i%BAR_COLORS.length]} radius={[4,4,0,0]} maxBarSize={40}/>
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      )}
+
       <NexusTutorial page="approvals"/>
     </div>
   );
