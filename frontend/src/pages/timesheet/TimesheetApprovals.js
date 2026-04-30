@@ -246,10 +246,10 @@ const TimesheetApprovals = () => {
   const [filterEmployee, setFilterEmployee] = useState('');
   const [monthDate, setMonthDate]   = useState(new Date());
   const [weekStart, setWeekStart]   = useState(toISODate(getFridayOf(new Date())));
-  const [yearlySummary, setYearlySummary] = useState([]);
-  const [chartYear, setChartYear]         = useState(new Date().getFullYear());
-  const [selectedEmps, setSelectedEmps]   = useState(new Set());
-  const [listEmpFilter, setListEmpFilter] = useState(''); // monthly list employee filter (independent of chart)
+  const [pendingCount, setPendingCount] = useState(0); // always accurate, independent of current view
+  const [chartYear, setChartYear]       = useState(new Date().getFullYear());
+  const [selectedEmps, setSelectedEmps] = useState(new Set());
+  const [listEmpFilter, setListEmpFilter] = useState('');
 
   const YEAR_OPTIONS = useMemo(()=>Array.from(new Set(timesheets.map(ts=>new Date(ts.week_start+'T00:00:00').getFullYear()))).sort((a,b)=>b-a),[timesheets]);
   const EMP_OPTIONS  = useMemo(()=>Array.from(new Map(timesheets.map(ts=>{const u=getUser(ts);return[u.id||u.email||u.name,u];})).values()).filter(u=>u&&(u.id||u.email||u.name)),[timesheets]);
@@ -258,8 +258,17 @@ const TimesheetApprovals = () => {
   const isCurrentWeek    = weekStart === currentWeekStart;
   const goWeek = dir => setWeekStart(toISODate(addDays(new Date(weekStart+'T00:00:00'),dir*7)));
 
+  // Fetch pending count independently — never tied to current view data
+  const loadPendingCount = useCallback(async () => {
+    try {
+      const res = await timesheetAPI.getAll({ status: 'submitted' });
+      setPendingCount((res.data?.timesheets || []).length);
+    } catch {}
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
+    loadPendingCount(); // always refresh pending badge regardless of view
     try {
       if (view === 'all') {
         const [tsRes, usersRes] = await Promise.all([timesheetAPI.getAll({week_start:weekStart}), usersAPI.getAll()]);
@@ -276,23 +285,40 @@ const TimesheetApprovals = () => {
       }
     } catch {}
     setLoading(false);
-  }, [view, weekStart]);
+  }, [view, weekStart, loadPendingCount]);
 
   useEffect(()=>{load();},[load]);
 
-  useEffect(()=>{
-    if (view!=='monthly'||!isCEO) return;
-    timesheetAPI.yearlySummary(chartYear)
-      .then(res=>setYearlySummary(res.data?.data||[]))
-      .catch(()=>setYearlySummary([]));
-  },[view,isCEO,chartYear]);
+  // ── Yearly summary derived client-side from timesheets entries ──
+  // Uses actual entry_date so cross-month weeks are split correctly.
+  // No separate API call — entries are already in the timesheets payload.
+  const yearlySummary = useMemo(()=>{
+    if (view !== 'monthly') return [];
+    const aggMap = new Map();
+    timesheets.filter(ts => ts.status === 'approved').forEach(ts => {
+      const u = getUser(ts);
+      const uid = u.id || u.email || u.name;
+      if (!uid) return;
+      (ts.entries || []).forEach(e => {
+        const hrs = parseFloat(e.hours || 0);
+        if (!hrs || !e.entry_date) return;
+        const d = new Date(e.entry_date + 'T00:00:00');
+        if (d.getFullYear() !== chartYear) return;
+        const key = `${uid}-${d.getMonth()+1}`;
+        if (!aggMap.has(key)) aggMap.set(key, { user_id: uid, name: u.name || u.email || 'Unknown', month: d.getMonth()+1, total_hours: 0 });
+        aggMap.get(key).total_hours += hrs;
+      });
+    });
+    return [...aggMap.values()];
+  }, [timesheets, view, chartYear]);
 
-  // Chart employees: top 10 by total approved hours for the year
+  // Top 10 employees by total approved hours for the year
   const chartEmployees = useMemo(()=>{
     const map = new Map();
     yearlySummary.forEach(r=>{
       if(!map.has(r.user_id)) map.set(r.user_id,{id:r.user_id,name:r.name,totalHours:0});
-      map.get(r.user_id).totalHours+=parseFloat(r.total_hours||0);
+      map.get(r.user_id).total_hours = (map.get(r.user_id).total_hours||0) + parseFloat(r.total_hours||0);
+      map.get(r.user_id).totalHours  = map.get(r.user_id).total_hours;
     });
     return [...map.values()].sort((a,b)=>b.totalHours-a.totalHours).slice(0,10);
   },[yearlySummary]);
@@ -341,7 +367,7 @@ const TimesheetApprovals = () => {
     };
   },[timesheets,view,listEmpFilter]);
 
-  const pendingCount = timesheets.filter(ts=>ts.status==='submitted').length;
+  // pendingCount is now a separate state fetched independently — see loadPendingCount()
   const navBtn = {display:'flex',alignItems:'center',justifyContent:'center',width:32,height:32,borderRadius:8,border:'1px solid var(--surface-container-high)',background:'var(--surface-container-lowest)',color:'var(--on-surface)',cursor:'pointer'};
 
   return (
