@@ -2342,6 +2342,26 @@ async def delete_submission(submission_id: str, request: Request):
 
 
 # ============================================================
+# TIMESHEET YEARLY SUMMARY  (CEO/Viewer chart data)
+# ============================================================
+@api_router.get("/timesheet/yearly-summary")
+async def yearly_timesheet_summary(request: Request, year: Optional[int] = None):
+    """
+    Returns approved hours aggregated by employee + month for a given year.
+    Used for the CEO monthly bar chart. One row per (user, month) — very light.
+    """
+    user = await get_current_user(request)
+    if user.get("role") not in ("admin", "viewer"):
+        raise HTTPException(403, "Access restricted to admin/viewer roles.")
+    if not year:
+        year = datetime.now(timezone.utc).year
+    res = await run(lambda: supabase.rpc(
+        "get_yearly_timesheet_summary", {"p_year": year}
+    ).execute())
+    return {"data": res.data or []}
+
+
+# ============================================================
 # TUTORIALS  (first-time onboarding — stored per user in Supabase)
 # ============================================================
 @api_router.get("/tutorials")

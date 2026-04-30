@@ -190,4 +190,5 @@ export const timesheetAPI = {
   getAll:        (params)             => api.get('/timesheets/all', { params }),
   getDetail:     (id)                 => api.get(`/timesheets/${id}`),
   review:        (id, action, note)   => api.post(`/timesheets/${id}/review`, { action, note }),
+  yearlySummary: (year)               => api.get('/timesheet/yearly-summary', { params: { year } }),
 };
