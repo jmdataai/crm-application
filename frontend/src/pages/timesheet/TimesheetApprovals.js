@@ -73,9 +73,17 @@ function MultiSelect({ options, selected, onChange }) {
     : `${selected.size} employee${selected.size > 1 ? 's' : ''} selected`;
 
   const toggle = (id) => {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    onChange(next.size === options.length ? new Set() : next);
+    let next;
+    if (selected.size === 0) {
+      // Currently "all shown" — clicking one deselects it, keeps everyone else
+      next = new Set(options.map(o => o.id).filter(oid => oid !== id));
+    } else {
+      next = new Set(selected);
+      if (next.has(id)) next.delete(id); else next.add(id);
+    }
+    // If empty or full → reset to "all" state (empty set)
+    if (next.size === 0 || next.size === options.length) onChange(new Set());
+    else onChange(next);
   };
 
   return (
@@ -339,7 +347,17 @@ const TimesheetApprovals = () => {
         <p style={{margin:'4px 0 0',color:'var(--on-surface-variant)',fontSize:'0.875rem'}}>Review and approve employee timesheets</p>
       </div>
 
-      {/* KPI cards */}
+      {/* Tabs — at the top */}
+      <div data-tour="approvals-history" style={{display:'flex',gap:4,background:'var(--surface-container-high)',borderRadius:10,padding:4,marginBottom:14,width:'fit-content',flexWrap:'wrap'}}>
+        {[{key:'pending',label:`Pending (${pendingCount})`},{key:'all',label:'Weekly'},{key:'monthly',label:'Monthly'}].map(tab=>(
+          <button key={tab.key} onClick={()=>{setView(tab.key);setFilterStatus('');setFilterUser('');setFilterEmployee('');}}
+            style={{padding:'6px 14px',borderRadius:8,border:'none',cursor:'pointer',fontFamily:'Inter,sans-serif',fontSize:'0.8125rem',fontWeight:view===tab.key?700:500,background:view===tab.key?'var(--surface)':'transparent',color:view===tab.key?'#ea580c':'var(--on-surface-variant)',boxShadow:view===tab.key?'var(--ambient-shadow)':'none',transition:'all 0.15s'}}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* KPI cards — below tabs */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:10,marginBottom:18}}>
         {[
           {label:'Pending',   value:stats.submitted,                  color:'#2563eb',bg:'#eff6ff',               icon:'hourglass_empty'},
@@ -354,16 +372,6 @@ const TimesheetApprovals = () => {
               <p style={{margin:0,fontSize:'1.375rem',fontWeight:800,color:kpi.color}}>{kpi.value}</p>
             </div>
           </div>
-        ))}
-      </div>
-
-      {/* Tabs */}
-      <div data-tour="approvals-history" style={{display:'flex',gap:4,background:'var(--surface-container-high)',borderRadius:10,padding:4,marginBottom:14,width:'fit-content',flexWrap:'wrap'}}>
-        {[{key:'pending',label:`Pending (${pendingCount})`},{key:'all',label:'All'},{key:'monthly',label:'Monthly'}].map(tab=>(
-          <button key={tab.key} onClick={()=>{setView(tab.key);setFilterStatus('');setFilterUser('');setFilterEmployee('');}}
-            style={{padding:'6px 14px',borderRadius:8,border:'none',cursor:'pointer',fontFamily:'Inter,sans-serif',fontSize:'0.8125rem',fontWeight:view===tab.key?700:500,background:view===tab.key?'var(--surface)':'transparent',color:view===tab.key?'#ea580c':'var(--on-surface-variant)',boxShadow:view===tab.key?'var(--ambient-shadow)':'none',transition:'all 0.15s'}}>
-            {tab.label}
-          </button>
         ))}
       </div>
 
