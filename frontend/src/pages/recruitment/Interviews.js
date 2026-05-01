@@ -33,7 +33,7 @@ const FeedbackModal = ({ interview, onClose, onSave }) => {
             {[1,2,3,4,5,6,7,8,9,10].map(n => (
               <button key={n} onClick={() => setRating(n)} style={{
                 width:38, height:38, borderRadius:'0.5rem', border:'none', cursor:'pointer',
-                fontFamily:'Inter,sans-serif', fontWeight:700, fontSize:'0.875rem',
+                fontFamily:'var(--font-display)', fontWeight:700, fontSize:'0.875rem',
                 background: rating>=n ? 'var(--tertiary)' : 'var(--surface-container-low)',
                 color: rating>=n ? '#fff' : 'var(--on-surface-variant)',
                 transition:'all 0.15s',
@@ -81,7 +81,7 @@ const InterviewCard = ({ iv, onFeedback, onComplete }) => {
         <div>
           <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', flexWrap:'wrap', marginBottom:'0.25rem' }}>
             <span style={{ fontWeight:700, fontSize:'0.9375rem', color:'var(--on-surface)' }}>{iv.candidate}</span>
-            {isToday   && !iv.completed && <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.125rem 0.5rem', borderRadius:9999, background:'rgba(0,74,198,0.1)', color:'var(--primary)' }}>TODAY</span>}
+            {isToday   && !iv.completed && <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.125rem 0.5rem', borderRadius:9999, background:'rgba(68,104,176,0.1)', color:'var(--primary)' }}>TODAY</span>}
             {isTomorrow && !iv.completed && <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.125rem 0.5rem', borderRadius:9999, background:'var(--surface-container)', color:'var(--on-surface-variant)' }}>Tomorrow</span>}
             {isPast    && <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.125rem 0.5rem', borderRadius:9999, background:'var(--error-container)', color:'var(--on-error-container)' }}>Awaiting Feedback</span>}
             {iv.completed && <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.125rem 0.5rem', borderRadius:9999, background:'rgba(0,98,67,0.1)', color:'var(--tertiary)' }}>Done</span>}
@@ -232,7 +232,7 @@ export default function Interviews() {
             {FILTER_TABS.map(t => (
               <button key={t.key} onClick={() => setFilter(t.key)} style={{
                 display:'flex', alignItems:'center', gap:'0.375rem', padding:'0.4rem 0.875rem',
-                borderRadius:'0.625rem', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif',
+                borderRadius:'0.625rem', border:'none', cursor:'pointer', fontFamily:'var(--font-display)',
                 fontSize:'0.8125rem', fontWeight: filter===t.key ? 700 : 500, whiteSpace:'nowrap',
                 background: filter===t.key ? (t.danger?'var(--error-container)':t.highlight?'linear-gradient(135deg,var(--tertiary),#009966)':'var(--surface-container-lowest)') : 'transparent',
                 color: filter===t.key ? (t.danger?'var(--on-error-container)':t.highlight?'#fff':'var(--tertiary)') : 'var(--on-surface-variant)',

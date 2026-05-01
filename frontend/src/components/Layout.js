@@ -64,7 +64,7 @@ const NotificationsPanel = ({ onClose }) => {
           const isOverdue = r.due_date < today;
           return (
             <div key={r.id} style={{ padding:'0.875rem 1.25rem', borderBottom:'1px solid var(--surface-container)', display:'flex', gap:'0.75rem', alignItems:'flex-start' }}>
-              <div style={{ width:36, height:36, borderRadius:'50%', background: isOverdue ? 'var(--error-container)' : 'rgba(0,74,198,0.08)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+              <div style={{ width:36, height:36, borderRadius:'50%', background: isOverdue ? 'var(--error-container)' : 'rgba(68,104,176,0.08)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                 <Icon name="alarm" style={{ fontSize:'1rem', color: isOverdue ? 'var(--error)' : 'var(--primary)' }} />
               </div>
               <div style={{ flex:1, minWidth:0 }}>
@@ -158,7 +158,7 @@ const TopBar = ({ onMenuClick }) => {
       </button>
 
       {/* App title — shown on very small screens when search hidden */}
-      <span className="topbar-title">Nexus CRM</span>
+      <span className="topbar-title">JMData Talent CRM</span>
       {/* Search */}
       <div className="search-bar" style={{ maxWidth: 340 }}>
         <Icon name="search" style={{ position:'absolute', left:'0.625rem', top:'50%', transform:'translateY(-50%)', color:'var(--on-surface-variant)', fontSize:'1.1rem' }} />

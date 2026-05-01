@@ -131,7 +131,7 @@ const StatusBadge = ({ status, onChange, id }) => {
   return (
     <select value={status} onChange={e => onChange(id, e.target.value)}
       onClick={e => e.stopPropagation()}
-      style={{ border:'none', background:s.bg, color:s.color, fontWeight:700, fontSize:'0.7rem', borderRadius:4, padding:'0.15rem 0.4rem', cursor:'pointer', fontFamily:'Inter,sans-serif', outline:'none', minWidth:80 }}>
+      style={{ border:'none', background:s.bg, color:s.color, fontWeight:700, fontSize:'0.7rem', borderRadius:4, padding:'0.15rem 0.4rem', cursor:'pointer', fontFamily:'var(--font-display)', outline:'none', minWidth:80 }}>
       {Object.entries(STATUS_META).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
     </select>
   );
@@ -267,11 +267,11 @@ export default function SalesDashboard() {
   const colInput = (key, ph) => (
     <input placeholder={ph||'Filter…'} value={cs[key]||''} onChange={e=>setCol(key,e.target.value)}
       onClick={e=>e.stopPropagation()}
-      style={{ width:'100%', fontSize:'0.68rem', padding:'0.2rem 0.375rem', borderRadius:3, border:'1px solid var(--outline-variant)', background:'var(--surface)', color:'var(--on-surface)', fontFamily:'Inter,sans-serif', boxSizing:'border-box' }}/>
+      style={{ width:'100%', fontSize:'0.68rem', padding:'0.2rem 0.375rem', borderRadius:3, border:'1px solid var(--outline-variant)', background:'var(--surface)', color:'var(--on-surface)', fontFamily:'var(--font-display)', boxSizing:'border-box' }}/>
   );
   const statusFilter = (
     <select value={cs.status||''} onChange={e=>setCol('status',e.target.value)} onClick={e=>e.stopPropagation()}
-      style={{ width:'100%', fontSize:'0.68rem', padding:'0.2rem 0.375rem', borderRadius:3, border:'1px solid var(--outline-variant)', background:'var(--surface)', color:'var(--on-surface)', fontFamily:'Inter,sans-serif' }}>
+      style={{ width:'100%', fontSize:'0.68rem', padding:'0.2rem 0.375rem', borderRadius:3, border:'1px solid var(--outline-variant)', background:'var(--surface)', color:'var(--on-surface)', fontFamily:'var(--font-display)' }}>
       <option value="">All</option>
       {Object.entries(STATUS_META).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
     </select>
@@ -308,7 +308,7 @@ export default function SalesDashboard() {
           {/* All files option */}
           <button onClick={() => changeFile('all')} style={{
             padding:'0.35rem 0.875rem', borderRadius:9999, border: fileFilter==='all' ? 'none' : '1px solid var(--outline-variant)',
-            cursor:'pointer', fontSize:'0.8125rem', fontWeight:600, fontFamily:'Inter,sans-serif',
+            cursor:'pointer', fontSize:'0.8125rem', fontWeight:600, fontFamily:'var(--font-display)',
             background: fileFilter==='all' ? 'var(--primary)' : 'transparent',
             color: fileFilter==='all' ? '#fff' : 'var(--on-surface-variant)',
             transition:'all 0.15s',
@@ -323,7 +323,7 @@ export default function SalesDashboard() {
               <button key={f} onClick={() => changeFile(f)} title={f} style={{
                 padding:'0.35rem 0.875rem', borderRadius:9999,
                 border: fileFilter===f ? 'none' : '1px solid var(--outline-variant)',
-                cursor:'pointer', fontSize:'0.8125rem', fontWeight:600, fontFamily:'Inter,sans-serif',
+                cursor:'pointer', fontSize:'0.8125rem', fontWeight:600, fontFamily:'var(--font-display)',
                 background: fileFilter===f ? 'var(--primary)' : 'var(--surface-container-low)',
                 color: fileFilter===f ? '#fff' : 'var(--on-surface-variant)',
                 display:'inline-flex', alignItems:'center', gap:'0.375rem',
@@ -369,7 +369,7 @@ export default function SalesDashboard() {
           <p style={{ fontSize:'0.875rem', fontWeight:600, color:'#b91c1c' }}>
             {summary.follow_due} compan{summary.follow_due===1?'y':'ies'} with overdue follow-ups — action needed today
           </p>
-          <button onClick={() => { setCS(s=>({...s,status:'follow_up_needed'})); }} style={{ marginLeft:'auto', fontSize:'0.8125rem', padding:'0.3rem 0.875rem', borderRadius:9999, background:'#dc2626', color:'#fff', border:'none', cursor:'pointer', fontWeight:600, fontFamily:'Inter,sans-serif' }}>
+          <button onClick={() => { setCS(s=>({...s,status:'follow_up_needed'})); }} style={{ marginLeft:'auto', fontSize:'0.8125rem', padding:'0.3rem 0.875rem', borderRadius:9999, background:'#dc2626', color:'#fff', border:'none', cursor:'pointer', fontWeight:600, fontFamily:'var(--font-display)' }}>
             Show them
           </button>
         </div>
@@ -379,17 +379,17 @@ export default function SalesDashboard() {
       <div style={{ display:'flex', gap:0, borderBottom:'2px solid var(--outline-variant)', marginBottom:0, overflowX:'auto' }}>
         {CATEGORY_TABS.map(t => (
           <button key={t.id} onClick={() => { setTab(t.id); setPage(1); }}
-            style={{ display:'flex', alignItems:'center', gap:'0.4rem', padding:'0.625rem 1.125rem', border:'none', borderBottom: tab===t.id ? '2px solid var(--primary)' : '2px solid transparent', cursor:'pointer', fontFamily:'Inter,sans-serif', fontSize:'0.8125rem', fontWeight: tab===t.id ? 700 : 500, color: tab===t.id ? 'var(--primary)' : 'var(--on-surface-variant)', background:'transparent', marginBottom:'-2px', whiteSpace:'nowrap', transition:'all 0.15s' }}>
+            style={{ display:'flex', alignItems:'center', gap:'0.4rem', padding:'0.625rem 1.125rem', border:'none', borderBottom: tab===t.id ? '2px solid var(--primary)' : '2px solid transparent', cursor:'pointer', fontFamily:'var(--font-display)', fontSize:'0.8125rem', fontWeight: tab===t.id ? 700 : 500, color: tab===t.id ? 'var(--primary)' : 'var(--on-surface-variant)', background:'transparent', marginBottom:'-2px', whiteSpace:'nowrap', transition:'all 0.15s' }}>
             <Icon name={t.icon} style={{ fontSize:'1rem', color: tab===t.id ? 'var(--primary)' : 'var(--on-surface-variant)' }}/>
             {t.label}
-            <span style={{ padding:'0.1rem 0.4rem', borderRadius:9999, fontSize:'0.7rem', fontWeight:700, background: tab===t.id ? 'rgba(0,74,198,0.1)' : 'var(--surface-container)', color: tab===t.id ? 'var(--primary)' : 'var(--on-surface-variant)' }}>
+            <span style={{ padding:'0.1rem 0.4rem', borderRadius:9999, fontSize:'0.7rem', fontWeight:700, background: tab===t.id ? 'rgba(68,104,176,0.1)' : 'var(--surface-container)', color: tab===t.id ? 'var(--primary)' : 'var(--on-surface-variant)' }}>
               {tabCounts[t.id] || 0}
             </span>
           </button>
         ))}
         {hasCS && (
           <button onClick={() => setCS({ company:'', type:'', status:'', location:'', domain:'', c1_name:'', remark:'', follow_up:'', source_file:'' })}
-            style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'0.375rem', padding:'0.625rem 1rem', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif', fontSize:'0.8125rem', fontWeight:600, color:'var(--error)', background:'transparent' }}>
+            style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'0.375rem', padding:'0.625rem 1rem', border:'none', cursor:'pointer', fontFamily:'var(--font-display)', fontSize:'0.8125rem', fontWeight:600, color:'var(--error)', background:'transparent' }}>
             <Icon name="filter_alt_off" style={{ fontSize:'1rem' }}/> Clear filters
           </button>
         )}
@@ -459,7 +459,7 @@ export default function SalesDashboard() {
                                    : isDueToday ? 'rgba(234,88,12,0.04)' : 'var(--surface-container-lowest)';
                   return (
                     <tr key={l.id} style={{ borderBottom:'1px solid var(--outline-variant)', background:rowBg, transition:'background 0.1s' }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,74,198,0.03)'}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(68,104,176,0.03)'}
                       onMouseLeave={e => e.currentTarget.style.background = rowBg}>
                       {/* # */}
                       <td style={{ padding:'0.5rem 0.75rem', borderRight:'1px solid var(--surface-container)', color:'var(--on-surface-variant)', fontSize:'0.7rem', textAlign:'center' }}>
@@ -509,7 +509,7 @@ export default function SalesDashboard() {
                       {/* Follow-up — inline date */}
                       <td style={{ padding:'0.375rem 0.5rem', borderRight:'1px solid var(--surface-container)', whiteSpace:'nowrap' }} onClick={e=>e.stopPropagation()}>
                         <input type="date" value={l.follow_up||''} onChange={e=>updateFollowUp(l.id,e.target.value)}
-                          style={{ fontSize:'0.75rem', border:'none', background:'transparent', cursor:'pointer', fontFamily:'Inter,sans-serif', color:isOverdue?'#dc2626':isDueToday?'#ea580c':'var(--on-surface)', fontWeight:isOverdue||isDueToday?700:400, padding:0, outline:'none', width:'110px' }}/>
+                          style={{ fontSize:'0.75rem', border:'none', background:'transparent', cursor:'pointer', fontFamily:'var(--font-display)', color:isOverdue?'#dc2626':isDueToday?'#ea580c':'var(--on-surface)', fontWeight:isOverdue||isDueToday?700:400, padding:0, outline:'none', width:'110px' }}/>
                       </td>
                       {/* Source file */}
                       <td style={{ padding:'0.5rem 0.625rem', borderRight:'1px solid var(--surface-container)', maxWidth:130 }}>
@@ -537,7 +537,7 @@ export default function SalesDashboard() {
               <button className="btn-icon" disabled={page===1} onClick={()=>setPage(p=>p-1)} style={{ opacity:page===1?0.35:1 }}><Icon name="chevron_left"/></button>
               {Array.from({length:totalPages},(_,i)=>i+1).filter(p=>p===1||p===totalPages||Math.abs(p-page)<=1).map((p,i,arr)=>(
                 <React.Fragment key={p}>{i>0&&arr[i-1]!==p-1&&<span style={{alignSelf:'center',color:'var(--on-surface-variant)',fontSize:'0.875rem'}}>…</span>}
-                <button onClick={()=>setPage(p)} style={{ width:32,height:32,borderRadius:'0.375rem',border:'none',cursor:'pointer',fontFamily:'Inter,sans-serif',fontSize:'0.875rem',fontWeight:600,background:page===p?'var(--primary)':'transparent',color:page===p?'#fff':'var(--on-surface-variant)',transition:'all 0.15s' }}>{p}</button></React.Fragment>
+                <button onClick={()=>setPage(p)} style={{ width:32,height:32,borderRadius:'0.375rem',border:'none',cursor:'pointer',fontFamily:'var(--font-display)',fontSize:'0.875rem',fontWeight:600,background:page===p?'var(--primary)':'transparent',color:page===p?'#fff':'var(--on-surface-variant)',transition:'all 0.15s' }}>{p}</button></React.Fragment>
               ))}
               <button className="btn-icon" disabled={page===totalPages||totalPages===0} onClick={()=>setPage(p=>p+1)} style={{ opacity:(page===totalPages||totalPages===0)?0.35:1 }}><Icon name="chevron_right"/></button>
             </div>

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap');
 
 @tailwind base;
@@ -6,19 +6,24 @@
 @tailwind utilities;
 
 /* =============================================
-   DIGITAL CURATOR — Design Tokens
+   JMDATA TALENT — Design Tokens
+   Brand: Plus Jakarta Sans · Space Grotesk
    ============================================= */
 :root {
-  /* Core Palette */
-  --primary:                    #004ac6;
-  --primary-container:          #2563eb;
-  --on-primary:                 #ffffff;
-  --on-primary-container:       #eeefff;
+  /* Brand Fonts */
+  --font-display:               'Plus Jakarta Sans', sans-serif;
+  --font-ui:                    'Space Grotesk', sans-serif;
 
-  --secondary:                  #515f74;
-  --secondary-container:        #d5e3fc;
+  /* Core Palette — JMData Brand */
+  --primary:                    #4468B0;   /* Purple Secondary */
+  --primary-container:          #5579C4;
+  --on-primary:                 #ffffff;
+  --on-primary-container:       #EEF2FF;
+
+  --secondary:                  #92A0BA;   /* Text Secondary */
+  --secondary-container:        #E2E8F2;   /* Slate Outline */
   --on-secondary:               #ffffff;
-  --on-secondary-container:     #57657a;
+  --on-secondary-container:     #0C162A;
 
   --tertiary:                   #006243;
   --tertiary-container:         #007d57;
@@ -30,39 +35,48 @@
   --on-error:                   #ffffff;
   --on-error-container:         #93000a;
 
-  /* Surfaces */
-  --surface:                    #faf8ff;
-  --surface-bright:             #faf8ff;
-  --surface-dim:                #d2d9f4;
-  --surface-variant:            #dae2fd;
-  --surface-container-lowest:   #ffffff;
-  --surface-container-low:      #f2f3ff;
-  --surface-container:          #eaedff;
-  --surface-container-high:     #e2e7ff;
-  --surface-container-highest:  #dae2fd;
+  /* Surfaces — JMData Light */
+  --surface:                    #FAF7FB;   /* Base BG */
+  --surface-bright:             #FAF7FB;
+  --surface-dim:                #E2E8F2;   /* Slate Outline */
+  --surface-variant:            #F0F5F9;   /* Base Select */
+  --surface-container-lowest:   #FFFFFF;
+  --surface-container-low:      #F7F8FB;   /* Surface Light */
+  --surface-container:          #F0F5F9;   /* Base Select */
+  --surface-container-high:     #E2E8F2;   /* Slate Outline */
+  --surface-container-highest:  #E2E8F2;
 
-  /* Text */
-  --on-surface:                 #131b2e;
-  --on-surface-variant:         #434655;
-  --on-background:              #131b2e;
+  /* Text — JMData */
+  --on-surface:                 #0C162A;   /* Blue Primary Dark */
+  --on-surface-variant:         #92A0BA;   /* Text Secondary */
+  --on-background:              #0C162A;
 
   /* Structural */
-  --outline:                    #737686;
-  --outline-variant:            #c3c6d7;
-  --inverse-surface:            #283044;
-  --inverse-on-surface:         #eef0ff;
-  --inverse-primary:            #b4c5ff;
-  --surface-tint:               #0053db;
+  --outline:                    #92A0BA;
+  --outline-variant:            #E2E8F2;   /* Slate Outline */
+  --inverse-surface:            #0C162A;
+  --inverse-on-surface:         #FAF7FB;
+  --inverse-primary:            #A8BBDF;
+  --surface-tint:               #4468B0;
+
+  /* Sidebar — dark navy per JMData brand */
+  --sidebar-bg:                 #0C162A;   /* Blue Primary Dark */
+  --sidebar-dark:               #141B34;   /* Dark */
+  --sidebar-text:               #92A0BA;   /* Text Secondary */
+  --sidebar-active-text:        #FAF7FB;
+  --sidebar-accent:             #4468B0;   /* Purple Secondary */
+  --sidebar-hover:              rgba(255, 255, 255, 0.06);
+  --sidebar-active-bg:          rgba(68, 104, 176, 0.25);
 
   /* Amber (warning/pending) */
   --amber:                      #d97706;
   --amber-container:            #fef3c7;
 
   /* Ghost border */
-  --ghost-border:               rgba(195, 198, 215, 0.15);
+  --ghost-border:               rgba(226, 232, 242, 0.15);
 
   /* Ambient shadow */
-  --ambient-shadow:             0px 4px 20px rgba(19, 27, 46, 0.06);
+  --ambient-shadow:             0px 4px 20px rgba(12, 22, 42, 0.08);
 }
 
 /* =============================================
@@ -79,7 +93,7 @@ html {
 
 body {
   margin: 0;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-display);
   background-color: var(--surface);
   color: var(--on-surface);
   font-size: 0.875rem;
@@ -106,21 +120,22 @@ body {
   left: 0;
   top: 0;
   z-index: 40;
-  background-color: var(--surface-container-low);
+  background-color: var(--sidebar-bg);
   display: flex;
   flex-direction: column;
   padding: 1.25rem 1rem;
   overflow-y: auto;
+  border-right: 1px solid rgba(68, 104, 176, 0.15);
 }
 
 .sidebar-recruitment {
-  --sidebar-accent: var(--tertiary);
-  --sidebar-accent-bg: rgba(0, 98, 67, 0.08);
+  --sidebar-accent: #4468B0;
+  --sidebar-accent-bg: rgba(68, 104, 176, 0.25);
 }
 
 .sidebar-sales {
-  --sidebar-accent: var(--primary);
-  --sidebar-accent-bg: rgba(0, 74, 198, 0.08);
+  --sidebar-accent: #4468B0;
+  --sidebar-accent-bg: rgba(68, 104, 176, 0.25);
 }
 
 .topbar {
@@ -158,7 +173,7 @@ body {
   border-radius: 0.75rem;
   font-size: 0.875rem;
   font-weight: 500;
-  color: var(--on-surface-variant);
+  color: var(--sidebar-text);
   text-decoration: none;
   transition: all 0.2s ease;
   cursor: pointer;
@@ -169,16 +184,16 @@ body {
 }
 
 .nav-item:hover {
-  background-color: rgba(255, 255, 255, 0.6);
-  color: var(--on-surface);
+  background-color: var(--sidebar-hover);
+  color: var(--sidebar-active-text);
   transform: translateX(2px);
 }
 
 .nav-item.active {
-  background-color: var(--surface-container-lowest);
-  color: var(--sidebar-accent, var(--primary));
+  background-color: var(--sidebar-active-bg);
+  color: var(--sidebar-active-text);
   font-weight: 600;
-  box-shadow: var(--ambient-shadow);
+  box-shadow: none;
 }
 
 /* =============================================
@@ -214,19 +229,21 @@ body {
   padding: 0.5rem 1.25rem;
   border-radius: 0.5rem;
   font-size: 0.875rem;
-  font-weight: 600;
+  font-weight: 500;
+  font-family: var(--font-ui);
+  letter-spacing: -0.02em;
   color: #ffffff;
   background: linear-gradient(135deg, var(--primary), var(--primary-container));
   border: none;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 74, 198, 0.25);
+  box-shadow: 0 2px 8px rgba(68, 104, 176, 0.3);
   transition: all 0.2s ease;
   text-decoration: none;
   white-space: nowrap;
 }
 
 .btn-primary:hover {
-  box-shadow: 0 4px 16px rgba(0, 74, 198, 0.35);
+  box-shadow: 0 4px 16px rgba(68, 104, 176, 0.45);
   transform: translateY(-1px);
 }
 
@@ -242,9 +259,11 @@ body {
   border-radius: 0.5rem;
   font-size: 0.875rem;
   font-weight: 500;
+  font-family: var(--font-ui);
+  letter-spacing: -0.02em;
   color: var(--primary);
   background: transparent;
-  border: 1px solid rgba(195, 198, 215, 0.4);
+  border: 1px solid var(--outline-variant);
   cursor: pointer;
   transition: all 0.2s ease;
   text-decoration: none;
@@ -253,7 +272,7 @@ body {
 
 .btn-secondary:hover {
   background-color: var(--surface-container-low);
-  border-color: var(--outline-variant);
+  border-color: var(--outline);
 }
 
 .btn-ghost {
@@ -264,6 +283,7 @@ body {
   border-radius: 0.5rem;
   font-size: 0.875rem;
   font-weight: 500;
+  font-family: var(--font-ui);
   color: var(--on-surface-variant);
   background: transparent;
   border: none;
@@ -334,12 +354,12 @@ body {
 .input {
   width: 100%;
   background-color: var(--surface-container-lowest);
-  border: 1px solid rgba(195, 198, 215, 0.4);
+  border: 1px solid var(--outline-variant);
   border-radius: 0.5rem;
   padding: 0.5rem 0.875rem;
   font-size: 0.875rem;
   color: var(--on-surface);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-display);
   transition: border-color 0.2s, box-shadow 0.2s;
   outline: none;
 }
@@ -351,23 +371,23 @@ body {
 
 .input:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(0, 74, 198, 0.1);
+  box-shadow: 0 0 0 3px rgba(68, 104, 176, 0.12);
 }
 
 .select {
   width: 100%;
   background-color: var(--surface-container-lowest);
-  border: 1px solid rgba(195, 198, 215, 0.4);
+  border: 1px solid var(--outline-variant);
   border-radius: 0.5rem;
   padding: 0.5rem 0.875rem;
   font-size: 0.875rem;
   color: var(--on-surface);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-display);
   outline: none;
   cursor: pointer;
   transition: border-color 0.2s, box-shadow 0.2s;
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23434655' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2392A0BA' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 0.75rem center;
   padding-right: 2rem;
@@ -375,28 +395,29 @@ body {
 
 .select:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(0, 74, 198, 0.1);
+  box-shadow: 0 0 0 3px rgba(68, 104, 176, 0.12);
 }
 
 .label {
   display: block;
   font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.07em;
+  font-weight: 500;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--on-surface-variant);
+  font-family: var(--font-ui);
   margin-bottom: 0.375rem;
 }
 
 .textarea {
   width: 100%;
   background-color: var(--surface-container-lowest);
-  border: 1px solid rgba(195, 198, 215, 0.4);
+  border: 1px solid var(--outline-variant);
   border-radius: 0.5rem;
   padding: 0.625rem 0.875rem;
   font-size: 0.875rem;
   color: var(--on-surface);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-display);
   resize: vertical;
   min-height: 80px;
   outline: none;
@@ -405,7 +426,7 @@ body {
 
 .textarea:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(0, 74, 198, 0.1);
+  box-shadow: 0 0 0 3px rgba(68, 104, 176, 0.12);
 }
 
 /* =============================================
@@ -420,18 +441,19 @@ body {
 .search-bar input {
   width: 100%;
   background-color: var(--surface-container-low);
-  border: none;
+  border: 1px solid var(--outline-variant);
   border-radius: 0.5rem;
   padding: 0.5rem 0.875rem 0.5rem 2.5rem;
   font-size: 0.875rem;
   color: var(--on-surface);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-display);
   outline: none;
-  transition: box-shadow 0.2s;
+  transition: box-shadow 0.2s, border-color 0.2s;
 }
 
 .search-bar input:focus {
-  box-shadow: 0 0 0 2px rgba(0, 74, 198, 0.15);
+  box-shadow: 0 0 0 2px rgba(68, 104, 176, 0.15);
+  border-color: var(--primary);
 }
 
 .search-bar .search-icon {
@@ -632,13 +654,13 @@ body {
 
 /* Selection highlight */
 ::selection {
-  background-color: rgba(0, 74, 198, 0.15);
+  background-color: rgba(68, 104, 176, 0.18);
   color: var(--on-surface);
 }
 
 /* Focus ring */
 *:focus-visible {
-  outline: 2px solid rgba(0, 74, 198, 0.5);
+  outline: 2px solid rgba(68, 104, 176, 0.5);
   outline-offset: 2px;
 }
 

@@ -2,10 +2,6 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { timesheetAPI, usersAPI, formatApiError } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import NexusTutorial from '../../components/NexusTutorial';
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer,
-} from 'recharts';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
@@ -16,7 +12,7 @@ const MONTH_NAMES = ['January','February','March','April','May','June','July','A
 const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 const BAR_COLORS = [
-  '#004ac6','#ea580c','#16a34a','#9333ea','#0891b2',
+  'var(--primary)','#ea580c','#16a34a','#9333ea','#0891b2',
   '#db2777','#ca8a04','#059669','#7c3aed','#dc2626',
   '#0284c7','#65a30d',
 ];
@@ -49,7 +45,7 @@ function getUser(ts) {
 const StatusBadge = ({ status }) => {
   const cfg = {
     draft:     { label:'Draft',     bg:'#f1f5f9', color:'#64748b' },
-    submitted: { label:'Submitted', bg:'#eff6ff', color:'#2563eb' },
+    submitted: { label:'Submitted', bg:'#eff6ff', color:'var(--primary-container)' },
     approved:  { label:'Approved',  bg:'#f0fdf4', color:'#16a34a' },
     rejected:  { label:'Rejected',  bg:'#fef2f2', color:'#dc2626' },
   };
@@ -96,14 +92,14 @@ function MultiSelect({ options, selected, onChange }) {
       {open && (
         <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, zIndex:200, background:'var(--surface)', borderRadius:12, border:'1px solid var(--outline-variant)', boxShadow:'0 8px 30px rgba(0,0,0,0.12)', minWidth:260, maxHeight:340, overflowY:'auto', padding:'6px 0' }}>
           <div style={{ display:'flex', gap:8, padding:'6px 12px', borderBottom:'1px solid var(--surface-container-high)' }}>
-            <button onClick={() => onChange(new Set())} style={{ flex:1, padding:4, borderRadius:6, border:'none', background: selected.size === 0 ? '#eaedff' : 'transparent', color:'#004ac6', fontSize:'0.75rem', fontWeight:700, cursor:'pointer' }}>All</button>
+            <button onClick={() => onChange(new Set())} style={{ flex:1, padding:4, borderRadius:6, border:'none', background: selected.size === 0 ? 'var(--surface-container)' : 'transparent', color:'var(--primary)', fontSize:'0.75rem', fontWeight:700, cursor:'pointer' }}>All</button>
             <button onClick={() => onChange(new Set(options.map(o => o.id)))} style={{ flex:1, padding:4, borderRadius:6, border:'none', background:'transparent', color:'var(--on-surface-variant)', fontSize:'0.75rem', fontWeight:600, cursor:'pointer' }}>Clear</button>
           </div>
           {options.map((opt, i) => {
             const isChecked = selected.size === 0 || selected.has(opt.id);
             return (
-              <label key={opt.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 14px', cursor:'pointer', background: isChecked ? 'rgba(0,74,198,0.04)' : 'transparent' }}>
-                <input type="checkbox" checked={isChecked} onChange={() => toggle(opt.id)} style={{ accentColor:'#004ac6', width:15, height:15 }} />
+              <label key={opt.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 14px', cursor:'pointer', background: isChecked ? 'rgba(68,104,176,0.04)' : 'transparent' }}>
+                <input type="checkbox" checked={isChecked} onChange={() => toggle(opt.id)} style={{ accentColor:'var(--primary)', width:15, height:15 }} />
                 <div style={{ display:'flex', alignItems:'center', gap:8, flex:1 }}>
                   <div style={{ width:28, height:28, borderRadius:'50%', flexShrink:0, background:BAR_COLORS[i % BAR_COLORS.length], display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontWeight:700, fontSize:'0.6875rem' }}>
                     {(opt.name||'?').split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)}
@@ -122,28 +118,113 @@ function MultiSelect({ options, selected, onChange }) {
   );
 }
 
-const ChartTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null;
-  const total = payload.reduce((s,p) => s + (p.value || 0), 0);
-  return (
-    <div style={{ background:'var(--surface)', border:'1px solid var(--outline-variant)', borderRadius:12, padding:'10px 14px', boxShadow:'0 8px 24px rgba(0,0,0,0.12)', minWidth:160 }}>
-      <p style={{ margin:'0 0 8px', fontWeight:700, fontSize:'0.875rem', color:'var(--on-surface)' }}>{MONTH_NAMES[parseInt(label)-1]}</p>
-      {payload.map(p => (
-        <div key={p.dataKey} style={{ display:'flex', justifyContent:'space-between', gap:16, marginBottom:3 }}>
-          <span style={{ display:'flex', alignItems:'center', gap:5, fontSize:'0.8125rem', color:'var(--on-surface-variant)' }}>
-            <span style={{ width:10, height:10, borderRadius:3, background:p.color, display:'inline-block' }} />{p.dataKey}
-          </span>
-          <span style={{ fontWeight:700, color:p.color, fontSize:'0.8125rem' }}>{p.value.toFixed(1)}h</span>
-        </div>
-      ))}
-      {payload.length > 1 && (
-        <div style={{ borderTop:'1px solid var(--surface-container-high)', marginTop:6, paddingTop:6, display:'flex', justifyContent:'space-between' }}>
-          <span style={{ fontSize:'0.8125rem', fontWeight:700, color:'var(--on-surface)' }}>Total</span>
-          <span style={{ fontSize:'0.8125rem', fontWeight:800, color:'var(--on-surface)' }}>{total.toFixed(1)}h</span>
-        </div>
-      )}
-    </div>
-  );
+// ── Plotly Bar Chart ─────────────────────────────────────────
+const PlotlyBarChart = ({ chartData, visibleEmps }) => {
+  const containerRef = useRef(null);
+  const plotted      = useRef(false);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !chartData.length || !visibleEmps.length) return;
+
+    const ready = () => {
+      const traces = visibleEmps.map((emp, i) => ({
+        x: chartData.map(d => MONTH_SHORT[parseInt(d.month) - 1]),
+        y: chartData.map(d => parseFloat(d[emp.name] || 0)),
+        name: emp.name,
+        type: 'bar',
+        marker: {
+          color: BAR_COLORS[i % BAR_COLORS.length],
+          opacity: 0.92,
+          line: { color: 'rgba(255,255,255,0.25)', width: 0.5 },
+        },
+        hovertemplate:
+          '<b>%{fullData.name}</b><br>' +
+          '%{x}: <b>%{y:.1f}h</b><extra></extra>',
+      }));
+
+      const layout = {
+        barmode: 'group',
+        paper_bgcolor: 'transparent',
+        plot_bgcolor:  'transparent',
+        font: { family: 'Plus Jakarta Sans, sans-serif', color: '#92A0BA', size: 12 },
+        xaxis: {
+          tickfont:  { color: '#92A0BA', size: 12, family: 'Space Grotesk, sans-serif' },
+          gridcolor: 'rgba(226,232,242,0.5)',
+          showline:  false,
+          ticklen:   0,
+          fixedrange: true,
+        },
+        yaxis: {
+          tickfont:   { color: '#92A0BA', size: 12, family: 'Space Grotesk, sans-serif' },
+          gridcolor:  'rgba(226,232,242,0.5)',
+          ticksuffix: 'h',
+          showline:   false,
+          ticklen:    0,
+          fixedrange: true,
+          rangemode: 'tozero',
+        },
+        legend: {
+          orientation: 'h',
+          y:           -0.18,
+          x:           0.5,
+          xanchor:     'center',
+          font:        { size: 12, family: 'Space Grotesk, sans-serif', color: '#92A0BA' },
+          bgcolor:     'transparent',
+        },
+        margin:       { t: 16, r: 20, b: 70, l: 52 },
+        bargap:       0.28,
+        bargroupgap:  0.1,
+        hoverlabel: {
+          bgcolor:    '#0C162A',
+          bordercolor:'#4468B0',
+          font:       { color: '#FAF7FB', family: 'Plus Jakarta Sans, sans-serif', size: 13 },
+          align:      'left',
+        },
+        transition: { duration: 400, easing: 'cubic-in-out' },
+      };
+
+      const config = {
+        responsive:     true,
+        displayModeBar: true,
+        displaylogo:    false,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d'],
+        toImageButtonOptions: {
+          format:   'png',
+          filename: 'jmdata_timesheet_hours',
+          scale:    2,
+        },
+      };
+
+      if (plotted.current) {
+        window.Plotly.react(el, traces, layout, config);
+      } else {
+        window.Plotly.newPlot(el, traces, layout, config);
+        plotted.current = true;
+      }
+    };
+
+    // Plotly loaded via CDN defer — wait if not yet ready
+    if (window.Plotly) {
+      ready();
+    } else {
+      const interval = setInterval(() => {
+        if (window.Plotly) { clearInterval(interval); ready(); }
+      }, 80);
+      return () => clearInterval(interval);
+    }
+
+    return () => {
+      if (plotted.current && el && window.Plotly) {
+        try { window.Plotly.purge(el); } catch {}
+        plotted.current = false;
+      }
+    };
+  }, [chartData, visibleEmps]);
+
+  if (!chartData.length || !visibleEmps.length) return null;
+
+  return <div ref={containerRef} style={{ width: '100%', height: 360 }} />;
 };
 
 // ── Detail modal ─────────────────────────────────────────────
@@ -381,7 +462,7 @@ const TimesheetApprovals = () => {
       <div data-tour="approvals-history" style={{display:'flex',gap:4,background:'var(--surface-container-high)',borderRadius:10,padding:4,marginBottom:14,width:'fit-content',flexWrap:'wrap'}}>
         {[{key:'pending',label:`Pending (${pendingCount})`},{key:'all',label:'Weekly'},{key:'monthly',label:'Monthly'}].map(tab=>(
           <button key={tab.key} onClick={()=>{setView(tab.key);setFilterStatus('');setFilterUser('');setFilterEmployee('');}}
-            style={{padding:'6px 14px',borderRadius:8,border:'none',cursor:'pointer',fontFamily:'Inter,sans-serif',fontSize:'0.8125rem',fontWeight:view===tab.key?700:500,background:view===tab.key?'var(--surface)':'transparent',color:view===tab.key?'#ea580c':'var(--on-surface-variant)',boxShadow:view===tab.key?'var(--ambient-shadow)':'none',transition:'all 0.15s'}}>
+            style={{padding:'6px 14px',borderRadius:8,border:'none',cursor:'pointer',fontFamily:'var(--font-display)',fontSize:'0.8125rem',fontWeight:view===tab.key?700:500,background:view===tab.key?'var(--surface)':'transparent',color:view===tab.key?'#ea580c':'var(--on-surface-variant)',boxShadow:view===tab.key?'var(--ambient-shadow)':'none',transition:'all 0.15s'}}>
             {tab.label}
           </button>
         ))}
@@ -390,7 +471,7 @@ const TimesheetApprovals = () => {
       {/* KPI cards — below tabs */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:10,marginBottom:18}}>
         {[
-          {label:'Pending',   value:stats.submitted,                  color:'#2563eb',bg:'#eff6ff',               icon:'hourglass_empty'},
+          {label:'Pending',   value:stats.submitted,                  color:'var(--primary-container)',bg:'#eff6ff',               icon:'hourglass_empty'},
           {label:'Approved',  value:stats.approved,                   color:'#16a34a',bg:'#f0fdf4',               icon:'check_circle'},
           {label:'Rejected',  value:stats.rejected,                   color:'#dc2626',bg:'#fef2f2',               icon:'cancel'},
           {label:"Hours OK'd",value:`${stats.totalHours.toFixed(0)}h`,color:'#ea580c',bg:'rgba(234,88,12,0.07)', icon:'schedule'},
@@ -474,7 +555,7 @@ const TimesheetApprovals = () => {
                   <p style={{margin:0,fontSize:'0.7rem',color:'var(--on-surface-variant)'}}>{monthEntries.filter(e=>parseFloat(e.hours)>0).length} days</p>
                 </div>
                 <StatusBadge status={ts.status}/>
-                {isPending&&<div style={{padding:'6px 14px',borderRadius:8,fontSize:'0.8rem',fontWeight:700,background:'linear-gradient(135deg,#2563eb,#3b82f6)',color:'#fff',flexShrink:0}}>Review →</div>}
+                {isPending&&<div style={{padding:'6px 14px',borderRadius:8,fontSize:'0.8rem',fontWeight:700,background:'linear-gradient(135deg,var(--primary-container),#3b82f6)',color:'#fff',flexShrink:0}}>Review →</div>}
               </div>
             );
           })}
@@ -514,18 +595,10 @@ const TimesheetApprovals = () => {
               <p style={{margin:0,fontWeight:600}}>No approved hours found for {chartYear}</p>
             </div>
           ):(
-            <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={chartData} margin={{top:4,right:16,left:-8,bottom:4}} barCategoryGap="25%" barGap={2}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--outline-variant)" vertical={false}/>
-                <XAxis dataKey="month" tickFormatter={m=>MONTH_SHORT[parseInt(m)-1]} tick={{fontSize:12,fill:'var(--on-surface-variant)',fontFamily:'Inter,sans-serif'}} axisLine={false} tickLine={false}/>
-                <YAxis tickFormatter={v=>`${v}h`} tick={{fontSize:12,fill:'var(--on-surface-variant)',fontFamily:'Inter,sans-serif'}} axisLine={false} tickLine={false}/>
-                <Tooltip content={<ChartTooltip/>} cursor={{fill:'rgba(0,74,198,0.05)'}}/>
-                <Legend wrapperStyle={{fontSize:'0.8125rem',fontFamily:'Inter,sans-serif',paddingTop:12}} iconType="square" iconSize={10}/>
-                {visibleEmps.map((emp,i)=>(
-                  <Bar key={emp.id} dataKey={emp.name} fill={BAR_COLORS[i%BAR_COLORS.length]} radius={[4,4,0,0]} maxBarSize={40}/>
-                ))}
-              </BarChart>
-            </ResponsiveContainer>
+            <PlotlyBarChart
+              chartData={chartData}
+              visibleEmps={visibleEmps}
+            />
           )}
         </div>
       )}

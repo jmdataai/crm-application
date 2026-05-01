@@ -10,7 +10,7 @@ const ScoreBadge = ({ score }) => {
   const cfg =
     score >= 90 ? { bg: 'rgba(0,98,67,0.15)',   color: '#006633', label: 'Excellent' } :
     score >= 75 ? { bg: 'rgba(0,98,67,0.1)',    color: '#009955', label: 'Strong'    } :
-    score >= 60 ? { bg: 'rgba(0,74,198,0.1)',   color: 'var(--primary)', label: 'Good' } :
+    score >= 60 ? { bg: 'rgba(68,104,176,0.1)',   color: 'var(--primary)', label: 'Good' } :
     score >= 40 ? { bg: 'rgba(217,119,6,0.12)', color: '#92400e', label: 'Partial'   } :
                   { bg: 'var(--error-container)', color: 'var(--error)', label: 'Weak' };
   return (
@@ -30,7 +30,7 @@ const SkillChip = ({ label, variant = 'match' }) => {
   const styles = {
     match:   { bg: 'rgba(0,98,67,0.1)',    color: '#006633' },
     missing: { bg: 'var(--error-container)', color: 'var(--error)' },
-    neutral: { bg: 'rgba(0,74,198,0.08)',  color: 'var(--primary)' },
+    neutral: { bg: 'rgba(68,104,176,0.08)',  color: 'var(--primary)' },
   };
   const s = styles[variant] || styles.neutral;
   return (
@@ -108,7 +108,7 @@ export default function ATSMatch() {
         {[{ id: 'domestic', label: '🇮🇳 Domestic' }, { id: 'international', label: '🌍 International' }].map(t => (
           <button key={t.id} onClick={() => { setType(t.id); setResult(null); }} style={{
             padding: '0.5rem 1.5rem', borderRadius: '0.625rem', border: 'none', cursor: 'pointer',
-            fontFamily: 'Inter,sans-serif', fontSize: '0.875rem',
+            fontFamily: 'var(--font-display)', fontSize: '0.875rem',
             fontWeight: candidateType === t.id ? 600 : 500,
             background: candidateType === t.id ? 'var(--surface-container-lowest)' : 'transparent',
             color: candidateType === t.id ? 'var(--tertiary)' : 'var(--on-surface-variant)',
@@ -142,7 +142,7 @@ export default function ATSMatch() {
               display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
               padding: '0.625rem 1.5rem', borderRadius: '0.5rem', border: 'none',
               cursor: loading || jdText.trim().length < 30 ? 'not-allowed' : 'pointer',
-              fontFamily: 'Inter,sans-serif', fontSize: '0.9375rem', fontWeight: 700,
+              fontFamily: 'var(--font-display)', fontSize: '0.9375rem', fontWeight: 700,
               color: '#fff', background: 'linear-gradient(135deg,var(--tertiary),#009966)',
               opacity: loading || jdText.trim().length < 30 ? 0.65 : 1,
               boxShadow: '0 2px 8px rgba(0,98,67,0.25)',
@@ -189,7 +189,7 @@ export default function ATSMatch() {
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.625rem', alignItems: 'center' }}>
               {jdMeta.role_type && (
-                <span style={{ padding: '0.25rem 0.75rem', borderRadius: 9999, background: 'rgba(0,74,198,0.1)', color: 'var(--primary)', fontSize: '0.8125rem', fontWeight: 600 }}>
+                <span style={{ padding: '0.25rem 0.75rem', borderRadius: 9999, background: 'rgba(68,104,176,0.1)', color: 'var(--primary)', fontSize: '0.8125rem', fontWeight: 600 }}>
                   {jdMeta.role_type}
                 </span>
               )}
@@ -306,7 +306,7 @@ export default function ATSMatch() {
                               padding: '0.375rem 0.875rem', borderRadius: '0.5rem', border: 'none',
                               cursor: 'pointer', fontSize: '0.8125rem', fontWeight: 600,
                               background: 'rgba(0,98,67,0.08)', color: 'var(--tertiary)',
-                              fontFamily: 'Inter,sans-serif',
+                              fontFamily: 'var(--font-display)',
                             }}
                           >
                             <Icon name="open_in_new" style={{ fontSize: '1rem' }} /> View
@@ -318,7 +318,7 @@ export default function ATSMatch() {
                               padding: '0.375rem 0.875rem', borderRadius: '0.5rem',
                               border: '1px solid var(--outline-variant)', cursor: 'pointer',
                               fontSize: '0.8125rem', fontWeight: 600, background: 'transparent',
-                              color: 'var(--on-surface-variant)', fontFamily: 'Inter,sans-serif',
+                              color: 'var(--on-surface-variant)', fontFamily: 'var(--font-display)',
                             }}
                           >
                             <Icon name={isExpanded ? 'expand_less' : 'expand_more'} style={{ fontSize: '1rem' }} />

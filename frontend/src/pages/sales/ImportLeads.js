@@ -476,8 +476,8 @@ export default function ImportLeads() {
 
   // ── Render helpers ─────────────────────────────────────
   const GROUP_COLORS = {
-    company: { bg:'rgba(0,74,198,0.07)',   border:'rgba(0,74,198,0.25)',   label:'Company',    color:'var(--primary)' },
-    cp1:     { bg:'rgba(0,74,198,0.05)',   border:'rgba(0,74,198,0.15)',   label:'Contact 1',  color:'var(--primary)' },
+    company: { bg:'rgba(68,104,176,0.07)',   border:'rgba(68,104,176,0.25)',   label:'Company',    color:'var(--primary)' },
+    cp1:     { bg:'rgba(68,104,176,0.05)',   border:'rgba(68,104,176,0.15)',   label:'Contact 1',  color:'var(--primary)' },
     cp2:     { bg:'rgba(124,58,237,0.07)', border:'rgba(124,58,237,0.2)', label:'Contact 2',  color:'#7c3aed' },
     cp3:     { bg:'rgba(0,150,80,0.07)',   border:'rgba(0,150,80,0.2)',   label:'Contact 3',  color:'var(--tertiary)' },
     skip:    { bg:'var(--surface-container)', border:'var(--outline-variant)', label:'Skip', color:'var(--on-surface-variant)' },
@@ -503,7 +503,7 @@ export default function ImportLeads() {
         style={{
           border: `2px dashed ${dragOver ? 'var(--primary)' : 'var(--outline-variant)'}`,
           borderRadius:'1rem', padding:'3rem 2rem', textAlign:'center', cursor:'pointer',
-          background: dragOver ? 'rgba(0,74,198,0.04)' : 'var(--surface-container-lowest)',
+          background: dragOver ? 'rgba(68,104,176,0.04)' : 'var(--surface-container-lowest)',
           transition:'all 0.2s',
         }}
       >
@@ -659,7 +659,7 @@ export default function ImportLeads() {
                 <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.25rem' }}>
                   <div style={{
                     width:32, height:32, borderRadius:'0.5rem', flexShrink:0,
-                    background:'rgba(0,74,198,0.1)', display:'flex', alignItems:'center', justifyContent:'center',
+                    background:'rgba(68,104,176,0.1)', display:'flex', alignItems:'center', justifyContent:'center',
                   }}>
                     <Icon name="business" style={{ fontSize:'1rem', color:'var(--primary)' }} />
                   </div>

@@ -41,25 +41,45 @@ const Login = () => {
       <div 
         className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12"
         style={{ 
-          background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-container) 100%)',
-          color: 'white'
+          background: 'linear-gradient(160deg, #0C162A 0%, #141B34 60%, #1e2d52 100%)',
+          color: 'white',
+          position: 'relative',
+          overflow: 'hidden',
         }}
       >
+        {/* Decorative rings */}
+        <div style={{ position: 'absolute', top: -80, right: -80, width: 320, height: 320, borderRadius: '50%', border: '1px solid rgba(68,104,176,0.15)', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', top: -40, right: -40, width: 200, height: 200, borderRadius: '50%', border: '1px solid rgba(68,104,176,0.2)', pointerEvents: 'none' }} />
+
         <div>
-          <h1 className="display-lg mb-4">CRM Hub</h1>
-          <p className="body-md opacity-90">The modern platform for sales and recruitment teams</p>
-        </div>
-        <div className="space-y-8">
-          <div className="animate-slideIn" style={{ animationDelay: '0.1s' }}>
-            <p className="headline-sm mb-2">Sales CRM</p>
-            <p className="body-md opacity-80">Manage leads, track follow-ups, and close deals faster</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', marginBottom: '2rem' }}>
+            <img src="/jm-logo.png" alt="JMData" style={{ width: 48, height: 48, borderRadius: '0.75rem', objectFit: 'cover' }} />
+            <div>
+              <p style={{ margin: 0, fontSize: '0.6875rem', fontWeight: 500, letterSpacing: '0.25em', textTransform: 'uppercase', color: '#92A0BA', fontFamily: 'var(--font-ui)' }}>JMData Talent</p>
+              <p style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#FAF7FB', fontFamily: 'var(--font-display)' }}>CRM Platform</p>
+            </div>
           </div>
-          <div className="animate-slideIn" style={{ animationDelay: '0.2s' }}>
-            <p className="headline-sm mb-2">Recruitment ATS</p>
-            <p className="body-md opacity-80">Streamline hiring with a powerful candidate pipeline</p>
+          <h1 style={{ fontSize: '3rem', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.03em', color: '#FAF7FB', fontFamily: 'var(--font-display)', marginBottom: '1rem' }}>
+            Precision hiring.<br />
+            <span style={{ color: '#4468B0' }}>No guesswork.</span>
+          </h1>
+          <p style={{ color: '#92A0BA', fontSize: '1rem', lineHeight: 1.6, fontFamily: 'var(--font-display)' }}>The modern platform for sales and recruitment teams</p>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ padding: '1rem 1.25rem', borderRadius: '0.875rem', background: 'rgba(68,104,176,0.12)', border: '1px solid rgba(68,104,176,0.2)' }}>
+            <p style={{ margin: '0 0 0.25rem', fontWeight: 700, fontSize: '0.9375rem', color: '#FAF7FB', fontFamily: 'var(--font-display)' }}>Sales CRM</p>
+            <p style={{ margin: 0, fontSize: '0.875rem', color: '#92A0BA', fontFamily: 'var(--font-display)' }}>Manage leads, track follow-ups, and close deals faster</p>
+          </div>
+          <div style={{ padding: '1rem 1.25rem', borderRadius: '0.875rem', background: 'rgba(68,104,176,0.12)', border: '1px solid rgba(68,104,176,0.2)' }}>
+            <p style={{ margin: '0 0 0.25rem', fontWeight: 700, fontSize: '0.9375rem', color: '#FAF7FB', fontFamily: 'var(--font-display)' }}>Recruitment ATS</p>
+            <p style={{ margin: 0, fontSize: '0.875rem', color: '#92A0BA', fontFamily: 'var(--font-display)' }}>Streamline hiring with a powerful candidate pipeline</p>
           </div>
         </div>
-        <p className="label-sm opacity-60">Built for modern teams</p>
+
+        <p style={{ fontSize: '0.75rem', color: '#92A0BA', fontFamily: 'var(--font-ui)', letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.6 }}>
+          © 2026 JMData Talent. All rights reserved.
+        </p>
       </div>
 
       {/* Right Panel - Login Form */}

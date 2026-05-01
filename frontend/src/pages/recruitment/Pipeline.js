@@ -10,8 +10,8 @@ const COLUMNS = [
   { key:'sourced',             label:'Sourced',             color:'var(--outline)',          bg:'rgba(115,118,134,0.08)' },
   { key:'screened',            label:'Screened',            color:'var(--secondary)',        bg:'rgba(81,95,116,0.08)' },
   { key:'shortlisted',         label:'Shortlisted',         color:'#d97706',                 bg:'rgba(217,119,6,0.08)' },
-  { key:'interview_scheduled', label:'Interview Scheduled', color:'var(--primary)',          bg:'rgba(0,74,198,0.08)' },
-  { key:'interviewed',         label:'Interviewed',         color:'var(--primary)',          bg:'rgba(0,74,198,0.1)' },
+  { key:'interview_scheduled', label:'Interview Scheduled', color:'var(--primary)',          bg:'rgba(68,104,176,0.08)' },
+  { key:'interviewed',         label:'Interviewed',         color:'var(--primary)',          bg:'rgba(68,104,176,0.1)' },
   { key:'selected',            label:'Selected',            color:'var(--tertiary)',         bg:'rgba(0,98,67,0.08)' },
 ];
 

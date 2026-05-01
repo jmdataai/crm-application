@@ -236,7 +236,7 @@ export default function RecruitmentTasks() {
 
           <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
             {FILTER_CARDS.map(f => (
-              <button key={f.key} onClick={() => setFilter(f.key)} style={{ padding:'1rem', borderRadius:'0.75rem', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'Inter,sans-serif', background:filter===f.key?(f.danger?'var(--error-container)':'linear-gradient(135deg,var(--tertiary),#009966)'):'var(--surface-container-lowest)', boxShadow:'var(--ambient-shadow)', transition:'all 0.2s' }}>
+              <button key={f.key} onClick={() => setFilter(f.key)} style={{ padding:'1rem', borderRadius:'0.75rem', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'var(--font-display)', background:filter===f.key?(f.danger?'var(--error-container)':'linear-gradient(135deg,var(--tertiary),#009966)'):'var(--surface-container-lowest)', boxShadow:'var(--ambient-shadow)', transition:'all 0.2s' }}>
                 <Icon name={f.icon} style={{ fontSize:'1.25rem', color:filter===f.key?(f.danger?'var(--on-error-container)':'#fff'):(f.danger?'var(--error)':'var(--tertiary)'), marginBottom:'0.375rem', display:'block' }} />
                 <p style={{ fontSize:'1.5rem', fontWeight:800, lineHeight:1, color:filter===f.key?(f.danger?'var(--on-error-container)':'#fff'):'var(--on-surface)', marginBottom:'0.125rem' }}>{f.count}</p>
                 <p style={{ fontSize:'0.75rem', fontWeight:600, color:filter===f.key?(f.danger?'var(--on-error-container)':'rgba(255,255,255,0.8)'):'var(--on-surface-variant)' }}>{f.label}</p>
@@ -247,7 +247,7 @@ export default function RecruitmentTasks() {
           <div className="card" style={{ padding:'0.75rem 1.25rem', marginBottom:'1rem', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
             <div style={{ display:'flex', gap:'0.375rem' }}>
               {['all','high','medium','low'].map(p => (
-                <button key={p} onClick={() => setPri(p)} style={{ padding:'0.3rem 0.875rem', borderRadius:9999, border:'none', cursor:'pointer', fontSize:'0.8125rem', fontWeight:600, fontFamily:'Inter,sans-serif', background:priority===p?'var(--on-surface)':'var(--surface-container-low)', color:priority===p?'#fff':'var(--on-surface-variant)', transition:'all 0.15s' }}>
+                <button key={p} onClick={() => setPri(p)} style={{ padding:'0.3rem 0.875rem', borderRadius:9999, border:'none', cursor:'pointer', fontSize:'0.8125rem', fontWeight:600, fontFamily:'var(--font-display)', background:priority===p?'var(--on-surface)':'var(--surface-container-low)', color:priority===p?'#fff':'var(--on-surface-variant)', transition:'all 0.15s' }}>
                   {p==='all' ? 'All Priority' : PRIORITY[p].label}
                 </button>
               ))}

@@ -58,7 +58,7 @@ function getWeeksInMonth(year, month) {
 const StatusBadge = ({ status }) => {
   const cfg = {
     draft:     { label: 'Draft',     bg: '#f1f5f9', color: '#64748b', icon: 'edit_note' },
-    submitted: { label: 'Submitted', bg: '#eff6ff', color: '#2563eb', icon: 'hourglass_empty' },
+    submitted: { label: 'Submitted', bg: '#eff6ff', color: 'var(--primary-container)', icon: 'hourglass_empty' },
     approved:  { label: 'Approved',  bg: '#f0fdf4', color: '#16a34a', icon: 'check_circle' },
     rejected:  { label: 'Rejected',  bg: '#fef2f2', color: '#dc2626', icon: 'cancel' },
   };
@@ -161,7 +161,7 @@ const WeekForm = ({ weekStart, onSaved }) => {
         </div>
       )}
       {(isSubmitted || isApproved) && (
-        <div style={{ padding: '10px 14px', background: isApproved ? '#f0fdf4' : '#eff6ff', borderRadius: 10, marginBottom: 12, border: `1px solid ${isApproved ? '#bbf7d0' : '#bfdbfe'}`, fontSize: '0.875rem', color: isApproved ? '#16a34a' : '#2563eb', fontWeight: 600 }}>
+        <div style={{ padding: '10px 14px', background: isApproved ? '#f0fdf4' : '#eff6ff', borderRadius: 10, marginBottom: 12, border: `1px solid ${isApproved ? '#bbf7d0' : '#bfdbfe'}`, fontSize: '0.875rem', color: isApproved ? '#16a34a' : 'var(--primary-container)', fontWeight: 600 }}>
           {isApproved ? '✅ Approved by CEO.' : '⏳ Submitted — awaiting CEO approval. Cannot be edited.'}
         </div>
       )}
@@ -222,7 +222,7 @@ const WeekForm = ({ weekStart, onSaved }) => {
               {submitting ? 'Submitting...' : '✈️ Submit for Approval'}
             </button>
           )}
-          {isSubmitted && <div style={{ padding: '10px 16px', borderRadius: 10, background: '#eff6ff', color: '#2563eb', fontSize: '0.875rem', fontWeight: 600 }}>⏳ Awaiting CEO approval</div>}
+          {isSubmitted && <div style={{ padding: '10px 16px', borderRadius: 10, background: '#eff6ff', color: 'var(--primary-container)', fontSize: '0.875rem', fontWeight: 600 }}>⏳ Awaiting CEO approval</div>}
           {isApproved  && <div style={{ padding: '10px 16px', borderRadius: 10, background: '#f0fdf4', color: '#16a34a', fontSize: '0.875rem', fontWeight: 600 }}>✅ Approved by CEO</div>}
         </div>
       </div>
@@ -340,7 +340,7 @@ const Timesheet = () => {
       <div data-tour="timesheet-history" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', background: 'var(--surface-container-high)', borderRadius: 10, padding: 4, gap: 4 }}>
           {['weekly','monthly'].map(v => (
-            <button key={v} onClick={() => setView(v)} style={{ padding: '6px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', fontSize: '0.875rem', fontWeight: view === v ? 700 : 500, background: view === v ? 'var(--surface)' : 'transparent', color: view === v ? '#ea580c' : 'var(--on-surface-variant)', boxShadow: view === v ? 'var(--ambient-shadow)' : 'none', transition: 'all 0.15s', textTransform: 'capitalize' }}>
+            <button key={v} onClick={() => setView(v)} style={{ padding: '6px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-display)', fontSize: '0.875rem', fontWeight: view === v ? 700 : 500, background: view === v ? 'var(--surface)' : 'transparent', color: view === v ? '#ea580c' : 'var(--on-surface-variant)', boxShadow: view === v ? 'var(--ambient-shadow)' : 'none', transition: 'all 0.15s', textTransform: 'capitalize' }}>
               {v === 'weekly' ? 'Weekly' : 'Monthly'}
             </button>
           ))}

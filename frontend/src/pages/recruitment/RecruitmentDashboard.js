@@ -10,8 +10,8 @@ const STAGE_COLORS = {
   sourced:             { bg:'var(--surface-container)',       color:'var(--on-surface-variant)' },
   screened:            { bg:'var(--secondary-container)',     color:'#2b3a4e' },
   shortlisted:         { bg:'rgba(217,119,6,0.12)',           color:'#92400e' },
-  interview_scheduled: { bg:'rgba(0,74,198,0.1)',             color:'var(--primary)' },
-  interviewed:         { bg:'rgba(0,74,198,0.15)',            color:'var(--primary)' },
+  interview_scheduled: { bg:'rgba(68,104,176,0.1)',             color:'var(--primary)' },
+  interviewed:         { bg:'rgba(68,104,176,0.15)',            color:'var(--primary)' },
   selected:            { bg:'rgba(0,98,67,0.12)',             color:'var(--tertiary)' },
   rejected:            { bg:'var(--error-container)',         color:'var(--on-error-container)' },
   onboarded:           { bg:'rgba(0,98,67,0.22)',             color:'var(--tertiary)' },
@@ -73,7 +73,7 @@ export default function RecruitmentDashboard() {
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:'2px', background:'var(--surface-container-low)', padding:'4px', borderRadius:'0.625rem' }}>
           {['today','weekly','monthly'].map(p => (
-            <button key={p} onClick={() => setPeriod(p)} style={{ padding:'0.375rem 0.875rem', borderRadius:'0.5rem', border:'none', cursor:'pointer', fontSize:'0.8125rem', fontFamily:'Inter,sans-serif', fontWeight:period===p?600:400, background:period===p?'var(--surface-container-lowest)':'transparent', color:period===p?'var(--on-surface)':'var(--on-surface-variant)' }}>
+            <button key={p} onClick={() => setPeriod(p)} style={{ padding:'0.375rem 0.875rem', borderRadius:'0.5rem', border:'none', cursor:'pointer', fontSize:'0.8125rem', fontFamily:'var(--font-display)', fontWeight:period===p?600:400, background:period===p?'var(--surface-container-lowest)':'transparent', color:period===p?'var(--on-surface)':'var(--on-surface-variant)' }}>
               {p.charAt(0).toUpperCase()+p.slice(1)}
             </button>
           ))}

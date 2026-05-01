@@ -35,7 +35,7 @@ const timesheetNav = [
 // ── Role badge ───────────────────────────────────────────────
 const RoleBadge = ({ role }) => {
   const map = {
-    admin:  { label: 'Admin',    bg: 'rgba(0,74,198,0.1)',   color: 'var(--primary)' },
+    admin:  { label: 'Admin',    bg: 'rgba(68,104,176,0.1)',   color: 'var(--primary)' },
     sales:  { label: 'Sales',    bg: 'rgba(0,98,67,0.1)',    color: 'var(--tertiary)' },
     viewer: { label: 'Viewer',   bg: 'rgba(115,118,134,0.1)',color: 'var(--on-surface-variant)' },
     worker: { label: 'Worker',   bg: 'rgba(234,88,12,0.1)',  color: '#ea580c' },
@@ -97,9 +97,11 @@ const Sidebar = ({ isOpen, onClose }) => {
       style={({ isActive }) => ({
         display: 'flex', alignItems: 'center', gap: '0.625rem',
         padding: '0.5625rem 0.75rem', borderRadius: '0.625rem',
-        textDecoration: 'none', fontSize: '0.875rem', fontWeight: isActive ? 600 : 400,
-        color: isActive ? accentColor : 'var(--on-surface-variant)',
-        background: isActive ? `${accentColor}15` : 'transparent',
+        textDecoration: 'none', fontSize: '0.875rem',
+        fontFamily: 'var(--font-display)',
+        fontWeight: isActive ? 600 : 400,
+        color: isActive ? '#FAF7FB' : 'var(--sidebar-text)',
+        background: isActive ? 'var(--sidebar-active-bg)' : 'transparent',
         transition: 'all 0.15s',
       })}
     >
@@ -112,21 +114,19 @@ const Sidebar = ({ isOpen, onClose }) => {
     <aside className={`sidebar ${isRecruit ? 'sidebar-recruitment' : isTimesheet ? 'sidebar-timesheet' : 'sidebar-sales'}${isOpen ? ' sidebar-open' : ''}`}>
 
       {/* Logo + mobile close button */}
-      <div style={{ padding: '0 0.5rem', marginBottom: '1.75rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-        <div style={{
-          width: 40, height: 40, borderRadius: '0.75rem', flexShrink: 0,
-          background: `linear-gradient(135deg, ${accentColor}, ${isRecruit ? '#009966' : isTimesheet ? '#f97316' : 'var(--primary-container)'})`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <Icon name="hub" />
-        </div>
+      <div style={{ padding: '0 0.25rem', marginBottom: '1.75rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <img
+          src="/jm-logo.png"
+          alt="JMData"
+          style={{ width: 40, height: 40, borderRadius: '0.625rem', flexShrink: 0, objectFit: 'cover' }}
+        />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--on-surface)' }}>Nexus CRM</p>
-          <p style={{ fontSize: '0.6875rem', color: 'var(--on-surface-variant)', opacity: 0.6 }}>
+          <p style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#FAF7FB', fontFamily: 'var(--font-display)', margin: 0 }}>JMData Talent CRM</p>
+          <p style={{ fontSize: '0.6875rem', color: 'var(--sidebar-text)', opacity: 0.7, margin: 0, marginTop: 1, fontFamily: 'var(--font-ui)' }}>
             {isTimesheet ? 'Timesheet' : isRecruit ? 'Recruitment' : 'Sales'} Portal
           </p>
         </div>
-        <button className="sidebar-close-btn" onClick={onClose} title="Close menu">
+        <button className="sidebar-close-btn" onClick={onClose} title="Close menu" style={{ color: 'var(--sidebar-text)' }}>
           <Icon name="close" />
         </button>
       </div>
@@ -136,18 +136,18 @@ const Sidebar = ({ isOpen, onClose }) => {
         <div style={{ marginBottom: '1.25rem' }}>
           <div style={{
             display: 'flex', gap: 4, padding: 4,
-            background: 'var(--surface-container-high)', borderRadius: '0.75rem',
+            background: 'rgba(255,255,255,0.07)', borderRadius: '0.75rem',
             flexWrap: 'wrap',
           }}>
             {canSeeSales && (
               <button onClick={() => navigate('/sales')} style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 gap: '0.375rem', padding: '0.5rem 0.5rem', borderRadius: '0.625rem',
-                border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                border: 'none', cursor: 'pointer', fontFamily: 'var(--font-ui)',
                 fontSize: '0.75rem', fontWeight: currentMode === 'sales' ? 600 : 500,
-                background: currentMode === 'sales' ? 'var(--surface-container-lowest)' : 'transparent',
-                color: currentMode === 'sales' ? 'var(--primary)' : 'var(--on-surface-variant)',
-                boxShadow: currentMode === 'sales' ? 'var(--ambient-shadow)' : 'none',
+                background: currentMode === 'sales' ? 'rgba(68,104,176,0.35)' : 'transparent',
+                color: currentMode === 'sales' ? '#FAF7FB' : 'var(--sidebar-text)',
+                boxShadow: 'none',
                 transition: 'all 0.2s',
               }}>
                 <Icon name="trending_up" /> Sales
@@ -157,11 +157,11 @@ const Sidebar = ({ isOpen, onClose }) => {
               <button onClick={() => navigate('/recruitment')} style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 gap: '0.375rem', padding: '0.5rem 0.5rem', borderRadius: '0.625rem',
-                border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                border: 'none', cursor: 'pointer', fontFamily: 'var(--font-ui)',
                 fontSize: '0.75rem', fontWeight: currentMode === 'recruitment' ? 600 : 500,
-                background: currentMode === 'recruitment' ? 'var(--surface-container-lowest)' : 'transparent',
-                color: currentMode === 'recruitment' ? 'var(--tertiary)' : 'var(--on-surface-variant)',
-                boxShadow: currentMode === 'recruitment' ? 'var(--ambient-shadow)' : 'none',
+                background: currentMode === 'recruitment' ? 'rgba(68,104,176,0.35)' : 'transparent',
+                color: currentMode === 'recruitment' ? '#FAF7FB' : 'var(--sidebar-text)',
+                boxShadow: 'none',
                 transition: 'all 0.2s',
               }}>
                 <Icon name="person_search" /> Recruit
@@ -171,11 +171,11 @@ const Sidebar = ({ isOpen, onClose }) => {
               <button onClick={() => navigate(isViewer ? '/timesheet/approvals' : '/timesheet')} style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 gap: '0.375rem', padding: '0.5rem 0.5rem', borderRadius: '0.625rem',
-                border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                border: 'none', cursor: 'pointer', fontFamily: 'var(--font-ui)',
                 fontSize: '0.75rem', fontWeight: currentMode === 'timesheet' ? 600 : 500,
-                background: currentMode === 'timesheet' ? 'var(--surface-container-lowest)' : 'transparent',
-                color: currentMode === 'timesheet' ? '#ea580c' : 'var(--on-surface-variant)',
-                boxShadow: currentMode === 'timesheet' ? 'var(--ambient-shadow)' : 'none',
+                background: currentMode === 'timesheet' ? 'rgba(234,88,12,0.3)' : 'transparent',
+                color: currentMode === 'timesheet' ? '#f97316' : 'var(--sidebar-text)',
+                boxShadow: 'none',
                 transition: 'all 0.2s',
               }}>
                 <Icon name="schedule" /> Time
@@ -195,17 +195,17 @@ const Sidebar = ({ isOpen, onClose }) => {
         <div style={{
           display: 'flex', alignItems: 'center', gap: '0.5rem',
           padding: '0.5rem 0.75rem', marginBottom: '0.75rem',
-          background: 'rgba(115,118,134,0.08)', borderRadius: '0.625rem',
-          border: '1px solid rgba(195,198,215,0.2)',
+          background: 'rgba(255,255,255,0.06)', borderRadius: '0.625rem',
+          border: '1px solid rgba(255,255,255,0.1)',
         }}>
           <Icon name="visibility" />
-          <span style={{ fontSize: '0.75rem', color: 'var(--on-surface-variant)', fontWeight: 500 }}>
+          <span style={{ fontSize: '0.75rem', color: 'var(--sidebar-text)', fontWeight: 500 }}>
             View-only access
           </span>
         </div>
       )}
 
-      <div className="divider" style={{ margin: '0.75rem 0' }} />
+      <div className="divider" style={{ margin: '0.75rem 0', background: 'rgba(255,255,255,0.1)' }} />
 
       {can('viewCEO') && (
         <>
@@ -213,8 +213,9 @@ const Sidebar = ({ isOpen, onClose }) => {
             display: 'flex', alignItems: 'center', gap: '0.625rem',
             padding: '0.5rem 0.75rem', borderRadius: '0.625rem',
             textDecoration: 'none', fontSize: '0.875rem',
-            color: isActive ? 'var(--primary)' : 'var(--on-surface-variant)',
-            background: isActive ? 'rgba(0,74,198,0.08)' : 'transparent',
+            fontFamily: 'var(--font-display)',
+            color: isActive ? '#FAF7FB' : 'var(--sidebar-text)',
+            background: isActive ? 'var(--sidebar-active-bg)' : 'transparent',
           })}>
             <Icon name="analytics" /><span>CEO Dashboard</span>
           </NavLink>
@@ -222,8 +223,9 @@ const Sidebar = ({ isOpen, onClose }) => {
             display: 'flex', alignItems: 'center', gap: '0.625rem',
             padding: '0.5rem 0.75rem', borderRadius: '0.625rem',
             textDecoration: 'none', fontSize: '0.875rem',
-            color: isActive ? 'var(--primary)' : 'var(--on-surface-variant)',
-            background: isActive ? 'rgba(0,74,198,0.08)' : 'transparent',
+            fontFamily: 'var(--font-display)',
+            color: isActive ? '#FAF7FB' : 'var(--sidebar-text)',
+            background: isActive ? 'var(--sidebar-active-bg)' : 'transparent',
           })}>
             <Icon name="policy" /><span>Audit Log</span>
           </NavLink>
@@ -235,8 +237,9 @@ const Sidebar = ({ isOpen, onClose }) => {
           display: 'flex', alignItems: 'center', gap: '0.625rem',
           padding: '0.5rem 0.75rem', borderRadius: '0.625rem',
           textDecoration: 'none', fontSize: '0.875rem',
-          color: isActive ? 'var(--primary)' : 'var(--on-surface-variant)',
-          background: isActive ? 'rgba(0,74,198,0.08)' : 'transparent',
+          fontFamily: 'var(--font-display)',
+          color: isActive ? '#FAF7FB' : 'var(--sidebar-text)',
+          background: isActive ? 'var(--sidebar-active-bg)' : 'transparent',
         })}>
           <Icon name="settings" /><span>Settings</span>
         </NavLink>
@@ -244,28 +247,29 @@ const Sidebar = ({ isOpen, onClose }) => {
 
       <div style={{
         marginTop: '0.5rem', padding: '0.75rem',
-        borderRadius: '0.75rem', background: 'var(--surface-container)',
+        borderRadius: '0.75rem', background: 'rgba(255,255,255,0.06)',
+        border: '1px solid rgba(255,255,255,0.08)',
         display: 'flex', alignItems: 'center', gap: '0.75rem',
       }}>
         <div className="avatar" style={{
           width: 36, height: 36, fontSize: '0.75rem', fontWeight: 700,
-          background: `linear-gradient(135deg, ${accentColor}, ${isRecruit ? '#009966' : isTimesheet ? '#f97316' : 'var(--primary-container)'})`,
+          background: `linear-gradient(135deg, var(--sidebar-accent), #6B8FCC)`,
           color: '#fff',
         }}>
           {initials}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginBottom: '0.125rem' }}>
-            <p style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#FAF7FB', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>
               {user?.name || 'User'}
             </p>
             <RoleBadge role={user?.role} />
           </div>
-          <p style={{ fontSize: '0.6875rem', color: 'var(--on-surface-variant)', opacity: 0.6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <p style={{ fontSize: '0.6875rem', color: 'var(--sidebar-text)', opacity: 0.6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>
             {user?.email || ''}
           </p>
         </div>
-        <button onClick={logout} className="btn-icon" title="Logout" style={{ color: 'var(--error)', flexShrink: 0 }}>
+        <button onClick={logout} className="btn-icon" title="Logout" style={{ color: '#f87171', flexShrink: 0 }}>
           <Icon name="logout" />
         </button>
       </div>

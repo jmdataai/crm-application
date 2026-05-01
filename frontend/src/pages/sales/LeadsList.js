@@ -9,7 +9,7 @@ const Icon = ({ name, style = {} }) => (
 
 const STATUS_META = {
   new:              { label:'New',             bg:'var(--surface-container)',     color:'var(--on-surface-variant)' },
-  contacted:        { label:'Intro Sent',      bg:'rgba(0,74,198,0.1)',           color:'var(--primary)' },
+  contacted:        { label:'Intro Sent',      bg:'rgba(68,104,176,0.1)',           color:'var(--primary)' },
   called:           { label:'Called',          bg:'rgba(124,58,237,0.1)',         color:'#7c3aed' },
   interested:       { label:'Interested',      bg:'rgba(217,119,6,0.12)',         color:'#92400e' },
   follow_up_needed: { label:'Follow-up Due',   bg:'rgba(217,119,6,0.2)',          color:'#d97706' },
@@ -560,11 +560,11 @@ export default function LeadsList() {
                     onClick={() => navigate(`/sales/leads/${l.id}`)}
                     style={{
                       cursor:'pointer', borderBottom:'1px solid var(--outline-variant)',
-                      background: selected.has(l.id) ? 'rgba(0,74,198,0.06)' : ri%2===0 ? 'transparent' : 'var(--surface-container-lowest)',
+                      background: selected.has(l.id) ? 'rgba(68,104,176,0.06)' : ri%2===0 ? 'transparent' : 'var(--surface-container-lowest)',
                       transition:'background 0.1s',
                     }}
                     onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-container)'}
-                    onMouseLeave={e => e.currentTarget.style.background = selected.has(l.id) ? 'rgba(0,74,198,0.06)' : ri%2===0 ? 'transparent' : 'var(--surface-container-lowest)'}
+                    onMouseLeave={e => e.currentTarget.style.background = selected.has(l.id) ? 'rgba(68,104,176,0.06)' : ri%2===0 ? 'transparent' : 'var(--surface-container-lowest)'}
                   >
                     <td style={{ padding:'0.625rem 0.75rem' }} onClick={e => e.stopPropagation()}>
                       <input type="checkbox"

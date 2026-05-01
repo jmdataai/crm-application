@@ -41,7 +41,7 @@ const AddTaskModal = ({ onClose, onAdd }) => {
               <button key={k} onClick={() => set('type', k)} style={{
                 display:'flex', alignItems:'center', gap:'0.375rem',
                 padding:'0.4rem 0.875rem', borderRadius:9999, border:'none', cursor:'pointer',
-                fontFamily:'Inter,sans-serif', fontSize:'0.8125rem', fontWeight:600,
+                fontFamily:'var(--font-display)', fontSize:'0.8125rem', fontWeight:600,
                 background: form.type===k ? 'var(--primary)' : 'var(--surface-container-low)',
                 color: form.type===k ? '#fff' : 'var(--on-surface-variant)',
                 transition:'all 0.15s',
@@ -135,7 +135,7 @@ const TaskRow = ({ task, onToggle, onDelete }) => {
           </span>
           {/* Overdue */}
           {isOverdue && <span style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--error)', background:'rgba(186,26,26,0.08)', padding:'0.125rem 0.5rem', borderRadius:4 }}>OVERDUE</span>}
-          {isToday && !isOverdue && <span style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--primary)', background:'rgba(0,74,198,0.08)', padding:'0.125rem 0.5rem', borderRadius:4 }}>TODAY</span>}
+          {isToday && !isOverdue && <span style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--primary)', background:'rgba(68,104,176,0.08)', padding:'0.125rem 0.5rem', borderRadius:4 }}>TODAY</span>}
         </div>
 
         <p style={{ fontSize:'0.9375rem', fontWeight:600, color:'var(--on-surface)', textDecoration:task.done?'line-through':'none', marginBottom:'0.25rem' }}>{task.title}</p>
@@ -257,7 +257,7 @@ export default function SalesTasks() {
               padding:'1rem', borderRadius:'0.75rem', border:'none', cursor:'pointer', textAlign:'left',
               background: filter===f.key ? (f.danger ? 'var(--error-container)' : 'linear-gradient(135deg,var(--primary),var(--primary-container))') : 'var(--surface-container-lowest)',
               boxShadow:'var(--ambient-shadow)', transition:'all 0.2s ease',
-              fontFamily:'Inter,sans-serif',
+              fontFamily:'var(--font-display)',
             }}
           >
             <Icon name={f.icon} style={{ fontSize:'1.25rem', color: filter===f.key ? (f.danger?'var(--on-error-container)':'#fff') : (f.danger?'var(--error)':'var(--primary)'), marginBottom:'0.375rem', display:'block' }} />
@@ -273,7 +273,7 @@ export default function SalesTasks() {
           {['all','high','medium','low'].map(p => (
             <button key={p} onClick={() => setPriority(p)} style={{
               padding:'0.3rem 0.875rem', borderRadius:9999, border:'none', cursor:'pointer',
-              fontSize:'0.8125rem', fontWeight:600, fontFamily:'Inter,sans-serif',
+              fontSize:'0.8125rem', fontWeight:600, fontFamily:'var(--font-display)',
               background: priority===p ? 'var(--on-surface)' : 'var(--surface-container-low)',
               color: priority===p ? '#fff' : 'var(--on-surface-variant)',
               transition:'all 0.15s',

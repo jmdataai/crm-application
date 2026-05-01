@@ -10,8 +10,8 @@ const STAGE_META = {
   sourced:             { label:'Sourced',             bg:'var(--surface-container)',     color:'var(--on-surface-variant)' },
   screened:            { label:'Screened',            bg:'var(--secondary-container)',   color:'#2b3a4e' },
   shortlisted:         { label:'Shortlisted',         bg:'rgba(217,119,6,0.12)',         color:'#92400e' },
-  interview_scheduled: { label:'Interview Scheduled', bg:'rgba(0,74,198,0.1)',           color:'var(--primary)' },
-  interviewed:         { label:'Interviewed',         bg:'rgba(0,74,198,0.15)',          color:'var(--primary)' },
+  interview_scheduled: { label:'Interview Scheduled', bg:'rgba(68,104,176,0.1)',           color:'var(--primary)' },
+  interviewed:         { label:'Interviewed',         bg:'rgba(68,104,176,0.15)',          color:'var(--primary)' },
   selected:            { label:'Selected',            bg:'rgba(0,98,67,0.12)',           color:'var(--tertiary)' },
   rejected:            { label:'Rejected',            bg:'var(--error-container)',       color:'var(--on-error-container)' },
   onboarded:           { label:'Onboarded',           bg:'rgba(0,98,67,0.22)',           color:'var(--tertiary)' },
@@ -23,7 +23,7 @@ const Chip = ({ status }) => {
 const SOURCES = ['LinkedIn','Referral','AngelList','Resume','Campus','Portfolio','Import'];
 const STAGES  = Object.keys(STAGE_META);
 const VISA_COLORS = {
-  'H1B': { bg:'rgba(0,74,198,0.1)', color:'var(--primary)' },
+  'H1B': { bg:'rgba(68,104,176,0.1)', color:'var(--primary)' },
   'GC':  { bg:'rgba(0,98,67,0.1)',  color:'var(--tertiary)' },
   'USCitizen': { bg:'rgba(0,98,67,0.15)', color:'var(--tertiary)' },
 };
@@ -180,7 +180,7 @@ const AddCandidateModal = ({ onClose, onAdd, defaultType }) => {
         {/* Domestic / International toggle */}
         <div style={{ display:'flex', gap:4, padding:4, background:'var(--surface-container-high)', borderRadius:'0.75rem', marginBottom:'1rem', width:'fit-content' }}>
           {['domestic','international'].map(t => (
-            <button key={t} onClick={() => set('candidate_type', t)} style={{ padding:'0.4rem 1rem', borderRadius:'0.5rem', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif', fontSize:'0.8125rem', fontWeight:form.candidate_type===t?600:500, background:form.candidate_type===t?'var(--surface-container-lowest)':'transparent', color:form.candidate_type===t?'var(--tertiary)':'var(--on-surface-variant)' }}>
+            <button key={t} onClick={() => set('candidate_type', t)} style={{ padding:'0.4rem 1rem', borderRadius:'0.5rem', border:'none', cursor:'pointer', fontFamily:'var(--font-display)', fontSize:'0.8125rem', fontWeight:form.candidate_type===t?600:500, background:form.candidate_type===t?'var(--surface-container-lowest)':'transparent', color:form.candidate_type===t?'var(--tertiary)':'var(--on-surface-variant)' }}>
               {t === 'domestic' ? '🇮🇳 Domestic' : '🌍 International'}
             </button>
           ))}
@@ -367,7 +367,7 @@ const TechMultiSelect = ({ allTech, selected, onChange }) => {
           padding: '0.375rem 0.75rem', borderRadius: '0.5rem',
           border: `1px solid ${selected.size > 0 ? 'var(--tertiary)' : 'var(--outline-variant)'}`,
           background: selected.size > 0 ? 'rgba(0,98,67,0.07)' : 'var(--surface)',
-          cursor: 'pointer', fontFamily: 'Inter,sans-serif', fontSize: '0.8125rem', fontWeight: 600,
+          cursor: 'pointer', fontFamily: 'var(--font-display)', fontSize: '0.8125rem', fontWeight: 600,
           color: selected.size > 0 ? 'var(--tertiary)' : 'var(--on-surface-variant)',
           whiteSpace: 'nowrap',
         }}
@@ -388,7 +388,7 @@ const TechMultiSelect = ({ allTech, selected, onChange }) => {
             {[{id:'any',label:'Match ANY'},{id:'all',label:'Match ALL'}].map(m => (
               <button key={m.id} onClick={() => switchMode(m.id)} style={{
                 flex: 1, padding: '0.25rem', borderRadius: '0.375rem', border: 'none',
-                cursor: 'pointer', fontFamily: 'Inter,sans-serif', fontSize: '0.75rem', fontWeight: 600,
+                cursor: 'pointer', fontFamily: 'var(--font-display)', fontSize: '0.75rem', fontWeight: 600,
                 background: mode === m.id ? 'var(--surface-container-lowest)' : 'transparent',
                 color: mode === m.id ? 'var(--tertiary)' : 'var(--on-surface-variant)',
               }}>{m.label}</button>
@@ -405,7 +405,7 @@ const TechMultiSelect = ({ allTech, selected, onChange }) => {
             ))}
           </div>
           {selected.size > 0 && (
-            <button onClick={clearAll} style={{ marginTop: '0.5rem', width: '100%', padding: '0.3rem', borderRadius: '0.375rem', border: '1px solid var(--outline-variant)', background: 'transparent', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, color: 'var(--error)', fontFamily: 'Inter,sans-serif' }}>
+            <button onClick={clearAll} style={{ marginTop: '0.5rem', width: '100%', padding: '0.3rem', borderRadius: '0.375rem', border: '1px solid var(--outline-variant)', background: 'transparent', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, color: 'var(--error)', fontFamily: 'var(--font-display)' }}>
               Clear selection
             </button>
           )}
@@ -424,7 +424,7 @@ const ExpFilter = ({ value, onChange }) => {
       <select
         value={value.op}
         onChange={e => onChange({ ...value, op: e.target.value })}
-        style={{ padding: '0.35rem 0.25rem', border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'Inter,sans-serif', fontSize: '0.8125rem', fontWeight: 700, color: 'var(--tertiary)', outline: 'none', minWidth: 36 }}
+        style={{ padding: '0.35rem 0.25rem', border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'var(--font-display)', fontSize: '0.8125rem', fontWeight: 700, color: 'var(--tertiary)', outline: 'none', minWidth: 36 }}
       >
         {ops.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
@@ -434,7 +434,7 @@ const ExpFilter = ({ value, onChange }) => {
         placeholder="yrs"
         value={value.years}
         onChange={e => onChange({ ...value, years: e.target.value })}
-        style={{ width: 48, padding: '0.35rem 0.375rem', border: 'none', background: 'transparent', fontFamily: 'Inter,sans-serif', fontSize: '0.8125rem', outline: 'none', color: 'var(--on-surface)' }}
+        style={{ width: 48, padding: '0.35rem 0.375rem', border: 'none', background: 'transparent', fontFamily: 'var(--font-display)', fontSize: '0.8125rem', outline: 'none', color: 'var(--on-surface)' }}
       />
     </div>
   );
@@ -608,7 +608,7 @@ export default function CandidatesList() {
       {/* Tabs */}
       <div style={{display:'flex',gap:0,marginBottom:'1.25rem',background:'var(--surface-container-high)',padding:4,borderRadius:'0.875rem',width:'fit-content'}}>
         {[{id:'domestic',label:'🇮🇳 Domestic'},{id:'international',label:'🌍 International'}].map(tab=>(
-          <button key={tab.id} onClick={()=>{setActiveTab(tab.id);setPage(1);}} style={{display:'flex',alignItems:'center',gap:'0.5rem',padding:'0.5rem 1.5rem',borderRadius:'0.625rem',border:'none',cursor:'pointer',fontFamily:'Inter,sans-serif',fontSize:'0.875rem',fontWeight:activeTab===tab.id?600:500,background:activeTab===tab.id?'var(--surface-container-lowest)':'transparent',color:activeTab===tab.id?'var(--tertiary)':'var(--on-surface-variant)',boxShadow:activeTab===tab.id?'var(--ambient-shadow)':'none',transition:'all 0.2s'}}>
+          <button key={tab.id} onClick={()=>{setActiveTab(tab.id);setPage(1);}} style={{display:'flex',alignItems:'center',gap:'0.5rem',padding:'0.5rem 1.5rem',borderRadius:'0.625rem',border:'none',cursor:'pointer',fontFamily:'var(--font-display)',fontSize:'0.875rem',fontWeight:activeTab===tab.id?600:500,background:activeTab===tab.id?'var(--surface-container-lowest)':'transparent',color:activeTab===tab.id?'var(--tertiary)':'var(--on-surface-variant)',boxShadow:activeTab===tab.id?'var(--ambient-shadow)':'none',transition:'all 0.2s'}}>
             {tab.label}
             <span style={{padding:'0.1rem 0.5rem',borderRadius:9999,fontSize:'0.75rem',fontWeight:700,background:activeTab===tab.id?'rgba(0,98,67,0.12)':'var(--surface-container)',color:activeTab===tab.id?'var(--tertiary)':'var(--on-surface-variant)'}}>{tabCounts[tab.id]}</span>
           </button>
@@ -633,7 +633,7 @@ export default function CandidatesList() {
         {/* Stage pills */}
         <div style={{display:'flex',gap:'0.375rem',flexWrap:'wrap',alignItems:'center',marginBottom:'0.75rem'}}>
           {['all',...STAGES].map(s=>(
-            <button key={s} onClick={()=>{setStage(s);setPage(1);}} style={{padding:'0.3rem 0.75rem',borderRadius:9999,border:'none',cursor:'pointer',fontSize:'0.8125rem',fontWeight:600,fontFamily:'Inter,sans-serif',background:stageFilter===s?'var(--tertiary)':'var(--surface-container-low)',color:stageFilter===s?'#fff':'var(--on-surface-variant)',transition:'all 0.15s'}}>
+            <button key={s} onClick={()=>{setStage(s);setPage(1);}} style={{padding:'0.3rem 0.75rem',borderRadius:9999,border:'none',cursor:'pointer',fontSize:'0.8125rem',fontWeight:600,fontFamily:'var(--font-display)',background:stageFilter===s?'var(--tertiary)':'var(--surface-container-low)',color:stageFilter===s?'#fff':'var(--on-surface-variant)',transition:'all 0.15s'}}>
               {s==='all'?'All Stages':STAGE_META[s]?.label}
             </button>
           ))}
@@ -659,7 +659,7 @@ export default function CandidatesList() {
               padding:'0.375rem 0.75rem',borderRadius:'0.5rem',
               border:`1px solid ${hasResumeOnly?'var(--tertiary)':'var(--outline-variant)'}`,
               background:hasResumeOnly?'rgba(0,98,67,0.07)':'var(--surface)',
-              cursor:'pointer',fontFamily:'Inter,sans-serif',fontSize:'0.8125rem',fontWeight:600,
+              cursor:'pointer',fontFamily:'var(--font-display)',fontSize:'0.8125rem',fontWeight:600,
               color:hasResumeOnly?'var(--tertiary)':'var(--on-surface-variant)',
               whiteSpace:'nowrap',
             }}
@@ -668,7 +668,7 @@ export default function CandidatesList() {
           </button>
           {/* Clear all */}
           {hasColSearch && (
-            <button onClick={clearAllFilters} style={{marginLeft:'auto',padding:'0.3rem 0.75rem',borderRadius:9999,border:'1px solid var(--outline-variant)',cursor:'pointer',fontSize:'0.8125rem',fontWeight:600,background:'transparent',color:'var(--error)',fontFamily:'Inter,sans-serif'}}>
+            <button onClick={clearAllFilters} style={{marginLeft:'auto',padding:'0.3rem 0.75rem',borderRadius:9999,border:'1px solid var(--outline-variant)',cursor:'pointer',fontSize:'0.8125rem',fontWeight:600,background:'transparent',color:'var(--error)',fontFamily:'var(--font-display)'}}>
               <Icon name="filter_alt_off" style={{fontSize:'0.875rem'}}/> Clear all
             </button>
           )}
@@ -699,12 +699,12 @@ export default function CandidatesList() {
                 {cols.map(col=>(
                   <th key={col.key} style={{padding:'0 0.5rem 0.5rem'}}>
                     {col.key==='resume_url'||col.key==='applied'||col.key==='tech_stack'||col.key==='experience_years'?<div style={{height:26}}/>:col.key==='status'?(
-                      <select style={{width:'100%',fontSize:'0.75rem',padding:'0.2rem 0.4rem',borderRadius:4,border:'1px solid var(--outline-variant)',background:'var(--surface)',color:'var(--on-surface)',fontFamily:'Inter,sans-serif'}} value={colSearch[col.key]||''} onChange={e=>setCS(col.key,e.target.value)}>
+                      <select style={{width:'100%',fontSize:'0.75rem',padding:'0.2rem 0.4rem',borderRadius:4,border:'1px solid var(--outline-variant)',background:'var(--surface)',color:'var(--on-surface)',fontFamily:'var(--font-display)'}} value={colSearch[col.key]||''} onChange={e=>setCS(col.key,e.target.value)}>
                         <option value="">All</option>{STAGES.map(s=><option key={s} value={s}>{STAGE_META[s].label}</option>)}
                       </select>
                     ):colSearch[col.key]!==undefined?(
                       <input placeholder="Search…" value={colSearch[col.key]||''} onChange={e=>setCS(col.key,e.target.value)}
-                        style={{width:'100%',fontSize:'0.75rem',padding:'0.2rem 0.4rem',borderRadius:4,border:'1px solid var(--outline-variant)',background:'var(--surface)',color:'var(--on-surface)',fontFamily:'Inter,sans-serif',boxSizing:'border-box'}}/>
+                        style={{width:'100%',fontSize:'0.75rem',padding:'0.2rem 0.4rem',borderRadius:4,border:'1px solid var(--outline-variant)',background:'var(--surface)',color:'var(--on-surface)',fontFamily:'var(--font-display)',boxSizing:'border-box'}}/>
                     ):<div style={{height:26}}/>}
                   </th>
                 ))}
@@ -732,7 +732,7 @@ export default function CandidatesList() {
                         <td style={{padding:'0.75rem 1rem',maxWidth:200}}>
                           <div style={{display:'flex',flexWrap:'wrap',gap:3}}>
                             {(c.tech_stack||[]).slice(0,3).map(t=>(
-                              <span key={t} style={{padding:'0.1rem 0.4rem',borderRadius:4,fontSize:'0.6875rem',fontWeight:600,background:'rgba(0,74,198,0.08)',color:'var(--primary)',whiteSpace:'nowrap'}}>{t}</span>
+                              <span key={t} style={{padding:'0.1rem 0.4rem',borderRadius:4,fontSize:'0.6875rem',fontWeight:600,background:'rgba(68,104,176,0.08)',color:'var(--primary)',whiteSpace:'nowrap'}}>{t}</span>
                             ))}
                             {(c.tech_stack||[]).length>3&&<span style={{fontSize:'0.6875rem',color:'var(--on-surface-variant)',alignSelf:'center'}}>+{c.tech_stack.length-3}</span>}
                             {(c.tech_stack||[]).length===0&&<span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>}
@@ -753,7 +753,7 @@ export default function CandidatesList() {
                         <td style={{padding:'0.75rem 1rem',maxWidth:200}}>
                           <div style={{display:'flex',flexWrap:'wrap',gap:3}}>
                             {(c.tech_stack||[]).slice(0,3).map(t=>(
-                              <span key={t} style={{padding:'0.1rem 0.4rem',borderRadius:4,fontSize:'0.6875rem',fontWeight:600,background:'rgba(0,74,198,0.08)',color:'var(--primary)',whiteSpace:'nowrap'}}>{t}</span>
+                              <span key={t} style={{padding:'0.1rem 0.4rem',borderRadius:4,fontSize:'0.6875rem',fontWeight:600,background:'rgba(68,104,176,0.08)',color:'var(--primary)',whiteSpace:'nowrap'}}>{t}</span>
                             ))}
                             {(c.tech_stack||[]).length>3&&<span style={{fontSize:'0.6875rem',color:'var(--on-surface-variant)',alignSelf:'center'}}>+{c.tech_stack.length-3}</span>}
                             {(c.tech_stack||[]).length===0&&<span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>}
@@ -764,7 +764,7 @@ export default function CandidatesList() {
                         <td style={{padding:'0.75rem 1rem',fontSize:'0.8125rem',fontWeight:600,whiteSpace:'nowrap'}}>
                           {c.experience_years!=null?`${c.experience_years} yrs`:'—'}
                         </td>
-                        <td style={{padding:'0.75rem 1rem'}}><span style={{fontSize:'0.75rem',fontWeight:600,padding:'0.175rem 0.5rem',borderRadius:4,background:'rgba(0,74,198,0.08)',color:'var(--primary)'}}>{c.source}</span></td>
+                        <td style={{padding:'0.75rem 1rem'}}><span style={{fontSize:'0.75rem',fontWeight:600,padding:'0.175rem 0.5rem',borderRadius:4,background:'rgba(68,104,176,0.08)',color:'var(--primary)'}}>{c.source}</span></td>
                       </>
                     )}
                     {/* ── Resume column ── */}
@@ -777,7 +777,7 @@ export default function CandidatesList() {
                             padding:'0.2rem 0.625rem', borderRadius:4, border:'none', cursor:'pointer',
                             fontSize:'0.8125rem', fontWeight:600,
                             background:'rgba(0,98,67,0.08)', color:'var(--tertiary)',
-                            fontFamily:'Inter,sans-serif',
+                            fontFamily:'var(--font-display)',
                           }}
                         >
                           <Icon name="description" style={{ fontSize:'0.875rem' }} /> View
@@ -802,7 +802,7 @@ export default function CandidatesList() {
           <div style={{display:'flex',gap:'0.375rem'}}>
             <button className="btn-icon" disabled={page===1} onClick={()=>setPage(p=>p-1)} style={{opacity:page===1?0.35:1}}><Icon name="chevron_left"/></button>
             {Array.from({length:totalPages},(_,i)=>i+1).filter(p=>p===1||p===totalPages||Math.abs(p-page)<=1).map((p,i,arr)=>(
-              <React.Fragment key={p}>{i>0&&arr[i-1]!==p-1&&<span style={{alignSelf:'center',color:'var(--on-surface-variant)',fontSize:'0.875rem'}}>…</span>}<button onClick={()=>setPage(p)} style={{width:32,height:32,borderRadius:'0.375rem',border:'none',cursor:'pointer',fontFamily:'Inter,sans-serif',fontSize:'0.875rem',fontWeight:600,background:page===p?'var(--tertiary)':'transparent',color:page===p?'#fff':'var(--on-surface-variant)',transition:'all 0.15s'}}>{p}</button></React.Fragment>
+              <React.Fragment key={p}>{i>0&&arr[i-1]!==p-1&&<span style={{alignSelf:'center',color:'var(--on-surface-variant)',fontSize:'0.875rem'}}>…</span>}<button onClick={()=>setPage(p)} style={{width:32,height:32,borderRadius:'0.375rem',border:'none',cursor:'pointer',fontFamily:'var(--font-display)',fontSize:'0.875rem',fontWeight:600,background:page===p?'var(--tertiary)':'transparent',color:page===p?'#fff':'var(--on-surface-variant)',transition:'all 0.15s'}}>{p}</button></React.Fragment>
             ))}
             <button className="btn-icon" disabled={page===totalPages||totalPages===0} onClick={()=>setPage(p=>p+1)} style={{opacity:(page===totalPages||totalPages===0)?0.35:1}}><Icon name="chevron_right"/></button>
           </div>

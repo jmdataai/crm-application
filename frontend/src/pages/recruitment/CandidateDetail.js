@@ -10,8 +10,8 @@ const STAGE_META = {
   sourced:             { label:'Sourced',             bg:'var(--surface-container)',     color:'var(--on-surface-variant)', next:'screened' },
   screened:            { label:'Screened',            bg:'var(--secondary-container)',   color:'#2b3a4e',                   next:'shortlisted' },
   shortlisted:         { label:'Shortlisted',         bg:'rgba(217,119,6,0.12)',         color:'#92400e',                   next:'interview_scheduled' },
-  interview_scheduled: { label:'Interview Scheduled', bg:'rgba(0,74,198,0.1)',           color:'var(--primary)',             next:'interviewed' },
-  interviewed:         { label:'Interviewed',         bg:'rgba(0,74,198,0.15)',          color:'var(--primary)',             next:'selected' },
+  interview_scheduled: { label:'Interview Scheduled', bg:'rgba(68,104,176,0.1)',           color:'var(--primary)',             next:'interviewed' },
+  interviewed:         { label:'Interviewed',         bg:'rgba(68,104,176,0.15)',          color:'var(--primary)',             next:'selected' },
   selected:            { label:'Selected',            bg:'rgba(0,98,67,0.12)',           color:'var(--tertiary)',            next:'onboarded' },
   rejected:            { label:'Rejected',            bg:'var(--error-container)',       color:'var(--on-error-container)', next:null },
   onboarded:           { label:'Onboarded',           bg:'rgba(0,98,67,0.22)',           color:'var(--tertiary)',            next:null },
@@ -133,7 +133,7 @@ const ResumeCard = ({ candidateId, candidateName, initialUrl, onSaved }) => {
     display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
     padding: '0.5rem 1rem', borderRadius: '0.5rem',
     fontSize: '0.875rem', fontWeight: 600, border: 'none',
-    cursor: 'pointer', fontFamily: 'Inter,sans-serif', transition: 'opacity 0.15s',
+    cursor: 'pointer', fontFamily: 'var(--font-display)', transition: 'opacity 0.15s',
   };
 
   return (
@@ -456,7 +456,7 @@ export default function CandidateDetail() {
                 const active = s === candidate.status;
                 const future = i > stageIdx;
                 return (
-                  <button key={s} onClick={() => !active && moveStage(s)} style={{ display:'flex', alignItems:'center', gap:'0.75rem', padding:'0.5rem 0.75rem', borderRadius:'0.5rem', border:'none', cursor: active ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', background: active ? 'rgba(0,98,67,0.08)' : 'transparent', opacity: future ? 0.45 : 1, transition:'all 0.15s' }}>
+                  <button key={s} onClick={() => !active && moveStage(s)} style={{ display:'flex', alignItems:'center', gap:'0.75rem', padding:'0.5rem 0.75rem', borderRadius:'0.5rem', border:'none', cursor: active ? 'default' : 'pointer', fontFamily:'var(--font-display)', background: active ? 'rgba(0,98,67,0.08)' : 'transparent', opacity: future ? 0.45 : 1, transition:'all 0.15s' }}>
                     <div style={{ width:22, height:22, borderRadius:'50%', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', background: done ? 'var(--tertiary)' : active ? 'rgba(0,98,67,0.15)' : 'var(--surface-container)', border: active ? '2px solid var(--tertiary)' : 'none' }}>
                       {done   && <Icon name="check" style={{ fontSize:'0.75rem', color:'#fff' }} />}
                       {active && <span style={{ width:8, height:8, borderRadius:'50%', background:'var(--tertiary)', display:'block' }} />}
@@ -468,7 +468,7 @@ export default function CandidateDetail() {
               })}
             </div>
             {!['rejected','onboarded'].includes(candidate.status) && (
-              <button onClick={() => moveStage('rejected')} style={{ width:'100%', marginTop:'0.875rem', padding:'0.5rem', borderRadius:'0.5rem', border:'1px solid rgba(186,26,26,0.25)', background:'transparent', cursor:'pointer', fontSize:'0.875rem', fontWeight:600, color:'var(--error)', fontFamily:'Inter,sans-serif', display:'flex', alignItems:'center', justifyContent:'center', gap:'0.375rem', transition:'background 0.15s' }}>
+              <button onClick={() => moveStage('rejected')} style={{ width:'100%', marginTop:'0.875rem', padding:'0.5rem', borderRadius:'0.5rem', border:'1px solid rgba(186,26,26,0.25)', background:'transparent', cursor:'pointer', fontSize:'0.875rem', fontWeight:600, color:'var(--error)', fontFamily:'var(--font-display)', display:'flex', alignItems:'center', justifyContent:'center', gap:'0.375rem', transition:'background 0.15s' }}>
                 <Icon name="cancel" style={{ fontSize:'1rem', color:'var(--error)' }} /> Reject Candidate
               </button>
             )}
@@ -527,8 +527,8 @@ export default function CandidateDetail() {
                   <span key={s} style={{
                     fontSize:'0.8125rem', fontWeight:600,
                     padding:'0.25rem 0.625rem', borderRadius:9999,
-                    background:'rgba(0,74,198,0.08)', color:'var(--primary)',
-                    border:'1px solid rgba(0,74,198,0.15)',
+                    background:'rgba(68,104,176,0.08)', color:'var(--primary)',
+                    border:'1px solid rgba(68,104,176,0.15)',
                   }}>{s}</span>
                 ))}
               </div>
@@ -554,7 +554,7 @@ export default function CandidateDetail() {
           {/* Tab bar */}
           <div style={{ display:'flex', gap:'2px', background:'var(--surface-container-low)', padding:'4px', borderRadius:'0.75rem', alignSelf:'flex-start' }}>
             {TABS.map(t => (
-              <button key={t.key} onClick={() => setTab(t.key)} style={{ display:'flex', alignItems:'center', gap:'0.375rem', padding:'0.5rem 1rem', borderRadius:'0.625rem', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif', fontSize:'0.875rem', fontWeight: activeTab===t.key ? 600 : 400, background: activeTab===t.key ? 'var(--surface-container-lowest)' : 'transparent', color: activeTab===t.key ? 'var(--tertiary)' : 'var(--on-surface-variant)', boxShadow: activeTab===t.key ? 'var(--ambient-shadow)' : 'none', transition:'all 0.2s' }}>
+              <button key={t.key} onClick={() => setTab(t.key)} style={{ display:'flex', alignItems:'center', gap:'0.375rem', padding:'0.5rem 1rem', borderRadius:'0.625rem', border:'none', cursor:'pointer', fontFamily:'var(--font-display)', fontSize:'0.875rem', fontWeight: activeTab===t.key ? 600 : 400, background: activeTab===t.key ? 'var(--surface-container-lowest)' : 'transparent', color: activeTab===t.key ? 'var(--tertiary)' : 'var(--on-surface-variant)', boxShadow: activeTab===t.key ? 'var(--ambient-shadow)' : 'none', transition:'all 0.2s' }}>
                 <Icon name={t.icon} style={{ fontSize:'1rem', color:'inherit' }} />
                 {t.label}
                 {t.key==='interviews' && <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.1rem 0.375rem', borderRadius:9999, background:'rgba(0,98,67,0.12)', color:'var(--tertiary)' }}>{cand.interviews.length}</span>}
@@ -605,10 +605,10 @@ export default function CandidateDetail() {
                 </div>
               )}
               {cand.interviews.map((iv, i) => (
-                <div key={iv.id} style={{ padding:'1rem', background: iv.completed ? 'var(--surface-container-low)' : 'rgba(0,74,198,0.04)', borderRadius:'0.75rem', border:`1px solid ${iv.completed ? 'rgba(195,198,215,0.1)' : 'rgba(0,74,198,0.15)'}`, marginBottom: i < cand.interviews.length-1 ? '0.875rem' : 0 }}>
+                <div key={iv.id} style={{ padding:'1rem', background: iv.completed ? 'var(--surface-container-low)' : 'rgba(68,104,176,0.04)', borderRadius:'0.75rem', border:`1px solid ${iv.completed ? 'rgba(195,198,215,0.1)' : 'rgba(68,104,176,0.15)'}`, marginBottom: i < cand.interviews.length-1 ? '0.875rem' : 0 }}>
                   <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:'0.625rem' }}>
                     <div style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
-                      <div style={{ width:36, height:36, borderRadius:'0.5rem', background: iv.completed ? 'rgba(0,98,67,0.1)' : 'rgba(0,74,198,0.1)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                      <div style={{ width:36, height:36, borderRadius:'0.5rem', background: iv.completed ? 'rgba(0,98,67,0.1)' : 'rgba(68,104,176,0.1)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                         <Icon name="video_call" style={{ fontSize:'1.125rem', color: iv.completed ? 'var(--tertiary)' : 'var(--primary)' }} />
                       </div>
                       <div>
@@ -616,7 +616,7 @@ export default function CandidateDetail() {
                         <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>with {iv.interviewer}</p>
                       </div>
                     </div>
-                    <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.15rem 0.5rem', borderRadius:9999, background: iv.completed ? 'rgba(0,98,67,0.1)' : 'rgba(0,74,198,0.1)', color: iv.completed ? 'var(--tertiary)' : 'var(--primary)' }}>{iv.completed ? 'Completed' : 'Upcoming'}</span>
+                    <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.15rem 0.5rem', borderRadius:9999, background: iv.completed ? 'rgba(0,98,67,0.1)' : 'rgba(68,104,176,0.1)', color: iv.completed ? 'var(--tertiary)' : 'var(--primary)' }}>{iv.completed ? 'Completed' : 'Upcoming'}</span>
                   </div>
                   <div style={{ display:'flex', gap:'1rem', marginBottom: iv.feedback ? '0.625rem' : 0 }}>
                     <span style={{ fontSize:'0.8125rem', color:'var(--on-surface-variant)', display:'flex', alignItems:'center', gap:'0.25rem' }}>

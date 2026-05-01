@@ -398,7 +398,7 @@ export default function EnrichLeads() {
                 </div>
               ))}
             </div>
-            <div style={{ marginTop:'1.25rem', padding:'0.875rem 1rem', borderRadius:'0.625rem', background:'rgba(0,74,198,0.05)', border:'1px solid rgba(0,74,198,0.15)', fontSize:'0.8125rem', color:'var(--on-surface-variant)' }}>
+            <div style={{ marginTop:'1.25rem', padding:'0.875rem 1rem', borderRadius:'0.625rem', background:'rgba(68,104,176,0.05)', border:'1px solid rgba(68,104,176,0.15)', fontSize:'0.8125rem', color:'var(--on-surface-variant)' }}>
               <Icon name="info" style={{ fontSize:'1rem', color:'var(--primary)', verticalAlign:'middle', marginRight:'0.375rem' }} />
               Powered by <strong>dev_fusion/linkedin-profile-scraper</strong> — rated 4.8★ from 126 reviews on Apify, 45K+ users.
               Finds emails and publicly visible phone numbers. Requires your Apify API key (free tier included with your $39 plan).
@@ -448,7 +448,7 @@ export default function EnrichLeads() {
 
           {/* Enrichment panel */}
           {step !== 'done' && linkedinCol && toEnrich.length > 0 && (
-            <div className="card" style={{ marginBottom:'1.25rem', border:'1px solid rgba(0,74,198,0.2)', background:'rgba(0,74,198,0.025)' }}>
+            <div className="card" style={{ marginBottom:'1.25rem', border:'1px solid rgba(68,104,176,0.2)', background:'rgba(68,104,176,0.025)' }}>
               <div style={{ display:'flex', alignItems:'flex-start', gap:'1rem', flexWrap:'wrap' }}>
                 <div style={{ width:44, height:44, borderRadius:'0.875rem', background:'var(--primary)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                   <Icon name="auto_fix_high" style={{ fontSize:'1.375rem', color:'#fff' }} />
@@ -458,7 +458,7 @@ export default function EnrichLeads() {
                     Enrich {toEnrich.length} {toEnrich.length===1?'row':'rows'} automatically
                   </h2>
                   <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap', marginBottom:'0.875rem' }}>
-                    {missingEmail.length > 0 && <Pill color="var(--primary)" bg="rgba(0,74,198,0.1)"><Icon name="mail" style={{ fontSize:'0.875rem' }} /> {missingEmail.length} missing email</Pill>}
+                    {missingEmail.length > 0 && <Pill color="var(--primary)" bg="rgba(68,104,176,0.1)"><Icon name="mail" style={{ fontSize:'0.875rem' }} /> {missingEmail.length} missing email</Pill>}
                     {missingPhone.length > 0 && <Pill color="#d97706"       bg="rgba(217,119,6,0.1)"><Icon name="phone" style={{ fontSize:'0.875rem' }} /> {missingPhone.length} missing phone</Pill>}
                   </div>
                   <div>
@@ -559,7 +559,7 @@ export default function EnrichLeads() {
                 )}
                 {missingEmail.length > 0 && <Pill color="#d97706" bg="rgba(217,119,6,0.1)">📧 {missingEmail.length} missing email</Pill>}
                 {missingPhone.length > 0 && <Pill color="#7c3aed" bg="rgba(124,58,237,0.08)">📞 {missingPhone.length} missing phone</Pill>}
-                {foundEmails > 0 && <Pill color="var(--primary)" bg="rgba(0,74,198,0.1)">✨ {foundEmails} enriched</Pill>}
+                {foundEmails > 0 && <Pill color="var(--primary)" bg="rgba(68,104,176,0.1)">✨ {foundEmails} enriched</Pill>}
                 {toEnrich.length > 0 && toEnrich.length < rows.length && (
                   <button onClick={() => setShowAllRows(v => !v)} style={{ fontSize:'0.75rem', padding:'0.25rem 0.625rem', borderRadius:'0.375rem', border:'1px solid var(--outline-variant)', background:'var(--surface)', color:'var(--on-surface-variant)', cursor:'pointer' }}>
                     {showAllRows ? `Show ${toEnrich.length} to enrich` : `Show all ${rows.length} rows`}
@@ -591,11 +591,11 @@ export default function EnrichLeads() {
                     const phoneNew  = !phone && !!pEnriched;
 
                     const rowStatus = (() => {
-                      if (emailNew || phoneNew) return { label:'✨ Enriched',    color:'var(--primary)',   bg:'rgba(0,74,198,0.1)' };
+                      if (emailNew || phoneNew) return { label:'✨ Enriched',    color:'var(--primary)',   bg:'rgba(68,104,176,0.1)' };
                       if (email && phone)        return { label:'✅ Complete',    color:'var(--tertiary)',  bg:'rgba(0,98,67,0.1)' };
                       if (email && !phone)        return { label:'📞 No phone',   color:'#7c3aed',          bg:'rgba(124,58,237,0.08)' };
                       if (!email && phone)        return { label:'📧 No email',   color:'#d97706',          bg:'rgba(217,119,6,0.08)' };
-                      if (li && step === 'enriching') return { label:'⏳ Searching', color:'var(--primary)', bg:'rgba(0,74,198,0.08)' };
+                      if (li && step === 'enriching') return { label:'⏳ Searching', color:'var(--primary)', bg:'rgba(68,104,176,0.08)' };
                       if (li)                     return { label:'⚠ Both missing', color:'var(--error)',    bg:'var(--error-container)' };
                       return { label:'✗ No LinkedIn', color:'var(--on-surface-variant)', bg:'var(--surface-container)' };
                     })();

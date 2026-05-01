@@ -98,7 +98,7 @@ export default function CEODashboard() {
               {key:'stale',    label:`Stale (${data.stale_count})`, icon:'warning'},
               {key:'activity', label:'Activity Log', icon:'history'},
             ].map(t => (
-              <button key={t.key} onClick={() => setTab(t.key)} style={{ display:'inline-flex', alignItems:'center', gap:'0.375rem', padding:'0.5rem 1rem', borderRadius:'0.625rem', border:'none', cursor:'pointer', fontSize:'0.8125rem', fontWeight:tab===t.key?700:400, background:tab===t.key?'var(--surface-container-lowest)':'transparent', color:tab===t.key?'var(--on-surface)':'var(--on-surface-variant)', fontFamily:'Inter,sans-serif', transition:'all 0.15s' }}>
+              <button key={t.key} onClick={() => setTab(t.key)} style={{ display:'inline-flex', alignItems:'center', gap:'0.375rem', padding:'0.5rem 1rem', borderRadius:'0.625rem', border:'none', cursor:'pointer', fontSize:'0.8125rem', fontWeight:tab===t.key?700:400, background:tab===t.key?'var(--surface-container-lowest)':'transparent', color:tab===t.key?'var(--on-surface)':'var(--on-surface-variant)', fontFamily:'var(--font-display)', transition:'all 0.15s' }}>
                 <Icon name={t.icon} style={{ fontSize:'1rem' }} />{t.label}
               </button>
             ))}

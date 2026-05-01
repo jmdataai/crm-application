@@ -65,7 +65,7 @@ export default function AuditLog() {
   }
 
   const pages = Math.ceil(total / PER);
-  const inputStyle = { padding:'0.4rem 0.75rem', borderRadius:'0.375rem', border:'1px solid var(--outline-variant)', background:'var(--surface)', color:'var(--on-surface)', fontFamily:'Inter,sans-serif', fontSize:'0.8125rem', outline:'none' };
+  const inputStyle = { padding:'0.4rem 0.75rem', borderRadius:'0.375rem', border:'1px solid var(--outline-variant)', background:'var(--surface)', color:'var(--on-surface)', fontFamily:'var(--font-display)', fontSize:'0.8125rem', outline:'none' };
 
   return (
     <div className="fade-in">
@@ -149,8 +149,8 @@ export default function AuditLog() {
         {hasFilters && (
           <div style={{ display:'flex', gap:'0.375rem', flexWrap:'wrap', marginTop:'0.75rem', paddingTop:'0.75rem', borderTop:'1px solid var(--outline-variant)' }}>
             <span style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', alignSelf:'center' }}>Active filters:</span>
-            {dateFrom && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:'rgba(0,74,198,0.1)', color:'var(--primary)' }}>From: {dateFrom}</span>}
-            {dateTo   && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:'rgba(0,74,198,0.1)', color:'var(--primary)' }}>To: {dateTo}</span>}
+            {dateFrom && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:'rgba(68,104,176,0.1)', color:'var(--primary)' }}>From: {dateFrom}</span>}
+            {dateTo   && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:'rgba(68,104,176,0.1)', color:'var(--primary)' }}>To: {dateTo}</span>}
             {userName && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:'rgba(124,58,237,0.1)', color:'#7c3aed' }}>User: {userName}</span>}
             {action   && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:`${ACTION_COLOR[action]||'#6b7280'}18`, color:ACTION_COLOR[action]||'#6b7280' }}>{action}</span>}
             {entity   && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:'var(--surface-container)', color:'var(--on-surface-variant)' }}>{entity}</span>}

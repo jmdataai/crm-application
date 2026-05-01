@@ -8,7 +8,7 @@ const Icon = ({ name, style = {} }) => (
 
 const STATUS_MAP = {
   new:              { label:'New',             bg:'var(--surface-container)',   color:'var(--on-surface-variant)' },
-  contacted:        { label:'Intro Sent',      bg:'rgba(0,74,198,0.1)',         color:'var(--primary)' },
+  contacted:        { label:'Intro Sent',      bg:'rgba(68,104,176,0.1)',         color:'var(--primary)' },
   called:           { label:'Called',          bg:'rgba(124,58,237,0.1)',       color:'#7c3aed' },
   interested:       { label:'Interested',      bg:'rgba(217,119,6,0.12)',       color:'#92400e' },
   follow_up_needed: { label:'Follow-up Due',   bg:'rgba(217,119,6,0.2)',        color:'#d97706' },
@@ -56,7 +56,7 @@ const LogActivityModal = ({ onClose, onLog }) => {
               flex:1, padding:'0.625rem', border:'none', borderRadius:'0.5rem', cursor:'pointer',
               background: type===k ? 'var(--primary)' : 'var(--surface-container-low)',
               color: type===k ? '#fff' : 'var(--on-surface-variant)',
-              fontFamily:'Inter,sans-serif', fontSize:'0.8125rem', fontWeight:600,
+              fontFamily:'var(--font-display)', fontSize:'0.8125rem', fontWeight:600,
               display:'flex', flexDirection:'column', alignItems:'center', gap:'0.25rem', transition:'all 0.15s',
             }}>
               <Icon name={icon} style={{ fontSize:'1.125rem', color:'inherit' }} />
@@ -468,7 +468,7 @@ export default function LeadDetail() {
               {Object.entries(STATUS_MAP).map(([k, v]) => (
                 <button key={k} onClick={() => changeStatus(k)} style={{
                   display:'flex', alignItems:'center', gap:'0.625rem', padding:'0.5rem 0.75rem',
-                  borderRadius:'0.5rem', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif',
+                  borderRadius:'0.5rem', border:'none', cursor:'pointer', fontFamily:'var(--font-display)',
                   fontSize:'0.875rem', fontWeight: lead.status===k ? 700 : 400, textAlign:'left',
                   background: lead.status===k ? 'var(--surface-container-high)' : 'transparent',
                   color: lead.status===k ? 'var(--primary)' : 'var(--on-surface)', transition:'background 0.15s',
@@ -490,7 +490,7 @@ export default function LeadDetail() {
               <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
                 display:'flex', alignItems:'center', gap:'0.375rem',
                 padding:'0.5rem 0.875rem', borderRadius:'0.625rem', border:'none', cursor:'pointer',
-                fontFamily:'Inter,sans-serif', fontSize:'0.8125rem', fontWeight: activeTab===t.key ? 600 : 400,
+                fontFamily:'var(--font-display)', fontSize:'0.8125rem', fontWeight: activeTab===t.key ? 600 : 400,
                 background: activeTab===t.key ? 'var(--surface-container-lowest)' : 'transparent',
                 color: activeTab===t.key ? 'var(--primary)' : 'var(--on-surface-variant)',
                 boxShadow: activeTab===t.key ? 'var(--ambient-shadow)' : 'none', transition:'all 0.2s',
@@ -605,7 +605,7 @@ export default function LeadDetail() {
                 <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
                   {submissions.map(sub => (
                     <div key={sub.id} style={{ display:'flex', alignItems:'center', gap:'0.875rem', padding:'0.75rem', borderRadius:'0.625rem', background:'var(--surface-container-low)', border:'1px solid var(--outline-variant)' }}>
-                      <div style={{ width:36, height:36, borderRadius:'50%', background:'rgba(0,74,198,0.08)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                      <div style={{ width:36, height:36, borderRadius:'50%', background:'rgba(68,104,176,0.08)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                         <Icon name="person" style={{ fontSize:'1.25rem', color:'var(--primary)' }} />
                       </div>
                       <div style={{ flex:1, minWidth:0 }}>

@@ -351,7 +351,7 @@ export default function ImportCandidates() {
             {v:'international',label:'🌍 International',desc:'US/Ireland hotlists with VISA'}].map(t=>(
             <button key={t.v} onClick={()=>setCandType(t.v)} style={{
               padding:'0.5rem 1.25rem',borderRadius:'0.625rem',border:'none',cursor:'pointer',
-              fontFamily:'Inter,sans-serif',fontSize:'0.8125rem',fontWeight:candidateType===t.v?600:500,
+              fontFamily:'var(--font-display)',fontSize:'0.8125rem',fontWeight:candidateType===t.v?600:500,
               background:candidateType===t.v?'var(--surface-container-lowest)':'transparent',
               color:candidateType===t.v?'var(--tertiary)':'var(--on-surface-variant)',
               boxShadow:candidateType===t.v?'var(--ambient-shadow)':'none',transition:'all 0.2s',

@@ -268,7 +268,7 @@ export default function JobsList() {
           {[{k:'active',l:'Active'},{k:'closed',l:'Closed'},{k:'all',l:'All'}].map(s => (
             <button key={s.k} onClick={() => setStat(s.k)} style={{
               padding:'0.3rem 0.75rem', borderRadius:'0.375rem', border:'none', cursor:'pointer',
-              fontSize:'0.8125rem', fontWeight: statusFilter===s.k?600:400, fontFamily:'Inter,sans-serif',
+              fontSize:'0.8125rem', fontWeight: statusFilter===s.k?600:400, fontFamily:'var(--font-display)',
               background: statusFilter===s.k?'var(--surface-container-lowest)':'transparent',
               color: statusFilter===s.k?'var(--on-surface)':'var(--on-surface-variant)',
               boxShadow: statusFilter===s.k?'var(--ambient-shadow)':'none', transition:'all 0.15s',

@@ -4,17 +4,17 @@ import { useTutorial } from '../hooks/useTutorial';
 // Custom intro.js theme injected once
 const INTRO_STYLE = `
   .introjs-tooltip {
-    font-family: 'Inter', sans-serif !important;
+    font-family: var(--font-display) !important;
     border-radius: 1rem !important;
-    box-shadow: 0 20px 60px rgba(0,74,198,0.18) !important;
-    border: 1.5px solid rgba(0,74,198,0.12) !important;
+    box-shadow: 0 20px 60px rgba(68,104,176,0.18) !important;
+    border: 1.5px solid rgba(68,104,176,0.12) !important;
     min-width: 280px !important;
     max-width: 340px !important;
     padding: 0 !important;
     overflow: hidden !important;
   }
   .nexus-tip-header {
-    background: linear-gradient(135deg, #004ac6 0%, #2563eb 100%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-container) 100%);
     padding: 1rem 1.25rem 0.75rem;
     display: flex; align-items: center; gap: 0.625rem;
   }
@@ -35,40 +35,40 @@ const INTRO_STYLE = `
   .introjs-tooltiptext {
     padding: 0.875rem 1.25rem 0.25rem !important;
     font-size: 0.8125rem !important;
-    color: #434655 !important;
+    color: var(--on-surface-variant) !important;
     line-height: 1.55 !important;
   }
   .introjs-tooltipbuttons {
-    border-top: 1px solid #eaedff !important;
+    border-top: 1px solid var(--surface-container) !important;
     padding: 0.625rem 1rem !important;
     display: flex !important; justify-content: flex-end !important; gap: 0.5rem !important;
   }
   .introjs-button {
-    font-family: 'Inter', sans-serif !important;
+    font-family: var(--font-display) !important;
     font-size: 0.8125rem !important; font-weight: 600 !important;
     border-radius: 0.5rem !important; padding: 0.4rem 1rem !important;
     border: none !important; cursor: pointer !important;
     text-shadow: none !important;
   }
   .introjs-prevbutton {
-    background: #eaedff !important; color: #004ac6 !important;
+    background: var(--surface-container) !important; color: var(--primary) !important;
   }
   .introjs-nextbutton, .introjs-donebutton {
-    background: linear-gradient(135deg, #004ac6, #2563eb) !important;
+    background: linear-gradient(135deg, var(--primary), var(--primary-container)) !important;
     color: #fff !important;
   }
   .introjs-skipbutton {
-    color: #737686 !important; font-size: 0.75rem !important;
+    color: var(--outline) !important; font-size: 0.75rem !important;
     margin-right: auto !important; padding: 0.4rem 0.5rem !important;
     background: none !important;
   }
   .introjs-helperLayer {
     border-radius: 0.75rem !important;
-    box-shadow: 0 0 0 2000px rgba(19,27,46,0.45), 0 0 0 3px #004ac6 !important;
+    box-shadow: 0 0 0 2000px rgba(19,27,46,0.45), 0 0 0 3px var(--primary) !important;
   }
   .introjs-arrow { display: none !important; }
-  .introjs-progressbar { background: linear-gradient(90deg, #004ac6, #2563eb) !important; height: 3px !important; }
-  .introjs-progress { background: #eaedff !important; border-radius: 0 !important; height: 3px !important; margin: 0 !important; }
+  .introjs-progressbar { background: linear-gradient(90deg, var(--primary), var(--primary-container)) !important; height: 3px !important; }
+  .introjs-progress { background: var(--surface-container) !important; border-radius: 0 !important; height: 3px !important; margin: 0 !important; }
   .introjs-bullets { display: none !important; }
 `;
 
@@ -260,20 +260,20 @@ export default function NexusTutorial({ page, autoRun = true, delay = 800 }) {
       style={{
         position: 'fixed', bottom: '1.5rem', right: '1.5rem', zIndex: 999,
         width: 44, height: 44, borderRadius: '50%',
-        background: 'linear-gradient(135deg, #004ac6, #2563eb)',
+        background: 'linear-gradient(135deg, var(--primary), var(--primary-container))',
         color: '#fff', border: 'none', cursor: 'pointer',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        boxShadow: '0 4px 16px rgba(0,74,198,0.35)',
+        boxShadow: '0 4px 16px rgba(68,104,176,0.35)',
         fontSize: '1.125rem', fontWeight: 700,
         transition: 'transform 0.15s, box-shadow 0.15s',
       }}
       onMouseEnter={e => {
         e.currentTarget.style.transform = 'scale(1.1)';
-        e.currentTarget.style.boxShadow = '0 6px 22px rgba(0,74,198,0.45)';
+        e.currentTarget.style.boxShadow = '0 6px 22px rgba(68,104,176,0.45)';
       }}
       onMouseLeave={e => {
         e.currentTarget.style.transform = 'scale(1)';
-        e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,74,198,0.35)';
+        e.currentTarget.style.boxShadow = '0 4px 16px rgba(68,104,176,0.35)';
       }}
     >
       ?

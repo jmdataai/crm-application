@@ -124,7 +124,7 @@ const ReminderCard = ({ reminder, onDismiss, onDelete, onToggleEmail }) => {
       {/* Bell icon */}
       <div style={{
         width:40, height:40, borderRadius:'0.625rem', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center',
-        background: isOverdue ? 'rgba(186,26,26,0.1)' : isDueToday ? 'rgba(0,74,198,0.08)' : 'var(--surface-container-low)',
+        background: isOverdue ? 'rgba(186,26,26,0.1)' : isDueToday ? 'rgba(68,104,176,0.08)' : 'var(--surface-container-low)',
       }}>
         <Icon name={isOverdue ? 'notification_important' : 'notifications'} style={{ fontSize:'1.25rem', color: isOverdue ? 'var(--error)' : isDueToday ? 'var(--primary)' : 'var(--on-surface-variant)' }} />
       </div>
@@ -133,7 +133,7 @@ const ReminderCard = ({ reminder, onDismiss, onDelete, onToggleEmail }) => {
       <div>
         <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', flexWrap:'wrap', marginBottom:'0.25rem' }}>
           {isOverdue && <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.125rem 0.5rem', borderRadius:9999, background:'var(--error-container)', color:'var(--on-error-container)' }}>OVERDUE</span>}
-          {isDueToday && !isOverdue && <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.125rem 0.5rem', borderRadius:9999, background:'rgba(0,74,198,0.1)', color:'var(--primary)' }}>TODAY</span>}
+          {isDueToday && !isOverdue && <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.125rem 0.5rem', borderRadius:9999, background:'rgba(68,104,176,0.1)', color:'var(--primary)' }}>TODAY</span>}
           {reminder.dismissed && <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.125rem 0.5rem', borderRadius:9999, background:'var(--surface-container)', color:'var(--on-surface-variant)' }}>DISMISSED</span>}
           {reminder.repeat !== 'none' && (
             <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.125rem 0.5rem', borderRadius:9999, background:'rgba(0,98,67,0.1)', color:'var(--tertiary)', display:'inline-flex', alignItems:'center', gap:'0.25rem' }}>
@@ -277,7 +277,7 @@ export default function SalesReminders() {
               <button key={t.key} onClick={() => setFilter(t.key)} style={{
                 display:'flex', alignItems:'center', gap:'0.375rem',
                 padding:'0.4rem 0.875rem', borderRadius:'0.625rem', border:'none', cursor:'pointer',
-                fontFamily:'Inter,sans-serif', fontSize:'0.8125rem', fontWeight: filter===t.key ? 700 : 500,
+                fontFamily:'var(--font-display)', fontSize:'0.8125rem', fontWeight: filter===t.key ? 700 : 500,
                 background: filter===t.key ? (t.danger?'var(--error-container)':'var(--surface-container-lowest)') : 'transparent',
                 color: filter===t.key ? (t.danger?'var(--on-error-container)':'var(--primary)') : 'var(--on-surface-variant)',
                 boxShadow: filter===t.key ? 'var(--ambient-shadow)' : 'none',

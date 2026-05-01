@@ -3,38 +3,42 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#004ac6" />
-    <meta name="description" content="Nexus CRM — Sales & Recruitment Platform" />
+    <meta name="theme-color" content="#0C162A" />
+    <meta name="description" content="JMData Talent CRM — Sales & Recruitment Platform" />
+    <link rel="icon" type="image/png" href="/jm-logo.png" />
+    <link rel="apple-touch-icon" href="/jm-logo.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- JMData Brand Fonts: Plus Jakarta Sans + Space Grotesk -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500&display=swap"
       rel="stylesheet"
     />
     <link
       href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
       rel="stylesheet"
     />
-    <title>Nexus CRM</title>
+    <title>JMData Talent CRM</title>
     <!-- Critical CSS: prevents flash of unstyled content before JS bundle loads -->
     <style>
       :root {
-        --primary: #004ac6;
-        --surface: #faf8ff;
+        --primary: #4468B0;
+        --surface: #FAF7FB;
         --surface-container-lowest: #ffffff;
-        --on-surface: #131b2e;
-        --on-surface-variant: #434655;
+        --on-surface: #0C162A;
+        --on-surface-variant: #92A0BA;
+        --sidebar-bg: #0C162A;
         --tertiary: #006243;
         --error: #ba1a1a;
         --error-container: #ffdad6;
-        --outline-variant: #c3c6d7;
-        --ambient-shadow: 0px 4px 20px rgba(19,27,46,0.06);
+        --outline-variant: #E2E8F2;
+        --ambient-shadow: 0px 4px 20px rgba(12,22,42,0.08);
       }
       *, *::before, *::after { box-sizing: border-box; }
       html { -webkit-font-smoothing: antialiased; }
       body {
         margin: 0;
-        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
         background-color: var(--surface);
         color: var(--on-surface);
         font-size: 0.875rem;
@@ -46,6 +50,8 @@
     <!-- Intro.js onboarding -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/intro.js/7.2.0/introjs.min.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/intro.js/7.2.0/intro.min.js" defer></script>
+    <!-- Plotly.js for interactive charts -->
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
