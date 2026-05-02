@@ -180,6 +180,17 @@ export const auditLogsAPI = {
   getAll: (params) => api.get('/audit-logs', { params }),
 };
 
+// Expenses API
+export const expensesAPI = {
+  getSummary: (year) => api.get('/expenses/summary', { params: year ? { year } : {} }),
+  getAll: (params) => api.get('/expenses', { params }),
+  create: (formData) => api.post('/expenses', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }),
+  update: (id, data) => api.put(`/expenses/${id}`, data),
+  delete: (id) => api.delete(`/expenses/${id}`),
+};
+
 // Timesheet APIs
 export const timesheetAPI = {
   getCurrent:    ()                   => api.get('/timesheets/me/current'),

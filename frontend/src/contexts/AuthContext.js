@@ -23,6 +23,7 @@ export const PERMISSIONS = {
     viewCEO:        true,
     viewTimesheetApprovals: false,
     viewOwnTimesheet: true,
+    viewExpenses:   true,
     readOnly:       false,
   },
   sales: {
@@ -36,6 +37,7 @@ export const PERMISSIONS = {
     viewCEO:        false,
     viewTimesheetApprovals: false,
     viewOwnTimesheet: true,
+    viewExpenses:   false,
     readOnly:       false,
   },
   viewer: {
@@ -49,6 +51,7 @@ export const PERMISSIONS = {
     viewCEO:        true,
     viewTimesheetApprovals: true,
     viewOwnTimesheet: false,
+    viewExpenses:   true,
     readOnly:       true,
   },
   worker: {
@@ -62,6 +65,7 @@ export const PERMISSIONS = {
     viewCEO:        false,
     viewTimesheetApprovals: false,
     viewOwnTimesheet: true,
+    viewExpenses:   false,
     readOnly:       false,
   },
 };

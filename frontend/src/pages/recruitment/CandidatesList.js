@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { candidatesAPI } from '../../services/api';
+import { candidatesAPI, jobsAPI } from '../../services/api';
 import { useNavigate, useLocation } from 'react-router-dom';
 import NexusTutorial from '../../components/NexusTutorial';
 
@@ -328,6 +328,7 @@ const AddCandidateModal = ({ onClose, onAdd, defaultType }) => {
 const normalise = (c) => ({
   id: c.id, name: c.full_name, email: c.email, phone: c.phone,
   candidate_role: c.candidate_role, current_company: c.current_company,
+  job_id: c.job_id || null,
   job: c.job?.title || '', dept: c.job?.department || '',
   experience_years: c.experience_years != null ? Number(c.experience_years) : null,
   total_experience: c.total_experience || '', relevant_experience: c.relevant_experience || '',
@@ -466,6 +467,11 @@ export default function CandidatesList() {
   const [techMode, setTechMode]           = useState('any');   // 'any' | 'all'
   const [hasResumeOnly, setHasResumeOnly] = useState(false);
 
+  // Source & Job filters (new)
+  const [sourceFilter, setSourceFilter] = useState('all');   // 'all' | 'website' | 'LinkedIn' | ...
+  const [jobFilter, setJobFilter]       = useState('all');   // 'all' | job_id
+  const [jobs, setJobs]                 = useState([]);
+
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const q = params.get('q'); if (q) setColSearch(s => ({ ...s, name: q }));
@@ -493,10 +499,35 @@ export default function CandidatesList() {
 
   useEffect(() => { fetchCandidates(); }, [fetchCandidates]);
 
+  // Fetch jobs list for filter dropdown
+  useEffect(() => {
+    jobsAPI.getAll({ limit: 200 })
+      .then(r => {
+        const data = Array.isArray(r.data) ? r.data
+          : Array.isArray(r.data?.jobs) ? r.data.jobs
+          : [];
+        setJobs(data);
+      })
+      .catch(() => {}); // non-fatal — filter just won't populate
+  }, []);
+
   const filtered = useMemo(() => {
     let out = candidates.filter(c => {
       if (c.candidate_type !== activeTab) return false;
       if (stageFilter !== 'all' && c.status !== stageFilter) return false;
+
+      // Source filter
+      if (sourceFilter !== 'all') {
+        const src = (c.source || '').toLowerCase();
+        if (sourceFilter === 'website') {
+          if (src !== 'website') return false;
+        } else {
+          if (src !== sourceFilter.toLowerCase()) return false;
+        }
+      }
+
+      // Job filter
+      if (jobFilter !== 'all' && c.job_id !== jobFilter) return false;
 
       // Column text searches
       const cs = colSearch;
@@ -559,6 +590,8 @@ export default function CandidatesList() {
     setHasResumeOnly(false);
     setTechSelected(new Set());
     setStage('all');
+    setSourceFilter('all');
+    setJobFilter('all');
     setPage(1);
   };
 
@@ -651,6 +684,34 @@ export default function CandidatesList() {
             selected={techSelected}
             onChange={(sel, mode) => { setTechSelected(new Set(sel)); setTechMode(mode); setPage(1); }}
           />
+          {/* Source filter */}
+          <select
+            value={sourceFilter}
+            onChange={e => { setSourceFilter(e.target.value); setPage(1); }}
+            className="select"
+            style={{ width:'auto', minWidth:130, fontSize:'0.8125rem' }}>
+            <option value="all">All Sources</option>
+            <option value="website">🌐 Website</option>
+            <option value="LinkedIn">LinkedIn</option>
+            <option value="Referral">Referral</option>
+            <option value="AngelList">AngelList</option>
+            <option value="Resume">Resume</option>
+            <option value="Campus">Campus</option>
+            <option value="Import">Import</option>
+          </select>
+          {/* Job filter */}
+          {jobs.length > 0 && (
+            <select
+              value={jobFilter}
+              onChange={e => { setJobFilter(e.target.value); setPage(1); }}
+              className="select"
+              style={{ width:'auto', minWidth:160, maxWidth:240, fontSize:'0.8125rem' }}>
+              <option value="all">All Jobs</option>
+              {jobs.map(j => (
+                <option key={j.id} value={j.id}>{j.title}</option>
+              ))}
+            </select>
+          )}
           {/* Has resume toggle */}
           <button
             onClick={()=>{setHasResumeOnly(v=>!v);setPage(1);}}
@@ -667,7 +728,7 @@ export default function CandidatesList() {
             <Icon name="description" style={{fontSize:'1rem'}}/> Has Resume
           </button>
           {/* Clear all */}
-          {hasColSearch && (
+          {(hasColSearch || sourceFilter !== 'all' || jobFilter !== 'all') && (
             <button onClick={clearAllFilters} style={{marginLeft:'auto',padding:'0.3rem 0.75rem',borderRadius:9999,border:'1px solid var(--outline-variant)',cursor:'pointer',fontSize:'0.8125rem',fontWeight:600,background:'transparent',color:'var(--error)',fontFamily:'var(--font-display)'}}>
               <Icon name="filter_alt_off" style={{fontSize:'0.875rem'}}/> Clear all
             </button>

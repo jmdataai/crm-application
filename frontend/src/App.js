@@ -34,6 +34,7 @@ import TimesheetApprovals from './pages/timesheet/TimesheetApprovals';
 import Settings     from './pages/Settings';
 import CEODashboard from './pages/CEODashboard';
 import AuditLog     from './pages/AuditLog';
+import ExpenseTracker from './pages/expenses/ExpenseTracker';
 import './index.css';
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -99,6 +100,7 @@ function AppRoutes() {
       <Route path="/settings"   element={<Page permission="viewSettings"><Settings /></Page>} />
       <Route path="/ceo"        element={<Page permission="viewCEO"><CEODashboard /></Page>} />
       <Route path="/audit-log"  element={<Page permission="viewCEO"><AuditLog /></Page>} />
+      <Route path="/expenses"   element={<Page permission="viewExpenses"><ExpenseTracker /></Page>} />
 
       {/* ── Default / 404 ── */}
       <Route path="/"  element={<DefaultRedirect />} />

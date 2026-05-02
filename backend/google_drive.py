@@ -1,29 +1,26 @@
 """
-google_drive.py — Resume upload/delete via Google OAuth 2.0 (refresh token).
+google_drive.py — Resume & file upload/delete via Google OAuth 2.0 (refresh token).
 
 Setup:
   1. Go to https://console.cloud.google.com/
-     - Create (or reuse) a project → Enable the Drive API
-     - APIs & Services → Credentials → Create Credentials → OAuth client ID
-       - Application type: Desktop app  →  Download the JSON (client_id + client_secret)
+     - Enable Drive API → OAuth client ID (Desktop app) → download JSON
 
-  2. Get a refresh token via OAuth Playground:
-     - Open https://developers.google.com/oauthplayground/
-     - Click the gear icon (top-right) → check "Use your own OAuth credentials"
-       → paste your Client ID and Client Secret → close gear
-     - In Step 1, type "https://www.googleapis.com/auth/drive" → click Authorize APIs
-     - Sign in with the Google account that OWNS the target Drive folder
-     - Step 2 → "Exchange authorization code for tokens" → copy the refresh_token
+  2. Get refresh token via https://developers.google.com/oauthplayground/
+     - Use your own OAuth credentials, authorize drive scope, copy refresh_token
 
-  3. Create a folder in your personal Google Drive (or My Drive root is fine).
-     Copy the folder ID from the URL:
-       https://drive.google.com/drive/folders/<FOLDER_ID>
+  3. Create folders in Google Drive. Copy IDs from folder URLs.
+     Recommended:
+       - CRM Resumes            → GOOGLE_DRIVE_FOLDER_ID
+       - Website Applications   → PUBLIC_RESUME_FOLDER_ID
+       - Expense Receipts       → GOOGLE_DRIVE_EXPENSE_FOLDER_ID
 
-  4. Set these env vars (HuggingFace Secrets or .env):
-       GOOGLE_CLIENT_ID      = <OAuth client_id>
-       GOOGLE_CLIENT_SECRET  = <OAuth client_secret>
-       GOOGLE_REFRESH_TOKEN  = <refresh_token from step 2>
-       GOOGLE_DRIVE_FOLDER_ID = <folder ID from step 3>  (optional but recommended)
+  4. Set HuggingFace Secrets:
+       GOOGLE_CLIENT_ID               = <OAuth client_id>
+       GOOGLE_CLIENT_SECRET           = <OAuth client_secret>
+       GOOGLE_REFRESH_TOKEN           = <refresh_token>
+       GOOGLE_DRIVE_FOLDER_ID         = <internal resumes folder>
+       PUBLIC_RESUME_FOLDER_ID        = 1II9tu-fCUqAs63vWzoiamS_2YnXdE0g2
+       GOOGLE_DRIVE_EXPENSE_FOLDER_ID = <expense receipts folder>
 """
 
 import os
@@ -43,6 +40,16 @@ ALLOWED_MIME_TYPES = {
 }
 
 MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
+
+# Accepted types for expense receipts (broader — includes images)
+EXPENSE_RECEIPT_MIME_TYPES = {
+    "application/pdf": "pdf",
+    "image/jpeg":      "jpg",
+    "image/jpg":       "jpg",
+    "image/png":       "png",
+    "image/webp":      "webp",
+}
+EXPENSE_MAX_FILE_BYTES = 15 * 1024 * 1024  # 15 MB
 
 
 def _get_service():
@@ -79,31 +86,40 @@ def _get_service():
         client_secret=client_secret,
         token_uri="https://oauth2.googleapis.com/token",
     )
-    # Force-refresh so we have a valid access token before making API calls
     creds.refresh(Request())
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
-def upload_resume(file_bytes: bytes, filename: str, mime_type: str) -> dict:
+def upload_resume(
+    file_bytes: bytes,
+    filename: str,
+    mime_type: str,
+    folder_id: str = None,
+) -> dict:
     """
-    Upload a resume file to Google Drive.
+    Upload a file to Google Drive.
+
+    Args:
+        file_bytes: Raw file content.
+        filename:   The filename to use in Drive.
+        mime_type:  MIME type string.
+        folder_id:  Optional override for target folder.
+                    Falls back to GOOGLE_DRIVE_FOLDER_ID env var if not given.
 
     Returns:
-        {
-          "file_id":    str,   # Drive file ID (for future deletion)
-          "preview_url": str,  # Embeddable preview URL (stored in Supabase)
-          "view_url":   str,   # Direct link that opens in Drive
-        }
+        {"file_id": str, "preview_url": str, "view_url": str}
     """
     from googleapiclient.errors import HttpError
     from googleapiclient.http import MediaIoBaseUpload
 
-    service   = _get_service()
-    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
+    service = _get_service()
+
+    # Resolve folder: explicit arg → env var → Drive root
+    resolved_folder = (folder_id or "").strip() or os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
 
     metadata: dict = {"name": filename}
-    if folder_id:
-        metadata["parents"] = [folder_id]
+    if resolved_folder:
+        metadata["parents"] = [resolved_folder]
 
     media = MediaIoBaseUpload(
         io.BytesIO(file_bytes), mimetype=mime_type, resumable=False
@@ -126,7 +142,7 @@ def upload_resume(file_bytes: bytes, filename: str, mime_type: str) -> dict:
 
     file_id = created["id"]
 
-    # Make it viewable by anyone with the link
+    # Make file viewable by anyone with the link
     service.permissions().create(
         fileId=file_id,
         body={"type": "anyone", "role": "reader"},
@@ -137,15 +153,14 @@ def upload_resume(file_bytes: bytes, filename: str, mime_type: str) -> dict:
     view_url    = f"https://drive.google.com/file/d/{file_id}/view"
     preview_url = f"https://drive.google.com/file/d/{file_id}/preview"
 
-    logger.info(f"[Drive] Uploaded '{filename}' → {file_id}")
+    logger.info(f"[Drive] Uploaded '{filename}' → {file_id} (folder={resolved_folder or 'root'})")
     return {"file_id": file_id, "preview_url": preview_url, "view_url": view_url}
 
 
 def delete_resume(drive_url: str) -> bool:
     """
-    Delete a Drive file given its preview_url or view_url stored in Supabase.
-    Extracts the file ID from the URL automatically.
-    Returns True if deleted, False if file ID couldn't be parsed or deletion failed.
+    Delete a Drive file given its preview_url or view_url.
+    Returns True if deleted, False if it couldn't be parsed or deletion failed.
     """
     match = re.search(r"/file/d/([^/?#]+)", drive_url or "")
     if not match:
@@ -166,19 +181,16 @@ def _extract_drive_error(exc: Exception) -> str:
     content = getattr(exc, "content", b"") or b""
     if isinstance(content, bytes):
         content = content.decode("utf-8", errors="ignore")
-
     try:
         payload = json.loads(content) if content else {}
     except json.JSONDecodeError:
         payload = {}
-
     if isinstance(payload, dict):
         error = payload.get("error")
         if isinstance(error, dict):
             message = error.get("message")
             if message:
                 return str(message)
-
     return str(exc)
 
 

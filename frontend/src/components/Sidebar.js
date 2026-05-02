@@ -229,6 +229,16 @@ const Sidebar = ({ isOpen, onClose }) => {
           })}>
             <Icon name="policy" /><span>Audit Log</span>
           </NavLink>
+          <NavLink to="/expenses" style={({ isActive }) => ({
+            display: 'flex', alignItems: 'center', gap: '0.625rem',
+            padding: '0.5rem 0.75rem', borderRadius: '0.625rem',
+            textDecoration: 'none', fontSize: '0.875rem',
+            fontFamily: 'var(--font-display)',
+            color: isActive ? '#FAF7FB' : 'var(--sidebar-text)',
+            background: isActive ? 'var(--sidebar-active-bg)' : 'transparent',
+          })}>
+            <Icon name="receipt_long" /><span>Expenses</span>
+          </NavLink>
         </>
       )}
 

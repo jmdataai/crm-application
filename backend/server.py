@@ -25,6 +25,7 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 from pydantic import BaseModel, EmailStr, field_validator, model_validator
 from enum import Enum
+import re as _re
 
 # ── Google Drive helpers ──────────────────────────────────────
 try:
@@ -2822,6 +2823,891 @@ async def send_timesheet_reminder():
         except Exception as e:
             logger.error(f"[timesheet-reminder] Failed for {u['email']}: {e}")
 
+
+
+# ── Constants ────────────────────────────────────────────────
+EXPENSE_CATEGORIES = [
+    "payroll", "subscriptions", "infrastructure", "travel",
+    "accommodation", "meals", "office_supplies", "marketing", "other",
+]
+EXPENSE_CURRENCIES = ["EUR", "INR"]
+EXPENSE_RECEIPT_MIME_TYPES = {
+    "application/pdf": "pdf",
+    "image/jpeg":      "jpg",
+    "image/jpg":       "jpg",
+    "image/png":       "png",
+    "image/webp":      "webp",
+}
+EXPENSE_MAX_BYTES = 15 * 1024 * 1024  # 15 MB
+ 
+# Website application resume folder (created by Ravi)
+PUBLIC_RESUME_FOLDER_ID = os.environ.get(
+    "PUBLIC_RESUME_FOLDER_ID", "1II9tu-fCUqAs63vWzoiamS_2YnXdE0g2"
+)
+ 
+# Simple in-memory FX rate cache (1 hour TTL)
+_fx_cache: dict = {}
+ 
+ 
+# ── Pydantic models ──────────────────────────────────────────
+ 
+class ExpenseUpdate(BaseModel):
+    title:                Optional[str]   = None
+    vendor:               Optional[str]   = None
+    amount:               Optional[float] = None
+    currency:             Optional[str]   = None
+    category:             Optional[str]   = None
+    expense_date:         Optional[str]   = None
+    description:          Optional[str]   = None
+    worker_name:          Optional[str]   = None
+    skill:                Optional[str]   = None
+    hours_worked:         Optional[float] = None
+    rate_per_hour:        Optional[float] = None
+    total_amount_in_words: Optional[str]  = None
+    invoice_period_start:  Optional[str]  = None
+    invoice_period_end:    Optional[str]  = None
+ 
+ 
+# ── FX helper (Frankfurter API) ──────────────────────────────
+ 
+async def _get_fx_rate(base: str = "EUR", target: str = "INR") -> tuple:
+    """
+    Fetch live exchange rate from api.frankfurter.dev.
+    1-hour in-memory cache to avoid hammering the free API.
+    Returns (rate: float, date: str).
+    Falls back to approximate rate if API is unreachable.
+    """
+    key = f"{base}_{target}"
+    now = datetime.now(timezone.utc).timestamp()
+    cached = _fx_cache.get(key)
+    if cached and now - cached["ts"] < 3600:
+        return cached["rate"], cached["date"]
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(
+                "https://api.frankfurter.dev/v1/latest",
+                params={"base": base, "symbols": target},
+            )
+            r.raise_for_status()
+            data = r.json()
+        rate = float(data["rates"][target])
+        date = data.get("date", "")
+        _fx_cache[key] = {"rate": rate, "date": date, "ts": now}
+        logger.info(f"[FX] {base}→{target} = {rate} (date={date})")
+        return rate, date
+    except Exception as exc:
+        logger.warning(f"[FX] Frankfurter API failed: {exc}. Using cache/fallback.")
+        if cached:
+            return cached["rate"], cached.get("date", "")
+        fallback = 91.5 if base == "EUR" else (1.0 / 91.5)
+        return fallback, "fallback"
+ 
+ 
+# ── Phone validator ──────────────────────────────────────────
+ 
+def _validate_phone(phone: str) -> str:
+    """
+    Validates international phone number.
+    Must start with + and contain 8–15 digits total.
+    Strips spaces, dashes, parentheses before validating.
+    """
+    cleaned = _re.sub(r"[\s\-\(\)\.]", "", phone.strip())
+    if not cleaned.startswith("+"):
+        raise ValueError(
+            "Phone number must start with country code (e.g. +91-9876543210 or +353851234567). "
+            "The + prefix is required."
+        )
+    digit_count = len(_re.sub(r"\D", "", cleaned))
+    if digit_count < 8:
+        raise ValueError(
+            f"Phone number too short ({digit_count} digits). "
+            "Please include your full number with country code."
+        )
+    if digit_count > 15:
+        raise ValueError(
+            f"Phone number too long ({digit_count} digits). "
+            "Maximum 15 digits including country code."
+        )
+    return cleaned
+ 
+ 
+# ============================================================
+# PUBLIC JOB API  (no authentication required for GET,
+#                  X-API-Key header required for POST /apply)
+# ============================================================
+ 
+def _check_public_api_key(request: Request) -> None:
+    """Validate the public API key on write endpoints."""
+    configured = os.environ.get("PUBLIC_API_KEY", "").strip()
+    if not configured:
+        raise HTTPException(
+            503,
+            detail={
+                "error": "SERVER_MISCONFIGURED",
+                "message": "Public API key not configured on this server. Contact the CRM admin.",
+            },
+        )
+    provided = request.headers.get("X-API-Key", "").strip()
+    if not provided:
+        raise HTTPException(
+            401,
+            detail={
+                "error": "MISSING_API_KEY",
+                "message": "Missing required header: X-API-Key. "
+                           "Contact the CRM admin for credentials.",
+                "header": "X-API-Key",
+            },
+        )
+    if provided != configured:
+        raise HTTPException(
+            401,
+            detail={
+                "error": "INVALID_API_KEY",
+                "message": "Invalid API key. Contact the CRM admin.",
+            },
+        )
+ 
+ 
+@api_router.get("/public/jobs")
+async def public_list_jobs(
+    search:          Optional[str] = None,
+    department:      Optional[str] = None,
+    employment_type: Optional[str] = None,
+):
+    """
+    PUBLIC — No authentication required.
+    Returns all active job listings for display on jmdatatalent.com/jobs.
+ 
+    Query params (all optional):
+      search          — Full-text search in title, department, description
+      department      — Filter by department name (exact, case-insensitive)
+      employment_type — Filter by type: Full-time | Part-time | Contract | Internship
+    """
+    result = await run(
+        lambda: sb("jobs")
+        .select("id,title,department,location,employment_type,description,"
+                "requirements,salary_range,skills,is_urgent,created_at,updated_at")
+        .eq("is_active", True)
+        .order("is_urgent", desc=True)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    jobs = result.data or []
+ 
+    if search:
+        s = search.lower()
+        jobs = [
+            j for j in jobs
+            if s in (j.get("title") or "").lower()
+            or s in (j.get("department") or "").lower()
+            or s in (j.get("description") or "").lower()
+            or s in " ".join(j.get("skills") or []).lower()
+        ]
+    if department:
+        jobs = [j for j in jobs if (j.get("department") or "").lower() == department.lower()]
+    if employment_type:
+        jobs = [
+            j for j in jobs
+            if (j.get("employment_type") or "").lower() == employment_type.lower()
+        ]
+ 
+    return {
+        "success":    True,
+        "count":      len(jobs),
+        "jobs":       jobs,
+        "generated":  datetime.now(timezone.utc).isoformat(),
+    }
+ 
+ 
+@api_router.get("/public/jobs/{job_id}")
+async def public_get_job(job_id: str):
+    """
+    PUBLIC — No authentication required.
+    Returns full details of a single active job.
+    Returns 404 if the job does not exist or is not active.
+    """
+    job = await safe_single(
+        lambda: sb("jobs")
+        .select("id,title,department,location,employment_type,description,"
+                "requirements,salary_range,skills,is_urgent,created_at,updated_at")
+        .eq("id", job_id)
+        .eq("is_active", True)
+        .single()
+        .execute()
+    )
+    if not job:
+        raise HTTPException(
+            404,
+            detail={
+                "error":   "JOB_NOT_FOUND",
+                "message": "This job posting does not exist or is no longer active.",
+                "job_id":  job_id,
+            },
+        )
+    return {"success": True, "job": job}
+ 
+ 
+@api_router.post("/public/jobs/{job_id}/apply")
+async def public_apply_job(
+    job_id:           str,
+    request:          Request,
+    # Required fields
+    first_name:       str            = Form(..., description="Applicant's first name"),
+    last_name:        str            = Form(..., description="Applicant's last name"),
+    email:            str            = Form(..., description="Applicant's email address"),
+    phone:            str            = Form(..., description="Phone with country code, e.g. +91-9876543210"),
+    resume:           UploadFile     = File(...,  description="Resume file — PDF, DOC, or DOCX, max 10 MB"),
+    # Optional fields
+    current_company:  Optional[str]  = Form(None, description="Current employer"),
+    candidate_role:   Optional[str]  = Form(None, description="Current job title"),
+    experience_years: Optional[str]  = Form(None, description="Total years of experience (numeric)"),
+    linkedin_url:     Optional[str]  = Form(None, description="LinkedIn profile URL"),
+    portfolio_url:    Optional[str]  = Form(None, description="Portfolio, GitHub, or personal site URL"),
+):
+    """
+    PUBLIC — Requires header: X-API-Key: <your_key>
+    Submit a job application from the website.
+    Uploads resume to Google Drive and creates a candidate record in the CRM.
+ 
+    Returns 409 if the same email has already applied for this job.
+    """
+ 
+    # ── 0. Compute full name ─────────────────────────────────
+    first_name = first_name.strip()
+    last_name  = last_name.strip()
+    if not first_name:
+        raise HTTPException(422, detail={"error": "MISSING_FIRST_NAME", "message": "First name is required.", "field": "first_name"})
+    if not last_name:
+        raise HTTPException(422, detail={"error": "MISSING_LAST_NAME", "message": "Last name is required.", "field": "last_name"})
+    full_name = f"{first_name} {last_name}"
+ 
+    # ── 1. Auth ───────────────────────────────────────────────
+    _check_public_api_key(request)
+ 
+    # ── 2. Validate email ─────────────────────────────────────
+    email = email.strip().lower()
+    if not _re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
+        raise HTTPException(
+            422,
+            detail={
+                "error":   "INVALID_EMAIL",
+                "message": "Please provide a valid email address (e.g. name@example.com).",
+                "field":   "email",
+            },
+        )
+ 
+    # ── 3. Validate phone ─────────────────────────────────────
+    try:
+        phone_clean = _validate_phone(phone)
+    except ValueError as exc:
+        raise HTTPException(
+            422,
+            detail={
+                "error":   "INVALID_PHONE",
+                "message": str(exc),
+                "field":   "phone",
+                "example": "+91-9876543210 or +353851234567",
+            },
+        )
+ 
+    # ── 4. Validate resume file ───────────────────────────────
+    if resume.content_type not in ALLOWED_MIME_TYPES:
+        raise HTTPException(
+            422,
+            detail={
+                "error":    "INVALID_FILE_TYPE",
+                "message":  f"Resume must be PDF, DOC, or DOCX. "
+                            f"Received content-type: {resume.content_type}",
+                "field":    "resume",
+                "accepted": ["application/pdf",
+                             "application/msword",
+                             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+            },
+        )
+    resume_bytes = await resume.read()
+    if len(resume_bytes) > MAX_FILE_BYTES:
+        raise HTTPException(
+            422,
+            detail={
+                "error":   "FILE_TOO_LARGE",
+                "message": f"Resume must be under 10 MB. "
+                           f"Received: {round(len(resume_bytes)/1024/1024, 1)} MB.",
+                "field":   "resume",
+                "max_mb":  10,
+            },
+        )
+ 
+    # ── 5. Validate job is active ─────────────────────────────
+    job = await safe_single(
+        lambda: sb("jobs")
+        .select("id,title,department")
+        .eq("id", job_id)
+        .eq("is_active", True)
+        .single()
+        .execute()
+    )
+    if not job:
+        raise HTTPException(
+            404,
+            detail={
+                "error":   "JOB_NOT_FOUND",
+                "message": "This position is no longer accepting applications.",
+                "job_id":  job_id,
+            },
+        )
+ 
+    # ── 6. Duplicate application check ───────────────────────
+    dup_check = await run(
+        lambda: sb("candidates")
+        .select("id")
+        .eq("email", email)
+        .eq("job_id", job_id)
+        .eq("source", "website")
+        .execute()
+    )
+    if dup_check.data:
+        raise HTTPException(
+            409,
+            detail={
+                "error":   "ALREADY_APPLIED",
+                "message": "An application with this email already exists for this position. "
+                           "Our team will review it and be in touch.",
+                "job_id":  job_id,
+                "email":   email,
+            },
+        )
+ 
+    # ── 7. Upload resume to Google Drive ─────────────────────
+    ext       = ALLOWED_MIME_TYPES[resume.content_type]
+    safe_name = _re.sub(r"[^\w\s-]", "", full_name.strip()).replace(" ", "_")[:30]
+    short_id  = str(uuid.uuid4()).replace("-", "")[:8]
+    filename  = f"WebApp_{safe_name}_{short_id}.{ext}"
+ 
+    resume_url = None
+    if upload_resume is not None:
+        try:
+            drive_result = await run(
+                lambda: upload_resume(
+                    resume_bytes,
+                    filename,
+                    resume.content_type,
+                    folder_id=PUBLIC_RESUME_FOLDER_ID,
+                )
+            )
+            resume_url = drive_result["preview_url"]
+        except Exception as exc:
+            logger.error(f"[public-apply] Drive upload failed: {exc}")
+            # Do NOT fail the application — still save the record without resume URL
+            # The team will notice missing resume_url and follow up
+    else:
+        logger.warning("[public-apply] Google Drive not configured — resume not uploaded")
+ 
+    # ── 8. Parse optional numeric fields ─────────────────────
+    exp_years = None
+    if experience_years:
+        try:
+            exp_years = int(float(experience_years.strip()))
+            if exp_years < 0 or exp_years > 60:
+                exp_years = None
+        except (ValueError, AttributeError):
+            pass
+ 
+    # ── 9. Create candidate record ────────────────────────────
+    candidate_payload = {
+        "full_name":        full_name.strip(),
+        "email":            email,
+        "phone":            phone_clean,
+        "current_company":  (current_company  or "").strip() or None,
+        "candidate_role":   (candidate_role   or "").strip() or None,
+        "experience_years": exp_years,
+        "linkedin_url":     (linkedin_url     or "").strip() or None,
+        "portfolio_url":    (portfolio_url    or "").strip() or None,
+        "source":           "website",
+        "status":           "sourced",
+        "job_id":           job_id,
+        "notes":            f"Applied via website for: {job['title']}",
+        "resume_url":       resume_url,
+    }
+ 
+    result = await run(lambda: sb("candidates").insert(candidate_payload).execute())
+    if not result.data:
+        raise HTTPException(
+            500,
+            detail={
+                "error":   "SERVER_ERROR",
+                "message": "Failed to record your application. Please try again or contact us directly.",
+            },
+        )
+ 
+    new_candidate = result.data[0]
+ 
+    # ── 10. Audit log ─────────────────────────────────────────
+    asyncio.create_task(_audit(
+        action="create",
+        user={"id": None, "email": email, "name": full_name},
+        entity_type="candidate",
+        entity_id=new_candidate["id"],
+        entity_name=f"{full_name} → {job['title']} (website)",
+    ))
+ 
+    logger.info(
+        f"[public-apply] New application: {full_name} <{email}> "
+        f"→ job={job['title']} (id={new_candidate['id']})"
+    )
+ 
+    return {
+        "success":        True,
+        "application_id": new_candidate["id"],
+        "job_id":         job_id,
+        "job_title":      job["title"],
+        "message":        "Your application has been submitted successfully. "
+                          "Our team will review it and be in touch.",
+    }
+ 
+ 
+# ============================================================
+# EXPENSE TRACKER
+# ============================================================
+ 
+def _require_expense_access(user: dict) -> None:
+    """Admin and viewer (CEO) roles only."""
+    if user.get("role") not in ("admin", "viewer"):
+        raise HTTPException(
+            403,
+            detail={
+                "error":   "ACCESS_DENIED",
+                "message": "Expense tracker is restricted to admin and CEO roles.",
+            },
+        )
+ 
+ 
+@api_router.get("/expenses/summary")
+async def get_expense_summary(
+    request: Request,
+    year: Optional[int] = None,
+):
+    """
+    Dashboard summary — returns monthly data + category breakdown in BOTH currencies.
+    The frontend uses this for the chart + KPI cards + currency toggle (no extra call needed).
+    """
+    user = await get_current_user(request)
+    _require_expense_access(user)
+ 
+    target_year = year or datetime.now(timezone.utc).year
+ 
+    # Fetch live FX rate
+    try:
+        eur_to_inr, fx_date = await _get_fx_rate("EUR", "INR")
+    except Exception:
+        eur_to_inr, fx_date = 91.5, "fallback"
+    inr_to_eur = 1.0 / eur_to_inr if eur_to_inr else 1.0 / 91.5
+ 
+    # Fetch all expenses for target year (+ previous year for YoY comparison)
+    raw = await run(
+        lambda: sb("expenses")
+        .select("id,title,vendor,amount,currency,category,expense_date,"
+                "worker_name,skill,source,created_at")
+        .gte("expense_date", f"{target_year - 1}-01-01")
+        .lte("expense_date", f"{target_year}-12-31")
+        .execute()
+    )
+    rows = raw.data or []
+ 
+    def to_eur(amount: float, ccy: str) -> float:
+        return amount if ccy == "EUR" else round(amount * inr_to_eur, 2)
+ 
+    def to_inr(amount: float, ccy: str) -> float:
+        return amount if ccy == "INR" else round(amount * eur_to_inr, 2)
+ 
+    now_utc       = datetime.now(timezone.utc)
+    cur_month_pfx = f"{target_year}-{now_utc.month:02d}"
+    this_yr_rows  = [r for r in rows if str(r["expense_date"]).startswith(str(target_year))]
+    this_mo_rows  = [r for r in this_yr_rows if str(r["expense_date"]).startswith(cur_month_pfx)]
+    prev_yr_rows  = [r for r in rows if str(r["expense_date"]).startswith(str(target_year - 1))]
+ 
+    # KPI values
+    this_mo_eur   = round(sum(to_eur(r["amount"], r["currency"]) for r in this_mo_rows), 2)
+    this_mo_inr   = round(sum(to_inr(r["amount"], r["currency"]) for r in this_mo_rows), 2)
+    ytd_eur       = round(sum(to_eur(r["amount"], r["currency"]) for r in this_yr_rows), 2)
+    ytd_inr       = round(sum(to_inr(r["amount"], r["currency"]) for r in this_yr_rows), 2)
+    prev_ytd_eur  = round(sum(to_eur(r["amount"], r["currency"]) for r in prev_yr_rows), 2)
+ 
+    subs_mo       = [r for r in this_mo_rows if r["category"] == "subscriptions"]
+    subs_mo_eur   = round(sum(to_eur(r["amount"], r["currency"]) for r in subs_mo), 2)
+    subs_mo_inr   = round(sum(to_inr(r["amount"], r["currency"]) for r in subs_mo), 2)
+ 
+    # Monthly breakdown for bar chart
+    months_map: dict = {}
+    for r in this_yr_rows:
+        m = str(r["expense_date"])[:7]  # YYYY-MM
+        if m not in months_map:
+            months_map[m] = {cat: {"eur": 0.0, "inr": 0.0} for cat in EXPENSE_CATEGORIES}
+            months_map[m]["_total"] = {"eur": 0.0, "inr": 0.0, "count": 0}
+        cat = r["category"]
+        if cat in months_map[m]:
+            months_map[m][cat]["eur"] += to_eur(r["amount"], r["currency"])
+            months_map[m][cat]["inr"] += to_inr(r["amount"], r["currency"])
+        months_map[m]["_total"]["eur"]   += to_eur(r["amount"], r["currency"])
+        months_map[m]["_total"]["inr"]   += to_inr(r["amount"], r["currency"])
+        months_map[m]["_total"]["count"] += 1
+ 
+    # Build all 12 months (fill zeros for missing months)
+    monthly_list = []
+    for mo in range(1, 13):
+        key  = f"{target_year}-{mo:02d}"
+        data = months_map.get(key, {})
+        entry = {"month": key}
+        for cat in EXPENSE_CATEGORIES:
+            catdata = data.get(cat, {"eur": 0.0, "inr": 0.0})
+            entry[f"{cat}_eur"] = round(catdata["eur"], 2)
+            entry[f"{cat}_inr"] = round(catdata["inr"], 2)
+        total = data.get("_total", {"eur": 0.0, "inr": 0.0, "count": 0})
+        entry["total_eur"] = round(total["eur"], 2)
+        entry["total_inr"] = round(total["inr"], 2)
+        entry["count"]     = total.get("count", 0)
+        monthly_list.append(entry)
+ 
+    # Category breakdown for donut
+    cat_map: dict = {}
+    for r in this_yr_rows:
+        c = r["category"]
+        if c not in cat_map:
+            cat_map[c] = {"category": c, "eur": 0.0, "inr": 0.0, "count": 0}
+        cat_map[c]["eur"]   += to_eur(r["amount"], r["currency"])
+        cat_map[c]["inr"]   += to_inr(r["amount"], r["currency"])
+        cat_map[c]["count"] += 1
+    for v in cat_map.values():
+        v["eur"] = round(v["eur"], 2)
+        v["inr"] = round(v["inr"], 2)
+    cat_list = sorted(cat_map.values(), key=lambda x: x["eur"], reverse=True)
+ 
+    # Top vendor breakdown
+    vendor_map: dict = {}
+    for r in this_yr_rows:
+        v = (r.get("vendor") or r.get("title") or "Unknown").strip()
+        if v not in vendor_map:
+            vendor_map[v] = {"vendor": v, "eur": 0.0, "inr": 0.0, "count": 0}
+        vendor_map[v]["eur"]   += to_eur(r["amount"], r["currency"])
+        vendor_map[v]["inr"]   += to_inr(r["amount"], r["currency"])
+        vendor_map[v]["count"] += 1
+    top_vendors = sorted(vendor_map.values(), key=lambda x: x["eur"], reverse=True)[:10]
+    for v in top_vendors:
+        v["eur"] = round(v["eur"], 2)
+        v["inr"] = round(v["inr"], 2)
+ 
+    return {
+        "year":              target_year,
+        "fx": {
+            "eur_to_inr":    round(eur_to_inr, 4),
+            "inr_to_eur":    round(inr_to_eur, 6),
+            "date":          fx_date,
+        },
+        "this_month": {
+            "eur":   this_mo_eur,
+            "inr":   this_mo_inr,
+            "count": len(this_mo_rows),
+        },
+        "ytd": {
+            "eur":       ytd_eur,
+            "inr":       ytd_inr,
+            "count":     len(this_yr_rows),
+            "prev_year": prev_ytd_eur,
+            "yoy_pct":   round(((ytd_eur - prev_ytd_eur) / prev_ytd_eur * 100) if prev_ytd_eur else 0, 1),
+        },
+        "subscriptions_this_month": {
+            "eur":   subs_mo_eur,
+            "inr":   subs_mo_inr,
+            "count": len(subs_mo),
+        },
+        "monthly_data":  monthly_list,
+        "by_category":   cat_list,
+        "top_vendors":   top_vendors,
+    }
+ 
+ 
+@api_router.get("/expenses")
+async def list_expenses(
+    request:  Request,
+    month:    Optional[str] = None,   # YYYY-MM
+    year:     Optional[int] = None,
+    category: Optional[str] = None,
+    currency: Optional[str] = None,
+    search:   Optional[str] = None,
+    limit:    int = 200,
+    offset:   int = 0,
+):
+    """
+    List expenses with optional filters.
+    Returns expenses in reverse chronological order.
+    Only admin and viewer roles can access.
+    """
+    user = await get_current_user(request)
+    _require_expense_access(user)
+ 
+    q = (
+        sb("expenses")
+        .select("*")
+        .order("expense_date", desc=True)
+        .order("created_at", desc=True)
+    )
+ 
+    if month:
+        # YYYY-MM → filter to that calendar month
+        try:
+            yr, mo = month.split("-")
+            import calendar
+            last_day = calendar.monthrange(int(yr), int(mo))[1]
+            q = q.gte("expense_date", f"{month}-01").lte("expense_date", f"{month}-{last_day:02d}")
+        except Exception:
+            raise HTTPException(400, "month must be in YYYY-MM format (e.g. 2025-03)")
+    elif year:
+        q = q.gte("expense_date", f"{year}-01-01").lte("expense_date", f"{year}-12-31")
+ 
+    if category and category in EXPENSE_CATEGORIES:
+        q = q.eq("category", category)
+    if currency and currency.upper() in EXPENSE_CURRENCIES:
+        q = q.eq("currency", currency.upper())
+ 
+    result = await run(lambda: q.limit(limit).offset(offset).execute())
+    rows = result.data or []
+ 
+    if search:
+        s = search.lower()
+        rows = [
+            r for r in rows
+            if s in (r.get("title")       or "").lower()
+            or s in (r.get("vendor")      or "").lower()
+            or s in (r.get("description") or "").lower()
+            or s in (r.get("worker_name") or "").lower()
+            or s in (r.get("skill")       or "").lower()
+        ]
+ 
+    return {"success": True, "count": len(rows), "expenses": rows}
+ 
+ 
+@api_router.post("/expenses")
+async def create_expense(
+    request:               Request,
+    # Core required fields (multipart/form-data)
+    title:                 str           = Form(...),
+    amount:                float         = Form(...),
+    currency:              str           = Form("INR"),
+    category:              str           = Form(...),
+    expense_date:          str           = Form(...),
+    # Optional text fields
+    vendor:                Optional[str] = Form(None),
+    description:           Optional[str] = Form(None),
+    # Payroll-specific (only if category == payroll)
+    worker_name:           Optional[str]   = Form(None),
+    skill:                 Optional[str]   = Form(None),
+    hours_worked:          Optional[float] = Form(None),
+    rate_per_hour:         Optional[float] = Form(None),
+    total_amount_in_words: Optional[str]   = Form(None),
+    invoice_period_start:  Optional[str]   = Form(None),
+    invoice_period_end:    Optional[str]   = Form(None),
+    # Optional receipt file
+    receipt: Optional[UploadFile] = File(None),
+):
+    """
+    Create a new expense record with optional receipt attachment.
+    Accepts multipart/form-data.
+    Receipt: PDF, JPG, PNG, or WEBP — max 15 MB.
+    Only admin and viewer (CEO) can create expenses.
+    """
+    user = await get_current_user(request)
+    _require_expense_access(user)
+ 
+    # ── Validate ──────────────────────────────────────────────
+    currency = currency.upper()
+    if currency not in EXPENSE_CURRENCIES:
+        raise HTTPException(422, f"Currency must be EUR or INR. Got: '{currency}'")
+    if category not in EXPENSE_CATEGORIES:
+        raise HTTPException(
+            422,
+            f"Invalid category '{category}'. "
+            f"Must be one of: {', '.join(EXPENSE_CATEGORIES)}",
+        )
+    if amount <= 0:
+        raise HTTPException(422, "Amount must be greater than 0.")
+    try:
+        datetime.strptime(expense_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(422, "expense_date must be YYYY-MM-DD (e.g. 2025-03-15)")
+ 
+    # ── Handle receipt upload ─────────────────────────────────
+    receipt_url   = None
+    drive_file_id = None
+ 
+    if receipt and receipt.filename and receipt.filename.strip():
+        if receipt.content_type not in EXPENSE_RECEIPT_MIME_TYPES:
+            raise HTTPException(
+                422,
+                f"Receipt must be PDF, JPG, PNG, or WEBP. "
+                f"Received: {receipt.content_type}",
+            )
+        receipt_bytes = await receipt.read()
+        if len(receipt_bytes) > EXPENSE_MAX_BYTES:
+            raise HTTPException(
+                422,
+                f"Receipt too large ({round(len(receipt_bytes)/1024/1024, 1)} MB). "
+                "Maximum allowed is 15 MB.",
+            )
+        if upload_resume is not None:
+            try:
+                ext        = EXPENSE_RECEIPT_MIME_TYPES[receipt.content_type]
+                safe_title = _re.sub(r"[^\w\s-]", "", title)[:20].strip().replace(" ", "_")
+                fname      = f"Receipt_{safe_title}_{str(uuid.uuid4())[:8]}.{ext}"
+                folder     = os.environ.get("GOOGLE_DRIVE_EXPENSE_FOLDER_ID", "1pkprkI4q1PKOeczdv6ST1iljVj28Evuh").strip() or None
+                drive_res  = await run(
+                    lambda: upload_resume(receipt_bytes, fname, receipt.content_type, folder_id=folder)
+                )
+                receipt_url   = drive_res["preview_url"]
+                drive_file_id = drive_res["file_id"]
+            except RuntimeError as exc:
+                raise HTTPException(503, f"Receipt upload failed: {exc}")
+            except Exception as exc:
+                logger.exception("[expenses] Unexpected receipt upload failure")
+                raise HTTPException(500, "Unexpected error uploading receipt. Please try again.")
+        else:
+            logger.warning("[expenses] Google Drive not configured — receipt not uploaded")
+ 
+    # ── Insert record ─────────────────────────────────────────
+    record = {
+        "title":                 title.strip(),
+        "vendor":                (vendor or "").strip() or None,
+        "amount":                float(amount),
+        "currency":              currency,
+        "category":              category,
+        "expense_date":          expense_date,
+        "description":           (description or "").strip() or None,
+        "worker_name":           (worker_name or "").strip() or None,
+        "skill":                 (skill or "").strip() or None,
+        "hours_worked":          hours_worked,
+        "rate_per_hour":         rate_per_hour,
+        "total_amount_in_words": (total_amount_in_words or "").strip() or None,
+        "invoice_period_start":  (invoice_period_start or "").strip() or None,
+        "invoice_period_end":    (invoice_period_end or "").strip() or None,
+        "receipt_url":           receipt_url,
+        "drive_file_id":         drive_file_id,
+        "source":                "manual",
+        "uploaded_by":           user["id"],
+    }
+ 
+    result = await run(lambda: sb("expenses").insert(record).execute())
+    if not result.data:
+        raise HTTPException(500, "Failed to save expense record. Please try again.")
+ 
+    saved = result.data[0]
+ 
+    asyncio.create_task(_audit(
+        action="create",
+        user=user,
+        entity_type="expense",
+        entity_id=saved["id"],
+        entity_name=f"{title} | {category} | {currency} {amount:.2f}",
+        new_value={"category": category, "amount": amount, "currency": currency},
+    ))
+ 
+    return {"success": True, "expense": saved}
+ 
+ 
+@api_router.put("/expenses/{expense_id}")
+async def update_expense(
+    expense_id: str,
+    body:       ExpenseUpdate,
+    request:    Request,
+):
+    """
+    Update an expense record (metadata only — receipt cannot be changed here).
+    Use DELETE + POST to replace an expense with a different receipt.
+    Only admin and viewer (CEO) can update.
+    """
+    user = await get_current_user(request)
+    _require_expense_access(user)
+ 
+    existing = await safe_single(
+        lambda: sb("expenses")
+        .select("id,title,currency,category,amount")
+        .eq("id", expense_id)
+        .single()
+        .execute()
+    )
+    if not existing:
+        raise HTTPException(404, f"Expense '{expense_id}' not found.")
+ 
+    patch = {k: v for k, v in body.model_dump(exclude_none=True).items() if v is not None}
+    if not patch:
+        raise HTTPException(400, "No fields provided to update.")
+ 
+    # Validate mutated fields
+    if "currency" in patch:
+        patch["currency"] = patch["currency"].upper()
+        if patch["currency"] not in EXPENSE_CURRENCIES:
+            raise HTTPException(422, "Currency must be EUR or INR.")
+    if "category" in patch and patch["category"] not in EXPENSE_CATEGORIES:
+        raise HTTPException(422, f"Invalid category. Choose from: {', '.join(EXPENSE_CATEGORIES)}")
+    if "amount" in patch and patch["amount"] <= 0:
+        raise HTTPException(422, "Amount must be greater than 0.")
+    if "expense_date" in patch:
+        try:
+            datetime.strptime(patch["expense_date"], "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(422, "expense_date must be YYYY-MM-DD")
+ 
+    result = await run(lambda: sb("expenses").update(patch).eq("id", expense_id).execute())
+ 
+    asyncio.create_task(_audit(
+        action="update",
+        user=user,
+        entity_type="expense",
+        entity_id=expense_id,
+        entity_name=existing.get("title", expense_id),
+        old_value={k: existing.get(k) for k in patch if k in existing},
+        new_value=patch,
+    ))
+ 
+    return {"success": True, "expense": result.data[0] if result.data else {}}
+ 
+ 
+@api_router.delete("/expenses/{expense_id}")
+async def delete_expense(expense_id: str, request: Request):
+    """
+    Delete an expense record and its receipt from Google Drive (if any).
+    Admin only.
+    """
+    user = await get_current_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Only admin can delete expense records.")
+ 
+    existing = await safe_single(
+        lambda: sb("expenses")
+        .select("id,title,receipt_url,drive_file_id")
+        .eq("id", expense_id)
+        .single()
+        .execute()
+    )
+    if not existing:
+        raise HTTPException(404, f"Expense '{expense_id}' not found.")
+ 
+    # Remove receipt from Drive
+    receipt_url = existing.get("receipt_url") or ""
+    if receipt_url and "drive.google.com" in receipt_url and delete_resume is not None:
+        try:
+            await run(lambda: delete_resume(receipt_url))
+        except Exception as exc:
+            logger.warning(f"[expenses] Drive delete failed for {expense_id}: {exc}")
+ 
+    await run(lambda: sb("expenses").delete().eq("id", expense_id).execute())
+ 
+    asyncio.create_task(_audit(
+        action="delete",
+        user=user,
+        entity_type="expense",
+        entity_id=expense_id,
+        entity_name=existing.get("title", expense_id),
+    ))
+ 
+    return {"success": True, "deleted": expense_id, "message": "Expense deleted successfully."}
 
 @app.on_event("startup")
 async def startup():
