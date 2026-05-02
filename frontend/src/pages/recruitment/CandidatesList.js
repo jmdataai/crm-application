@@ -576,7 +576,7 @@ export default function CandidatesList() {
       return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
     });
     return out;
-  }, [candidates, activeTab, stageFilter, colSearch, expFilter, hasResumeOnly, techSelected, techMode, sortBy, sortDir]);
+  }, [candidates, activeTab, stageFilter, sourceFilter, jobFilter, colSearch, expFilter, hasResumeOnly, techSelected, techMode, sortBy, sortDir]);
 
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
   const paged = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
