@@ -460,7 +460,7 @@ export default function CandidatesList() {
   const PER_PAGE = 25;
 
   // Column text searches
-  const [colSearch, setColSearch] = useState({ name:'', candidate_role:'', total_experience:'', relevant_experience:'', location:'', visa_status:'', relocation:'', source:'' });
+  const [colSearch, setColSearch] = useState({ name:'', candidate_role:'', total_experience:'', relevant_experience:'', location:'', visa_status:'', relocation:'', source:'', job_title:'' });
   const setCS = (k, v) => { setColSearch(s => ({ ...s, [k]: v })); setPage(1); };
 
   // Advanced filters
@@ -541,6 +541,7 @@ export default function CandidatesList() {
       if (cs.visa_status && !c.visa_status?.toLowerCase().includes(cs.visa_status.toLowerCase())) return false;
       if (cs.relocation && !c.relocation?.toLowerCase().includes(cs.relocation.toLowerCase())) return false;
       if (cs.source && !c.source?.toLowerCase().includes(cs.source.toLowerCase())) return false;
+      if (cs.job_title && !c.job_title?.toLowerCase().includes(cs.job_title.toLowerCase())) return false;
 
       // Experience filter (numeric comparison on experience_years)
       if (expFilter.years !== '') {
@@ -587,7 +588,7 @@ export default function CandidatesList() {
   const hasColSearch = Object.values(colSearch).some(v => v) || expFilter.years !== '' || hasResumeOnly || techSelected.size > 0;
 
   const clearAllFilters = () => {
-    setColSearch({ name:'', candidate_role:'', total_experience:'', relevant_experience:'', location:'', visa_status:'', relocation:'', source:'' });
+    setColSearch({ name:'', candidate_role:'', total_experience:'', relevant_experience:'', location:'', visa_status:'', relocation:'', source:'', job_title:'' });
     setExpFilter({ op: '>', years: '' });
     setHasResumeOnly(false);
     setTechSelected(new Set());
