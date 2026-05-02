@@ -3047,31 +3047,34 @@ async def public_get_job(job_id: str):
     return {"success": True, "job": job}
  
  
-@api_router.post("/public/jobs/{job_id}/apply")
+@api_router.post("/public/apply")
 async def public_apply_job(
-    job_id:           str,
     request:          Request,
     # Required fields
     first_name:       str            = Form(..., description="Applicant's first name"),
     last_name:        str            = Form(..., description="Applicant's last name"),
     email:            str            = Form(..., description="Applicant's email address"),
     phone:            str            = Form(..., description="Phone with country code, e.g. +91-9876543210"),
+    job_id:           str            = Form(..., description="Job ID from the website's own job system"),
+    job_title:        str            = Form(..., description="Job title from the website's own job system"),
     resume:           UploadFile     = File(...,  description="Resume file — PDF, DOC, or DOCX, max 10 MB"),
     # Optional fields
     current_company:  Optional[str]  = Form(None, description="Current employer"),
-    candidate_role:   Optional[str]  = Form(None, description="Current job title"),
+    candidate_role:   Optional[str]  = Form(None, description="Current job title / role"),
     experience_years: Optional[str]  = Form(None, description="Total years of experience (numeric)"),
     linkedin_url:     Optional[str]  = Form(None, description="LinkedIn profile URL"),
     portfolio_url:    Optional[str]  = Form(None, description="Portfolio, GitHub, or personal site URL"),
 ):
     """
     PUBLIC — Requires header: X-API-Key: <your_key>
+
     Submit a job application from the website.
+    job_id and job_title come from the website's own job listings — not validated against the CRM.
     Uploads resume to Google Drive and creates a candidate record in the CRM.
- 
-    Returns 409 if the same email has already applied for this job.
+
+    Returns 409 if the same email has already applied for the same job_id.
     """
- 
+
     # ── 0. Compute full name ─────────────────────────────────
     first_name = first_name.strip()
     last_name  = last_name.strip()
@@ -3080,11 +3083,19 @@ async def public_apply_job(
     if not last_name:
         raise HTTPException(422, detail={"error": "MISSING_LAST_NAME", "message": "Last name is required.", "field": "last_name"})
     full_name = f"{first_name} {last_name}"
- 
+
     # ── 1. Auth ───────────────────────────────────────────────
     _check_public_api_key(request)
- 
-    # ── 2. Validate email ─────────────────────────────────────
+
+    # ── 2. Validate required text fields ─────────────────────
+    job_id    = job_id.strip()
+    job_title = job_title.strip()
+    if not job_id:
+        raise HTTPException(422, detail={"error": "MISSING_JOB_ID", "message": "job_id is required.", "field": "job_id"})
+    if not job_title:
+        raise HTTPException(422, detail={"error": "MISSING_JOB_TITLE", "message": "job_title is required.", "field": "job_title"})
+
+    # ── 3. Validate email ─────────────────────────────────────
     email = email.strip().lower()
     if not _re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
         raise HTTPException(
@@ -3095,8 +3106,8 @@ async def public_apply_job(
                 "field":   "email",
             },
         )
- 
-    # ── 3. Validate phone ─────────────────────────────────────
+
+    # ── 4. Validate phone ─────────────────────────────────────
     try:
         phone_clean = _validate_phone(phone)
     except ValueError as exc:
@@ -3109,8 +3120,8 @@ async def public_apply_job(
                 "example": "+91-9876543210 or +353851234567",
             },
         )
- 
-    # ── 4. Validate resume file ───────────────────────────────
+
+    # ── 5. Validate resume file ───────────────────────────────
     if resume.content_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(
             422,
@@ -3136,27 +3147,8 @@ async def public_apply_job(
                 "max_mb":  10,
             },
         )
- 
-    # ── 5. Validate job is active ─────────────────────────────
-    job = await safe_single(
-        lambda: sb("jobs")
-        .select("id,title,department")
-        .eq("id", job_id)
-        .eq("is_active", True)
-        .single()
-        .execute()
-    )
-    if not job:
-        raise HTTPException(
-            404,
-            detail={
-                "error":   "JOB_NOT_FOUND",
-                "message": "This position is no longer accepting applications.",
-                "job_id":  job_id,
-            },
-        )
- 
-    # ── 6. Duplicate application check ───────────────────────
+
+    # ── 6. Duplicate check — same email + job_id ─────────────
     dup_check = await run(
         lambda: sb("candidates")
         .select("id")
@@ -3176,13 +3168,13 @@ async def public_apply_job(
                 "email":   email,
             },
         )
- 
+
     # ── 7. Upload resume to Google Drive ─────────────────────
     ext       = ALLOWED_MIME_TYPES[resume.content_type]
     safe_name = _re.sub(r"[^\w\s-]", "", full_name.strip()).replace(" ", "_")[:30]
     short_id  = str(uuid.uuid4()).replace("-", "")[:8]
     filename  = f"WebApp_{safe_name}_{short_id}.{ext}"
- 
+
     resume_url = None
     if upload_resume is not None:
         try:
@@ -3197,11 +3189,9 @@ async def public_apply_job(
             resume_url = drive_result["preview_url"]
         except Exception as exc:
             logger.error(f"[public-apply] Drive upload failed: {exc}")
-            # Do NOT fail the application — still save the record without resume URL
-            # The team will notice missing resume_url and follow up
     else:
         logger.warning("[public-apply] Google Drive not configured — resume not uploaded")
- 
+
     # ── 8. Parse optional numeric fields ─────────────────────
     exp_years = None
     if experience_years:
@@ -3211,10 +3201,10 @@ async def public_apply_job(
                 exp_years = None
         except (ValueError, AttributeError):
             pass
- 
+
     # ── 9. Create candidate record ────────────────────────────
     candidate_payload = {
-        "full_name":        full_name.strip(),
+        "full_name":        full_name,
         "email":            email,
         "phone":            phone_clean,
         "current_company":  (current_company  or "").strip() or None,
@@ -3225,10 +3215,11 @@ async def public_apply_job(
         "source":           "website",
         "status":           "sourced",
         "job_id":           job_id,
-        "notes":            f"Applied via website for: {job['title']}",
+        "job_title":        job_title,
+        "notes":            f"Applied via website for: {job_title}",
         "resume_url":       resume_url,
     }
- 
+
     result = await run(lambda: sb("candidates").insert(candidate_payload).execute())
     if not result.data:
         raise HTTPException(
@@ -3238,28 +3229,28 @@ async def public_apply_job(
                 "message": "Failed to record your application. Please try again or contact us directly.",
             },
         )
- 
+
     new_candidate = result.data[0]
- 
+
     # ── 10. Audit log ─────────────────────────────────────────
     asyncio.create_task(_audit(
         action="create",
         user={"id": None, "email": email, "name": full_name},
         entity_type="candidate",
         entity_id=new_candidate["id"],
-        entity_name=f"{full_name} → {job['title']} (website)",
+        entity_name=f"{full_name} → {job_title} (website)",
     ))
- 
+
     logger.info(
         f"[public-apply] New application: {full_name} <{email}> "
-        f"→ job={job['title']} (id={new_candidate['id']})"
+        f"→ job_title={job_title} job_id={job_id} (candidate_id={new_candidate['id']})"
     )
- 
+
     return {
         "success":        True,
         "application_id": new_candidate["id"],
         "job_id":         job_id,
-        "job_title":      job["title"],
+        "job_title":      job_title,
         "message":        "Your application has been submitted successfully. "
                           "Our team will review it and be in touch.",
     }

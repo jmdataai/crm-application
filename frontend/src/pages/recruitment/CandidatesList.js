@@ -329,7 +329,9 @@ const normalise = (c) => ({
   id: c.id, name: c.full_name, email: c.email, phone: c.phone,
   candidate_role: c.candidate_role, current_company: c.current_company,
   job_id: c.job_id || null,
-  job: c.job?.title || '', dept: c.job?.department || '',
+  job_title: c.job_title || c.job?.title || '',   // direct column first, join fallback
+  job: c.job_title || c.job?.title || '',
+  dept: c.job?.department || '',
   experience_years: c.experience_years != null ? Number(c.experience_years) : null,
   total_experience: c.total_experience || '', relevant_experience: c.relevant_experience || '',
   location: c.location || '', relocation: c.relocation || '', visa_status: c.visa_status || '',
@@ -574,7 +576,7 @@ export default function CandidatesList() {
       return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
     });
     return out;
-  }, [candidates, activeTab, stageFilter, sourceFilter, jobFilter, colSearch, expFilter, hasResumeOnly, techSelected, techMode, sortBy, sortDir]);
+  }, [candidates, activeTab, stageFilter, colSearch, expFilter, hasResumeOnly, techSelected, techMode, sortBy, sortDir]);
 
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
   const paged = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
@@ -602,6 +604,7 @@ export default function CandidatesList() {
     {label:'Total Exp',        key:'total_experience'},
     {label:'Rel. Exp',         key:'relevant_experience'},
     {label:'Exp (yrs)',        key:'experience_years'},
+    {label:'Applied Job',      key:'job_title'},
     {label:'Source',           key:'source'},
     {label:'Resume',           key:'resume_url'},
     {label:'Stage',            key:'status'},
@@ -617,6 +620,7 @@ export default function CandidatesList() {
     {label:'Exp (yrs)',        key:'experience_years'},
     {label:'Location',         key:'location'},
     {label:'Relocation',       key:'relocation'},
+    {label:'Applied Job',      key:'job_title'},
     {label:'Resume',           key:'resume_url'},
     {label:'Stage',            key:'status'},
     {label:'Added',            key:'applied'},
@@ -806,6 +810,13 @@ export default function CandidatesList() {
                         </td>
                         <td style={{padding:'0.75rem 1rem',fontSize:'0.8125rem',color:'var(--on-surface-variant)',whiteSpace:'nowrap'}}>{c.location||'—'}</td>
                         <td style={{padding:'0.75rem 1rem',fontSize:'0.75rem',color:'var(--on-surface-variant)',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.relocation||'—'}</td>
+                        {/* Applied Job */}
+                        <td style={{padding:'0.75rem 1rem',maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                          {c.job_title
+                            ? <span style={{fontSize:'0.75rem',fontWeight:600,padding:'0.175rem 0.5rem',borderRadius:4,background:'rgba(0,98,67,0.08)',color:'var(--tertiary)',display:'inline-block',maxWidth:170,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.job_title}</span>
+                            : <span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>
+                          }
+                        </td>
                       </>
                     ):(
                       <>
@@ -824,6 +835,13 @@ export default function CandidatesList() {
                         <td style={{padding:'0.75rem 1rem',fontSize:'0.8125rem',color:'var(--on-surface-variant)',whiteSpace:'nowrap'}}>{c.relevant_experience||'—'}</td>
                         <td style={{padding:'0.75rem 1rem',fontSize:'0.8125rem',fontWeight:600,whiteSpace:'nowrap'}}>
                           {c.experience_years!=null?`${c.experience_years} yrs`:'—'}
+                        </td>
+                        {/* Applied Job */}
+                        <td style={{padding:'0.75rem 1rem',maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                          {c.job_title
+                            ? <span style={{fontSize:'0.75rem',fontWeight:600,padding:'0.175rem 0.5rem',borderRadius:4,background:'rgba(0,98,67,0.08)',color:'var(--tertiary)',display:'inline-block',maxWidth:170,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.job_title}</span>
+                            : <span style={{color:'var(--outline)',fontSize:'0.75rem'}}>—</span>
+                          }
                         </td>
                         <td style={{padding:'0.75rem 1rem'}}><span style={{fontSize:'0.75rem',fontWeight:600,padding:'0.175rem 0.5rem',borderRadius:4,background:'rgba(68,104,176,0.08)',color:'var(--primary)'}}>{c.source}</span></td>
                       </>
