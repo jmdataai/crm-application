@@ -173,6 +173,7 @@ export default function JobsList() {
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState(null);
   const [candidateCounts, setCandidateCounts] = useState({}); // {job_id: count}
+  const [websiteJobs, setWebsiteJobs]         = useState([]); // [{job_id, job_title, count, latest}]
 
   const fetchJobs = useCallback(async () => {
     setLoading(true);
@@ -185,17 +186,31 @@ export default function JobsList() {
     finally { setLoading(false); }
   }, []);
 
-  // Fetch candidate counts per job from the candidates table
+  // Fetch candidate counts per job + aggregate website jobs
   const fetchCandidateCounts = useCallback(async () => {
     try {
-      const res = await candidatesAPI.getAll({ limit: 500 });
+      const res = await candidatesAPI.getAll({ limit: 1000 });
       const all = Array.isArray(res.data) ? res.data
         : Array.isArray(res.data?.candidates) ? res.data.candidates : [];
+
+      // Count per CRM job_id
       const counts = {};
       all.forEach(c => {
         if (c.job_id) counts[c.job_id] = (counts[c.job_id] || 0) + 1;
       });
       setCandidateCounts(counts);
+
+      // Aggregate website candidates by job_id + job_title
+      const webMap = {};
+      all.filter(c => c.source === 'website' && c.job_id).forEach(c => {
+        const key = c.job_id;
+        if (!webMap[key]) {
+          webMap[key] = { job_id: c.job_id, job_title: c.job_title || c.job_id, count: 0, latest: c.created_at };
+        }
+        webMap[key].count++;
+        if (c.created_at > webMap[key].latest) webMap[key].latest = c.created_at;
+      });
+      setWebsiteJobs(Object.values(webMap).sort((a, b) => b.latest.localeCompare(a.latest)));
     } catch {}
   }, []);
 
@@ -412,6 +427,58 @@ export default function JobsList() {
         <div className="card" style={{ textAlign:'center', padding:'3rem' }}>
           <Icon name="work_off" style={{ fontSize:'2.5rem', display:'block', margin:'0 auto 0.75rem', opacity:0.2, color:'var(--tertiary)' }} />
           <p style={{ fontWeight:600, color:'var(--on-surface)' }}>No jobs match your filters</p>
+        </div>
+      )}
+
+      {/* ── Website Jobs Section ───────────────────────────────────────── */}
+      {websiteJobs.length > 0 && (
+        <div style={{ marginTop:'2rem' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'0.625rem', marginBottom:'1rem' }}>
+            <div style={{ height:1, flex:1, background:'var(--outline-variant)' }} />
+            <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.25rem 0.875rem', borderRadius:9999, background:'rgba(68,104,176,0.08)', border:'1px solid rgba(68,104,176,0.15)' }}>
+              <Icon name="language" style={{ fontSize:'1rem', color:'var(--primary)' }} />
+              <span style={{ fontSize:'0.8125rem', fontWeight:700, color:'var(--primary)' }}>Website Applications</span>
+              <span style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--on-surface-variant)', marginLeft:4 }}>{websiteJobs.length} position{websiteJobs.length !== 1 ? 's' : ''}</span>
+            </div>
+            <div style={{ height:1, flex:1, background:'var(--outline-variant)' }} />
+          </div>
+          <p style={{ fontSize:'0.8125rem', color:'var(--on-surface-variant)', marginBottom:'1rem', textAlign:'center' }}>
+            Jobs submitted by applicants through the website — click any card to view all applicants for that position
+          </p>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'1rem' }}>
+            {websiteJobs.map(wj => (
+              <div
+                key={wj.job_id}
+                className="card hover-lift"
+                onClick={() => viewApplicants(wj.job_id)}
+                style={{ cursor:'pointer', border:'1px solid rgba(68,104,176,0.15)' }}
+              >
+                <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:'0.875rem' }}>
+                  <div style={{ width:44, height:44, borderRadius:'0.75rem', background:'rgba(68,104,176,0.1)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    <Icon name="language" style={{ fontSize:'1.375rem', color:'var(--primary)' }} />
+                  </div>
+                  <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.15rem 0.5rem', borderRadius:9999, background:'rgba(68,104,176,0.1)', color:'var(--primary)' }}>
+                    🌐 Website
+                  </span>
+                </div>
+
+                <h3 style={{ fontWeight:700, fontSize:'0.9375rem', color:'var(--on-surface)', marginBottom:'0.25rem' }}>{wj.job_title}</h3>
+                <p style={{ fontSize:'0.8125rem', color:'var(--on-surface-variant)', marginBottom:'0.875rem', fontFamily:'monospace' }}>{wj.job_id}</p>
+
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', paddingTop:'0.875rem', borderTop:'1px solid var(--ghost-border)' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:'0.375rem' }}>
+                    <Icon name="group" style={{ fontSize:'1rem', color:'var(--primary)' }} />
+                    <span style={{ fontWeight:700, fontSize:'0.9375rem', color:'var(--on-surface)' }}>{wj.count}</span>
+                    <span style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>applicant{wj.count !== 1 ? 's' : ''}</span>
+                  </div>
+                  <div style={{ display:'flex', alignItems:'center', gap:'0.25rem', fontSize:'0.75rem', color:'var(--primary)', fontWeight:600 }}>
+                    <Icon name="arrow_forward" style={{ fontSize:'0.875rem', color:'var(--primary)' }} />
+                    View all
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

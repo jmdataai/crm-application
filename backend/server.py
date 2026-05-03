@@ -1621,8 +1621,33 @@ async def update_candidate(candidate_id: str, candidate: CandidateUpdate, reques
 async def delete_candidate(candidate_id: str, request: Request):
     user = await get_current_user(request)
     _require_module(user, "recruitment")
+
+    # Fetch resume_url before deleting so we can clean up Drive
+    row = await safe_single(
+        lambda: sb("candidates").select("id,resume_url").eq("id", candidate_id).single().execute()
+    )
+    if not row:
+        raise HTTPException(404, "Candidate not found.")
+
+    # Delete from DB first
     await run(lambda: sb("candidates").delete().eq("id", candidate_id).execute())
-    return {"message": "Candidate deleted"}
+
+    # Then remove resume from Google Drive (non-fatal if it fails)
+    resume_url = (row or {}).get("resume_url") or ""
+    if resume_url and "drive.google.com" in resume_url and delete_resume is not None:
+        try:
+            await run(lambda: delete_resume(resume_url))
+            logger.info(f"[delete_candidate] Drive resume deleted for {candidate_id}")
+        except Exception as exc:
+            logger.warning(f"[delete_candidate] Drive delete failed for {candidate_id}: {exc}")
+
+    asyncio.create_task(_audit(
+        action="delete", user=user,
+        entity_type="candidate", entity_id=candidate_id,
+        entity_name=candidate_id,
+    ))
+
+    return {"success": True, "message": "Candidate and resume deleted."}
 
 
 @api_router.post("/candidates/{candidate_id}/resume")
