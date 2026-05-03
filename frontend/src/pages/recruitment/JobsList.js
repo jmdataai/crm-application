@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { jobsAPI } from '../../services/api';
+import { jobsAPI, candidatesAPI } from '../../services/api';
 import { useNavigate } from 'react-router-dom';
 
 const Icon = ({ name, style = {} }) => (
@@ -150,7 +150,7 @@ const JobPanel = ({ job, onClose, onToggle }) => (
 
       {/* Actions */}
       <div style={{ display:'flex', gap:'0.75rem' }}>
-        <a href="/recruitment/candidates" style={{
+        <a href="#" onClick={e => { e.preventDefault(); viewApplicants(job.id); }} style={{
           flex:1, display:'inline-flex', alignItems:'center', justifyContent:'center', gap:'0.5rem',
           padding:'0.625rem', borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none', cursor:'pointer', textDecoration:'none',
           background:'linear-gradient(135deg,var(--tertiary),#009966)',
@@ -167,10 +167,12 @@ const JobPanel = ({ job, onClose, onToggle }) => (
 
 /* ── Main ───────────────────────────────────────────── */
 export default function JobsList() {
+  const navigate = useNavigate();
   const [jobs, setJobs]       = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [candidateCounts, setCandidateCounts] = useState({}); // {job_id: count}
 
   const fetchJobs = useCallback(async () => {
     setLoading(true);
@@ -183,7 +185,27 @@ export default function JobsList() {
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { fetchJobs(); }, [fetchJobs]);
+  // Fetch candidate counts per job from the candidates table
+  const fetchCandidateCounts = useCallback(async () => {
+    try {
+      const res = await candidatesAPI.getAll({ limit: 500 });
+      const all = Array.isArray(res.data) ? res.data
+        : Array.isArray(res.data?.candidates) ? res.data.candidates : [];
+      const counts = {};
+      all.forEach(c => {
+        if (c.job_id) counts[c.job_id] = (counts[c.job_id] || 0) + 1;
+      });
+      setCandidateCounts(counts);
+    } catch {}
+  }, []);
+
+  useEffect(() => { fetchJobs(); fetchCandidateCounts(); }, [fetchJobs, fetchCandidateCounts]);
+
+  const viewApplicants = (jobId, e) => {
+    e?.stopPropagation();
+    // Navigate to candidates page with job filter pre-applied via URL state
+    navigate('/recruitment/candidates', { state: { jobFilter: jobId } });
+  };
   const [search, setSearch]   = useState('');
   const [deptFilter, setDept] = useState('all');
   const [typeFilter, setType] = useState('all');
@@ -318,11 +340,17 @@ export default function JobsList() {
               </div>
 
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', paddingTop:'0.875rem', borderTop:'1px solid var(--ghost-border)' }}>
-                <div style={{ display:'flex', alignItems:'center', gap:'0.375rem' }}>
+                <button
+                  onClick={e => viewApplicants(job.id, e)}
+                  style={{
+                    display:'flex', alignItems:'center', gap:'0.375rem',
+                    background:'rgba(0,98,67,0.07)', border:'none', cursor:'pointer',
+                    padding:'0.3rem 0.625rem', borderRadius:'0.5rem', color:'var(--tertiary)',
+                  }}>
                   <Icon name="group" style={{ fontSize:'1rem', color:'var(--tertiary)' }} />
-                  <span style={{ fontWeight:700, fontSize:'0.9375rem', color:'var(--on-surface)' }}>{job.apps}</span>
-                  <span style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>applicants</span>
-                </div>
+                  <span style={{ fontWeight:700, fontSize:'0.9375rem' }}>{candidateCounts[job.id] || 0}</span>
+                  <span style={{ fontSize:'0.75rem' }}>applicants</span>
+                </button>
                 <span style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>{job.posted}</span>
               </div>
             </div>

@@ -389,7 +389,7 @@ export default function CandidateDetail() {
   const stageIdx = STAGES_ORDER.indexOf(candidate.status);
   const cand = {
     ...candidate, name: candidate.full_name, candidate_role: candidate.candidate_role||'',
-    job: candidate.job?.title||'', dept: candidate.job?.department||'',
+    job: candidate.job_title || candidate.job?.title || '', dept: candidate.job?.department || '',
     // experience_years = LLM-extracted relevant exp; fall back to total_experience string from Excel
     exp: candidate.experience_years || null,
     expDisplay: candidate.experience_years

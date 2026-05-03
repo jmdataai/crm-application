@@ -2870,33 +2870,48 @@ class ExpenseUpdate(BaseModel):
  
 # ── FX helper (Frankfurter API) ──────────────────────────────
  
-async def _get_fx_rate(base: str = "EUR", target: str = "INR") -> tuple:
+async def _get_fx_rate(base: str = "EUR", target: str = "INR", date: str = None) -> tuple:
     """
-    Fetch live exchange rate from api.frankfurter.dev.
-    1-hour in-memory cache to avoid hammering the free API.
+    Fetch exchange rate from api.frankfurter.dev.
+
+    If date is given (YYYY-MM-DD), returns the historical rate for that exact date.
+    If date is None, returns today's latest rate.
+
+    Cache strategy:
+    - Historical dates: cached permanently (rate never changes for a past date)
+    - Latest rate: 1-hour TTL cache
+
     Returns (rate: float, date: str).
-    Falls back to approximate rate if API is unreachable.
+    Falls back to ~91.5 if API is unreachable.
     """
-    key = f"{base}_{target}"
+    # Normalise: use "latest" key for today, exact date for historical
+    cache_key = f"{base}_{target}_{date or 'latest'}"
     now = datetime.now(timezone.utc).timestamp()
-    cached = _fx_cache.get(key)
-    if cached and now - cached["ts"] < 3600:
-        return cached["rate"], cached["date"]
+    cached = _fx_cache.get(cache_key)
+
+    # Historical rates never change — cache permanently
+    # Latest rate expires after 1 hour
+    if cached:
+        is_historical = bool(date)
+        if is_historical or (now - cached["ts"] < 3600):
+            return cached["rate"], cached["date"]
+
+    url_date = date if date else "latest"
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get(
-                "https://api.frankfurter.dev/v1/latest",
+                f"https://api.frankfurter.dev/v1/{url_date}",
                 params={"base": base, "symbols": target},
             )
             r.raise_for_status()
             data = r.json()
         rate = float(data["rates"][target])
-        date = data.get("date", "")
-        _fx_cache[key] = {"rate": rate, "date": date, "ts": now}
-        logger.info(f"[FX] {base}→{target} = {rate} (date={date})")
-        return rate, date
+        actual_date = data.get("date", date or "")
+        _fx_cache[cache_key] = {"rate": rate, "date": actual_date, "ts": now}
+        logger.info(f"[FX] {base}→{target} = {rate} (requested={url_date}, actual={actual_date})")
+        return rate, actual_date
     except Exception as exc:
-        logger.warning(f"[FX] Frankfurter API failed: {exc}. Using cache/fallback.")
+        logger.warning(f"[FX] Frankfurter API failed for {url_date}: {exc}. Using cache/fallback.")
         if cached:
             return cached["rate"], cached.get("date", "")
         fallback = 91.5 if base == "EUR" else (1.0 / 91.5)
@@ -3284,13 +3299,12 @@ async def get_expense_summary(
  
     target_year = year or datetime.now(timezone.utc).year
  
-    # Fetch live FX rate
+    # Fetch today's live rate for the dashboard pill (display reference only)
     try:
-        eur_to_inr, fx_date = await _get_fx_rate("EUR", "INR")
+        live_eur_to_inr, live_fx_date = await _get_fx_rate("EUR", "INR")
     except Exception:
-        eur_to_inr, fx_date = 91.5, "fallback"
-    inr_to_eur = 1.0 / eur_to_inr if eur_to_inr else 1.0 / 91.5
- 
+        live_eur_to_inr, live_fx_date = 91.5, "fallback"
+
     # Fetch all expenses for target year (+ previous year for YoY comparison)
     raw = await run(
         lambda: sb("expenses")
@@ -3301,12 +3315,39 @@ async def get_expense_summary(
         .execute()
     )
     rows = raw.data or []
- 
-    def to_eur(amount: float, ccy: str) -> float:
-        return amount if ccy == "EUR" else round(amount * inr_to_eur, 2)
- 
-    def to_inr(amount: float, ccy: str) -> float:
-        return amount if ccy == "INR" else round(amount * eur_to_inr, 2)
+
+    # Pre-fetch historical FX rate for every unique expense date that has a cross-currency row.
+    # Each expense is converted at the rate that was live on its own transaction date — not today's rate.
+    # Historical rates are cached permanently (they never change), so this is fast on repeat calls.
+    unique_dates = {str(r["expense_date"]) for r in rows if r.get("currency") in ("EUR", "INR")}
+
+    import asyncio as _asyncio
+    async def _prefetch_rate(d: str):
+        try:
+            rate, _ = await _get_fx_rate("EUR", "INR", date=d)
+            return d, rate
+        except Exception:
+            return d, live_eur_to_inr  # fall back to live rate if historical unavailable
+
+    date_rate_pairs = await _asyncio.gather(*[_prefetch_rate(d) for d in unique_dates])
+    date_eur_to_inr: dict = dict(date_rate_pairs)  # {"2025-03-15": 89.4, "2025-04-01": 91.2, ...}
+
+    def _rates_for(expense_date: str) -> tuple:
+        e2i = date_eur_to_inr.get(str(expense_date), live_eur_to_inr)
+        i2e = 1.0 / e2i if e2i else 1.0 / 91.5
+        return e2i, i2e
+
+    def to_eur(amount: float, ccy: str, expense_date: str) -> float:
+        if ccy == "EUR":
+            return float(amount)
+        _, i2e = _rates_for(expense_date)
+        return round(float(amount) * i2e, 2)
+
+    def to_inr(amount: float, ccy: str, expense_date: str) -> float:
+        if ccy == "INR":
+            return float(amount)
+        e2i, _ = _rates_for(expense_date)
+        return round(float(amount) * e2i, 2)
  
     now_utc       = datetime.now(timezone.utc)
     cur_month_pfx = f"{target_year}-{now_utc.month:02d}"
@@ -3315,15 +3356,15 @@ async def get_expense_summary(
     prev_yr_rows  = [r for r in rows if str(r["expense_date"]).startswith(str(target_year - 1))]
  
     # KPI values
-    this_mo_eur   = round(sum(to_eur(r["amount"], r["currency"]) for r in this_mo_rows), 2)
-    this_mo_inr   = round(sum(to_inr(r["amount"], r["currency"]) for r in this_mo_rows), 2)
-    ytd_eur       = round(sum(to_eur(r["amount"], r["currency"]) for r in this_yr_rows), 2)
-    ytd_inr       = round(sum(to_inr(r["amount"], r["currency"]) for r in this_yr_rows), 2)
-    prev_ytd_eur  = round(sum(to_eur(r["amount"], r["currency"]) for r in prev_yr_rows), 2)
+    this_mo_eur   = round(sum(to_eur(r["amount"], r["currency"], r["expense_date"]) for r in this_mo_rows), 2)
+    this_mo_inr   = round(sum(to_inr(r["amount"], r["currency"], r["expense_date"]) for r in this_mo_rows), 2)
+    ytd_eur       = round(sum(to_eur(r["amount"], r["currency"], r["expense_date"]) for r in this_yr_rows), 2)
+    ytd_inr       = round(sum(to_inr(r["amount"], r["currency"], r["expense_date"]) for r in this_yr_rows), 2)
+    prev_ytd_eur  = round(sum(to_eur(r["amount"], r["currency"], r["expense_date"]) for r in prev_yr_rows), 2)
  
     subs_mo       = [r for r in this_mo_rows if r["category"] == "subscriptions"]
-    subs_mo_eur   = round(sum(to_eur(r["amount"], r["currency"]) for r in subs_mo), 2)
-    subs_mo_inr   = round(sum(to_inr(r["amount"], r["currency"]) for r in subs_mo), 2)
+    subs_mo_eur   = round(sum(to_eur(r["amount"], r["currency"], r["expense_date"]) for r in subs_mo), 2)
+    subs_mo_inr   = round(sum(to_inr(r["amount"], r["currency"], r["expense_date"]) for r in subs_mo), 2)
  
     # Monthly breakdown for bar chart
     months_map: dict = {}
@@ -3334,10 +3375,10 @@ async def get_expense_summary(
             months_map[m]["_total"] = {"eur": 0.0, "inr": 0.0, "count": 0}
         cat = r["category"]
         if cat in months_map[m]:
-            months_map[m][cat]["eur"] += to_eur(r["amount"], r["currency"])
-            months_map[m][cat]["inr"] += to_inr(r["amount"], r["currency"])
-        months_map[m]["_total"]["eur"]   += to_eur(r["amount"], r["currency"])
-        months_map[m]["_total"]["inr"]   += to_inr(r["amount"], r["currency"])
+            months_map[m][cat]["eur"] += to_eur(r["amount"], r["currency"], r["expense_date"])
+            months_map[m][cat]["inr"] += to_inr(r["amount"], r["currency"], r["expense_date"])
+        months_map[m]["_total"]["eur"]   += to_eur(r["amount"], r["currency"], r["expense_date"])
+        months_map[m]["_total"]["inr"]   += to_inr(r["amount"], r["currency"], r["expense_date"])
         months_map[m]["_total"]["count"] += 1
  
     # Build all 12 months (fill zeros for missing months)
@@ -3362,8 +3403,8 @@ async def get_expense_summary(
         c = r["category"]
         if c not in cat_map:
             cat_map[c] = {"category": c, "eur": 0.0, "inr": 0.0, "count": 0}
-        cat_map[c]["eur"]   += to_eur(r["amount"], r["currency"])
-        cat_map[c]["inr"]   += to_inr(r["amount"], r["currency"])
+        cat_map[c]["eur"]   += to_eur(r["amount"], r["currency"], r["expense_date"])
+        cat_map[c]["inr"]   += to_inr(r["amount"], r["currency"], r["expense_date"])
         cat_map[c]["count"] += 1
     for v in cat_map.values():
         v["eur"] = round(v["eur"], 2)
@@ -3376,8 +3417,8 @@ async def get_expense_summary(
         v = (r.get("vendor") or r.get("title") or "Unknown").strip()
         if v not in vendor_map:
             vendor_map[v] = {"vendor": v, "eur": 0.0, "inr": 0.0, "count": 0}
-        vendor_map[v]["eur"]   += to_eur(r["amount"], r["currency"])
-        vendor_map[v]["inr"]   += to_inr(r["amount"], r["currency"])
+        vendor_map[v]["eur"]   += to_eur(r["amount"], r["currency"], r["expense_date"])
+        vendor_map[v]["inr"]   += to_inr(r["amount"], r["currency"], r["expense_date"])
         vendor_map[v]["count"] += 1
     top_vendors = sorted(vendor_map.values(), key=lambda x: x["eur"], reverse=True)[:10]
     for v in top_vendors:
@@ -3387,9 +3428,10 @@ async def get_expense_summary(
     return {
         "year":              target_year,
         "fx": {
-            "eur_to_inr":    round(eur_to_inr, 4),
-            "inr_to_eur":    round(inr_to_eur, 6),
-            "date":          fx_date,
+            "eur_to_inr":    round(live_eur_to_inr, 4),
+            "inr_to_eur":    round(1.0 / live_eur_to_inr, 6) if live_eur_to_inr else 0,
+            "date":          live_fx_date,
+            "note":          "Live rate shown for reference. All amounts converted at historical rate for each transaction date.",
         },
         "this_month": {
             "eur":   this_mo_eur,
@@ -3665,8 +3707,8 @@ async def delete_expense(expense_id: str, request: Request):
     Admin only.
     """
     user = await get_current_user(request)
-    if user.get("role") != "admin":
-        raise HTTPException(403, "Only admin can delete expense records.")
+    if user.get("role") not in ("admin", "viewer"):
+        raise HTTPException(403, "Only admin and CEO can delete expense records.")
  
     existing = await safe_single(
         lambda: sb("expenses")

@@ -509,7 +509,7 @@ const DeleteModal = ({ expense, onClose, onDeleted }) => {
 ═══════════════════════════════════════════════════════════════ */
 export default function ExpenseTracker() {
   const { can } = useAuth();
-  const isAdmin = can('canDelete');
+  const isAdmin = can('canDelete') || can('viewCEO'); // admin + CEO can delete expenses
 
   // ── State ──────────────────────────────────────────────────
   const [summary, setSummary]       = useState(null);

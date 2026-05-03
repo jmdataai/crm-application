@@ -478,7 +478,9 @@ export default function CandidatesList() {
     const params = new URLSearchParams(location.search);
     const q = params.get('q'); if (q) setColSearch(s => ({ ...s, name: q }));
     const type = params.get('type'); if (type) setActiveTab(type);
-  }, [location.search]);
+    // Pre-apply job filter when navigating from Jobs page
+    if (location.state?.jobFilter) setJobFilter(location.state.jobFilter);
+  }, [location.search, location.state]);
 
   // Derived: all unique tech tags across current tab's candidates
   const allTechOptions = useMemo(() => {
@@ -586,6 +588,24 @@ export default function CandidatesList() {
   const tabCounts = { domestic: candidates.filter(c => c.candidate_type === 'domestic').length, international: candidates.filter(c => c.candidate_type === 'international').length };
   const isIntl = activeTab === 'international';
   const hasColSearch = Object.values(colSearch).some(v => v) || expFilter.years !== '' || hasResumeOnly || techSelected.size > 0;
+
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // {ids: [...]}
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDeleteCandidates = async () => {
+    if (!deleteConfirm?.ids?.length) return;
+    setDeleting(true);
+    try {
+      await Promise.all(deleteConfirm.ids.map(id => candidatesAPI.delete(id)));
+      setCandidates(cs => cs.filter(c => !deleteConfirm.ids.includes(c.id)));
+      setSelected(new Set());
+      setDeleteConfirm(null);
+    } catch (err) {
+      alert('Failed to delete some candidates. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const clearAllFilters = () => {
     setColSearch({ name:'', candidate_role:'', total_experience:'', relevant_experience:'', location:'', visa_status:'', relocation:'', source:'', job_title:'' });
@@ -739,7 +759,7 @@ export default function CandidatesList() {
             </button>
           )}
         </div>
-        {selected.size>0&&<div style={{display:'flex',alignItems:'center',gap:'0.75rem',marginTop:'0.875rem',padding:'0.625rem 0.875rem',background:'rgba(0,98,67,0.06)',borderRadius:'0.5rem'}}><span style={{fontSize:'0.875rem',fontWeight:600,color:'var(--tertiary)'}}>{selected.size} selected</span><button className="btn-ghost" onClick={()=>{setCandidates(cs=>cs.filter(c=>!selected.has(c.id)));setSelected(new Set());}} style={{fontSize:'0.8125rem',color:'var(--error)',marginLeft:'auto'}}><Icon name="delete" style={{fontSize:'1rem',color:'var(--error)'}}/> Remove</button></div>}
+        {selected.size>0&&<div style={{display:'flex',alignItems:'center',gap:'0.75rem',marginTop:'0.875rem',padding:'0.625rem 0.875rem',background:'rgba(0,98,67,0.06)',borderRadius:'0.5rem'}}><span style={{fontSize:'0.875rem',fontWeight:600,color:'var(--tertiary)'}}>{selected.size} selected</span><button className="btn-ghost" onClick={()=>setDeleteConfirm({ids:[...selected]})} style={{fontSize:'0.8125rem',color:'var(--error)',marginLeft:'auto'}}><Icon name="delete" style={{fontSize:'1rem',color:'var(--error)'}}/> Delete ({selected.size})</button></div>}
       </div>
       {/* Table */}
       <div data-tour="candidates-list" className="card" style={{padding:0,overflow:'hidden'}}>
@@ -898,6 +918,49 @@ export default function CandidatesList() {
       )}
       </>}
       <NexusTutorial page="candidates" />
+
+      {/* ── Delete Confirm Modal ───────────────────────────── */}
+      {deleteConfirm && (
+        <div className="modal-overlay scale-in" onClick={e => e.target === e.currentTarget && !deleting && setDeleteConfirm(null)}>
+          <div className="modal" style={{ maxWidth: 420 }}>
+            <div style={{ textAlign: 'center', padding: '0.5rem 0 1rem' }}>
+              <div style={{
+                width: 56, height: 56, borderRadius: '50%',
+                background: 'var(--error-container)', margin: '0 auto 1rem',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <Icon name="person_remove" style={{ fontSize: '1.75rem', color: 'var(--error)' }} />
+              </div>
+              <h3 style={{ fontWeight: 700, marginBottom: '0.5rem' }}>
+                Delete {deleteConfirm.ids.length} Candidate{deleteConfirm.ids.length > 1 ? 's' : ''}?
+              </h3>
+              <p style={{ fontSize: '0.875rem', color: 'var(--on-surface-variant)', lineHeight: 1.5 }}>
+                This will permanently delete the candidate record{deleteConfirm.ids.length > 1 ? 's' : ''} and remove the associated resume{deleteConfirm.ids.length > 1 ? 's' : ''} from Google Drive. This cannot be undone.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
+              <button className="btn-secondary" style={{ flex: 1 }}
+                onClick={() => setDeleteConfirm(null)} disabled={deleting}>
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteCandidates}
+                disabled={deleting}
+                style={{
+                  flex: 1, padding: '0.625rem', borderRadius: '0.625rem',
+                  background: 'var(--error)', color: '#fff', border: 'none',
+                  cursor: deleting ? 'not-allowed' : 'pointer', fontWeight: 600,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem',
+                }}>
+                {deleting
+                  ? <><Icon name="progress_activity" style={{ fontSize: '1rem' }} /> Deleting…</>
+                  : <><Icon name="delete_forever" style={{ fontSize: '1rem' }} /> Yes, Delete</>
+                }
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
