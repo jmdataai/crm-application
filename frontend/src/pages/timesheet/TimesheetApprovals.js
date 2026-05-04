@@ -227,6 +227,95 @@ const PlotlyBarChart = ({ chartData, visibleEmps }) => {
   return <div ref={containerRef} style={{ width: '100%', height: 360 }} />;
 };
 
+// ── Monthly Bar Chart (one bar per employee for selected month) ─────────────
+const MonthlyBarChart = ({ data, monthLabel }) => {
+  const containerRef = useRef(null);
+  const plotted      = useRef(false);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !data.length) return;
+
+    const ready = () => {
+      const traces = [{
+        x: data.map(d => d.name),
+        y: data.map(d => parseFloat(d.hours.toFixed(1))),
+        type: 'bar',
+        marker: {
+          color: data.map((_,i) => BAR_COLORS[i % BAR_COLORS.length]),
+          opacity: 0.92,
+          line: { color: 'rgba(255,255,255,0.25)', width: 0.5 },
+        },
+        hovertemplate: '<b>%{x}</b><br>Hours: <b>%{y:.1f}h</b><extra></extra>',
+      }];
+
+      const layout = {
+        barmode: 'group',
+        paper_bgcolor: 'transparent',
+        plot_bgcolor:  'transparent',
+        font: { family: 'Plus Jakarta Sans, sans-serif', color: '#92A0BA', size: 12 },
+        xaxis: {
+          tickfont:  { color: '#92A0BA', size: 12, family: 'Space Grotesk, sans-serif' },
+          gridcolor: 'rgba(226,232,242,0.5)',
+          showline:  false, ticklen: 0, fixedrange: true,
+        },
+        yaxis: {
+          tickfont:   { color: '#92A0BA', size: 12, family: 'Space Grotesk, sans-serif' },
+          gridcolor:  'rgba(226,232,242,0.5)',
+          ticksuffix: 'h',
+          showline:   false, ticklen: 0, fixedrange: true,
+          rangemode: 'tozero',
+        },
+        margin:      { t: 16, r: 20, b: 60, l: 52 },
+        bargap:      0.35,
+        hoverlabel: {
+          bgcolor:    '#0C162A',
+          bordercolor:'#4468B0',
+          font:       { color: '#FAF7FB', family: 'Plus Jakarta Sans, sans-serif', size: 13 },
+          align:      'left',
+        },
+        transition: { duration: 400, easing: 'cubic-in-out' },
+      };
+
+      const config = {
+        responsive:     true,
+        displayModeBar: true,
+        displaylogo:    false,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d'],
+        toImageButtonOptions: {
+          format: 'png', filename: `jmdata_hours_${monthLabel.replace(' ','_')}`, scale: 2,
+        },
+      };
+
+      if (plotted.current) {
+        window.Plotly.react(el, traces, layout, config);
+      } else {
+        window.Plotly.newPlot(el, traces, layout, config);
+        plotted.current = true;
+      }
+    };
+
+    if (window.Plotly) {
+      ready();
+    } else {
+      const interval = setInterval(() => {
+        if (window.Plotly) { clearInterval(interval); ready(); }
+      }, 80);
+      return () => clearInterval(interval);
+    }
+
+    return () => {
+      if (plotted.current && el && window.Plotly) {
+        try { window.Plotly.purge(el); } catch {}
+        plotted.current = false;
+      }
+    };
+  }, [data, monthLabel]);
+
+  if (!data.length) return null;
+  return <div ref={containerRef} style={{ width: '100%', height: 320 }} />;
+};
+
 // ── Detail modal ─────────────────────────────────────────────
 const DetailModal = ({ ts, onClose, onReviewed, monthDate }) => {
   const [note, setNote]     = useState('');
@@ -423,6 +512,33 @@ const TimesheetApprovals = () => {
     return obj;
   }),[activeMonths,visibleEmps,yearlySummary]);
 
+  // ── Per-employee hours for the selected month (used by bar chart) ──────────
+  // Replaces the annual chart: one bar per employee, hours for monthDate only.
+  const monthlyChartData = useMemo(()=>{
+    if (view !== 'monthly') return [];
+    const empMap = new Map();
+    timesheets
+      .filter(ts => ts.status === 'approved')
+      .filter(ts => {
+        if (!listEmpFilter) return true;
+        const key = getUser(ts).id || getUser(ts).email || getUser(ts).name;
+        return key === listEmpFilter;
+      })
+      .forEach(ts => {
+        const u = getUser(ts);
+        const name = u.name || u.email || 'Unknown';
+        const mh = (ts.entries||[])
+          .filter(e => isInMonth(e.entry_date, monthDate))
+          .reduce((s,e) => s + parseFloat(e.hours||0), 0);
+        if (!mh) return;
+        empMap.set(name, (empMap.get(name)||0) + mh);
+      });
+    return [...empMap.entries()]
+      .map(([name, hours]) => ({ name, hours }))
+      .filter(d => d.hours > 0)
+      .sort((a,b) => b.hours - a.hours);
+  }, [timesheets, view, monthDate, listEmpFilter]);
+
   const filtered = useMemo(()=>timesheets.filter(ts=>{
     const emp=getUser(ts);
     if(filterUser&&!emp.name?.toLowerCase().includes(filterUser.toLowerCase())&&!emp.email?.toLowerCase().includes(filterUser.toLowerCase())) return false;
@@ -436,9 +552,34 @@ const TimesheetApprovals = () => {
   }),[timesheets,filterUser,filterEmployee,listEmpFilter,filterStatus,view,monthDate]);
 
   const stats = useMemo(()=>{
-    // KPI cards reflect the list — filtered by listEmpFilter in monthly view
-    const base = view==='monthly'&&listEmpFilter
-      ? timesheets.filter(ts=>{const key=getUser(ts).id||getUser(ts).email||getUser(ts).name; return key===listEmpFilter;})
+    if (view === 'monthly') {
+      // In monthly view: only count timesheets that have entries in the selected month,
+      // and sum hours per-entry so cross-month weeks are split correctly.
+      const monthTs = timesheets.filter(ts => {
+        if (!['submitted','approved','rejected'].includes(ts.status)) return false;
+        if (listEmpFilter) {
+          const key = getUser(ts).id || getUser(ts).email || getUser(ts).name;
+          if (key !== listEmpFilter) return false;
+        }
+        return (ts.entries||[]).some(e => isInMonth(e.entry_date, monthDate));
+      });
+      return {
+        submitted:  monthTs.filter(t=>t.status==='submitted').length,
+        approved:   monthTs.filter(t=>t.status==='approved').length,
+        rejected:   monthTs.filter(t=>t.status==='rejected').length,
+        totalHours: monthTs
+          .filter(t=>t.status==='approved')
+          .reduce((s,t)=>{
+            const mh = (t.entries||[])
+              .filter(e=>isInMonth(e.entry_date, monthDate))
+              .reduce((sh,e)=>sh+parseFloat(e.hours||0),0);
+            return s + mh;
+          }, 0),
+      };
+    }
+    // Pending / Weekly views — no month filtering needed
+    const base = filterEmployee
+      ? timesheets.filter(ts=>{const key=getUser(ts).id||getUser(ts).email||getUser(ts).name; return key===filterEmployee;})
       : timesheets;
     return {
       submitted:  base.filter(t=>t.status==='submitted').length,
@@ -446,7 +587,7 @@ const TimesheetApprovals = () => {
       rejected:   base.filter(t=>t.status==='rejected').length,
       totalHours: base.filter(t=>t.status==='approved').reduce((s,t)=>s+parseFloat(t.total_hours||0),0),
     };
-  },[timesheets,view,listEmpFilter]);
+  },[timesheets,view,monthDate,listEmpFilter,filterEmployee]);
 
   // pendingCount is now a separate state fetched independently — see loadPendingCount()
   const navBtn = {display:'flex',alignItems:'center',justifyContent:'center',width:32,height:32,borderRadius:8,border:'1px solid var(--surface-container-high)',background:'var(--surface-container-lowest)',color:'var(--on-surface)',cursor:'pointer'};
@@ -564,40 +705,28 @@ const TimesheetApprovals = () => {
 
       {selected&&<DetailModal ts={selected} monthDate={view==='monthly'?monthDate:null} onClose={()=>setSelected(null)} onReviewed={()=>load()}/>}
 
-      {/* ── Annual hours chart — CEO/viewer, monthly tab only ── */}
+      {/* ── Monthly hours chart — CEO/viewer, monthly tab only ── */}
       {view==='monthly'&&isCEO&&(
         <div style={{marginTop:28,background:'var(--surface-container-lowest)',border:'1px solid var(--surface-container-high)',borderRadius:16,padding:'20px 20px 12px'}}>
-          {/* Chart header + its own independent controls */}
-          <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12,marginBottom:16,flexWrap:'wrap'}}>
-            <div>
-              <h3 style={{margin:0,fontWeight:800,fontSize:'1rem',color:'var(--on-surface)'}}>Annual Hours Overview</h3>
-              <p style={{margin:'3px 0 0',fontSize:'0.8rem',color:'var(--on-surface-variant)'}}>
-                Approved hours only · {activeMonths.length} month{activeMonths.length!==1?'s':''} with data
-                {selectedEmps.size>0?` · ${visibleEmps.length} of ${chartEmployees.length} employees`:'· all employees'}
-              </p>
-            </div>
-            {/* Chart's own filters */}
-            <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
-              <MultiSelect options={chartEmployees} selected={selectedEmps} onChange={setSelectedEmps}/>
-              <select
-                value={chartYear}
-                onChange={e=>setChartYear(parseInt(e.target.value,10))}
-                style={{padding:'7px 12px',borderRadius:8,border:'1px solid var(--surface-container-high)',fontSize:'0.875rem',background:'var(--surface)',color:'var(--on-surface)',outline:'none'}}
-              >
-                {(YEAR_OPTIONS.length>0?YEAR_OPTIONS:[new Date().getFullYear()]).map(y=><option key={y} value={y}>{y}</option>)}
-              </select>
-            </div>
+          <div style={{marginBottom:16}}>
+            <h3 style={{margin:0,fontWeight:800,fontSize:'1rem',color:'var(--on-surface)'}}>
+              Hours Overview — {MONTH_NAMES[monthDate.getMonth()]} {monthDate.getFullYear()}
+            </h3>
+            <p style={{margin:'3px 0 0',fontSize:'0.8rem',color:'var(--on-surface-variant)'}}>
+              Approved hours only · {listEmpFilter ? 'filtered employee' : 'all employees'}
+              {' · use the filters above to change employee or month'}
+            </p>
           </div>
 
-          {chartData.length===0?(
+          {monthlyChartData.length===0?(
             <div style={{textAlign:'center',padding:'40px 0',color:'var(--on-surface-variant)'}}>
               <Icon name="bar_chart" style={{fontSize:'2.5rem',marginBottom:8}}/>
-              <p style={{margin:0,fontWeight:600}}>No approved hours found for {chartYear}</p>
+              <p style={{margin:0,fontWeight:600}}>No approved hours for {MONTH_NAMES[monthDate.getMonth()]} {monthDate.getFullYear()}</p>
             </div>
           ):(
-            <PlotlyBarChart
-              chartData={chartData}
-              visibleEmps={visibleEmps}
+            <MonthlyBarChart
+              data={monthlyChartData}
+              monthLabel={`${MONTH_NAMES[monthDate.getMonth()]} ${monthDate.getFullYear()}`}
             />
           )}
         </div>

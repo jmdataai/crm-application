@@ -81,13 +81,14 @@ const ResumeViewerModal = ({ url, candidateName, onClose }) => (
 );
 
 /* ── Add Candidate Modal ─────────────────────────────── */
-const AddCandidateModal = ({ onClose, onAdd, defaultType }) => {
+const AddCandidateModal = ({ onClose, onAdd, defaultType, activeJobs = [] }) => {
   const fileInputRef = useRef(null);
   const [form, setForm] = useState({
     full_name:'', email:'', phone:'', candidate_role:'',
     total_experience:'', relevant_experience:'', location:'',
     visa_status:'', relocation:'', source:'LinkedIn', status:'sourced',
     notes:'', candidate_type: defaultType || 'domestic',
+    job_id: '',
   });
   const [resumeFile, setResumeFile]       = useState(null);   // File object
   const [uploading, setUploading]         = useState(false);  // true during Drive upload
@@ -138,6 +139,7 @@ const AddCandidateModal = ({ onClose, onAdd, defaultType }) => {
         location:            form.location || null,
         relocation:          form.relocation || null,
         visa_status:         isIntl ? (form.visa_status || null) : null,
+        job_id:              form.job_id || null,
       });
       const newCandidate = res.data;
 
@@ -216,6 +218,18 @@ const AddCandidateModal = ({ onClose, onAdd, defaultType }) => {
 
           <div>
             <label className="label">Source</label>
+            {/* Job position link */}
+            {activeJobs.length > 0 && (
+              <div style={{ gridColumn:'1/-1' }}>
+                <label className="label">Link to Job Posting</label>
+                <select className="select" value={form.job_id} onChange={e => set('job_id', e.target.value)}>
+                  <option value="">— Not linked to a job —</option>
+                  {activeJobs.map(j => (
+                    <option key={j.id} value={j.id}>{j.title}{j.dept ? ` · ${j.dept}` : ''}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <select className="select" value={form.source} onChange={e => set('source', e.target.value)}>
               {SOURCES.map(s => <option key={s}>{s}</option>)}
             </select>
@@ -908,7 +922,7 @@ export default function CandidatesList() {
           </div>
         </div>
       </div>
-      {showAdd && <AddCandidateModal onClose={()=>setShowAdd(false)} onAdd={c=>setCandidates(cs=>[c,...cs])} defaultType={activeTab}/>}
+      {showAdd && <AddCandidateModal onClose={()=>setShowAdd(false)} onAdd={c=>setCandidates(cs=>[c,...cs])} defaultType={activeTab} activeJobs={jobs.filter(j=>j.is_active||j.active)}/>}
       {viewerCandidate && (
         <ResumeViewerModal
           url={viewerCandidate.resume_url}

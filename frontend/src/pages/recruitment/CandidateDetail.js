@@ -312,6 +312,8 @@ export default function CandidateDetail() {
         experience_years: c.experience_years, source: c.source,
         linkedin_url: c.linkedin_url, portfolio_url: c.portfolio_url,
         notes: c.notes, skills: c.skills || [],
+        job_title: c.job_title || c.job?.title || '',
+        tech_stack: c.tech_stack || [],
       });
       const acts = Array.isArray(aRes.data) ? aRes.data : Array.isArray(aRes.data?.data) ? aRes.data.data : [];
       setActivities(acts.map(a => ({
@@ -659,13 +661,13 @@ export default function CandidateDetail() {
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
               {[
-                { label:'Full Name *', key:'name',           type:'text',  span:2 },
-                { label:'Email',       key:'email',          type:'email' },
-                { label:'Phone',       key:'phone',          type:'tel' },
-                { label:'Current Role',key:'candidate_role', type:'text' },
-                { label:'Applying For',key:'job',            type:'text' },
-                { label:'LinkedIn',    key:'linkedin',       type:'text' },
-                { label:'Portfolio',   key:'portfolio',      type:'text' },
+                { label:'Full Name *',  key:'full_name',      type:'text',  span:2 },
+                { label:'Email',        key:'email',          type:'email' },
+                { label:'Phone',        key:'phone',          type:'tel' },
+                { label:'Current Role', key:'candidate_role', type:'text' },
+                { label:'Applying For', key:'job_title',      type:'text' },
+                { label:'LinkedIn',     key:'linkedin_url',   type:'text' },
+                { label:'Portfolio',    key:'portfolio_url',  type:'text' },
               ].map(f => (
                 <div key={f.key} style={{ gridColumn: f.span === 2 ? '1/-1' : undefined }}>
                   <label className="label">{f.label}</label>
@@ -674,7 +676,43 @@ export default function CandidateDetail() {
               ))}
               <div style={{ gridColumn:'1/-1' }}>
                 <label className="label">Notes</label>
-                <textarea className="textarea" rows={4} value={editForm.notes||''} onChange={e => set('notes', e.target.value)} />
+                <textarea className="textarea" rows={3} value={editForm.notes||''} onChange={e => set('notes', e.target.value)} />
+              </div>
+              {/* Tech Stack tag editor — affects ATS scores */}
+              <div style={{ gridColumn:'1/-1' }}>
+                <label className="label">Tech Stack <span style={{fontWeight:400,color:'var(--on-surface-variant)'}}>(used for ATS matching)</span></label>
+                <div
+                  style={{ display:'flex', flexWrap:'wrap', gap:'0.375rem', padding:'0.5rem', border:'1px solid var(--outline-variant)', borderRadius:'0.5rem', minHeight:44, background:'var(--surface-container-low)', cursor:'text' }}
+                  onClick={e => e.currentTarget.querySelector('input')?.focus()}
+                >
+                  {(editForm.tech_stack || []).map(s => (
+                    <span key={s} style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'0.175rem 0.5rem', borderRadius:9999, fontSize:'0.75rem', fontWeight:600, background:'rgba(0,98,67,0.1)', color:'var(--tertiary)' }}>
+                      {s}
+                      <button
+                        onClick={() => set('tech_stack', (editForm.tech_stack||[]).filter(t => t !== s))}
+                        style={{ background:'none', border:'none', cursor:'pointer', padding:0, lineHeight:1, color:'var(--tertiary)', fontWeight:700, fontSize:'0.875rem' }}
+                      >×</button>
+                    </span>
+                  ))}
+                  <input
+                    placeholder={(editForm.tech_stack||[]).length === 0 ? 'Type skill and press Enter or comma…' : ''}
+                    style={{ border:'none', outline:'none', background:'transparent', fontSize:'0.875rem', color:'var(--on-surface)', minWidth:160, flex:1 }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ',') {
+                        e.preventDefault();
+                        const val = e.target.value.trim().replace(/,$/, '');
+                        if (val && !(editForm.tech_stack||[]).includes(val)) {
+                          set('tech_stack', [...(editForm.tech_stack||[]), val]);
+                        }
+                        e.target.value = '';
+                      }
+                      if (e.key === 'Backspace' && !e.target.value && (editForm.tech_stack||[]).length > 0) {
+                        set('tech_stack', (editForm.tech_stack||[]).slice(0, -1));
+                      }
+                    }}
+                  />
+                </div>
+                <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', marginTop:'0.25rem' }}>Enter or comma to add · Backspace removes last</p>
               </div>
             </div>
             <div style={{ display:'flex', gap:'0.75rem', justifyContent:'flex-end', marginTop:'1.5rem' }}>

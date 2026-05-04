@@ -4,7 +4,7 @@ import { leadsAPI } from '../../services/api';
 const STATUS_VALUES = ['new','contacted','called','interested','follow_up_needed','closed','completed','rejected','lost'];
 
 const AddLeadModal = ({ onClose, onAdd }) => {
-  const [form, setForm] = React.useState({ company:'', full_name:'', job_title:'', email:'', phone:'', website:'', industry:'', business_type:'', address:'', country:'', source:'', status:'new', notes:'', next_follow_up:'', solution_skills:'' });
+  const [form, setForm] = React.useState({ company:'', full_name:'', job_title:'', email:'', phone:'', website:'', industry:'', business_type:'', address:'', country:'', source:'', status:'new', notes:'', next_follow_up:'', solution_skills:'', segment:'', company_linkedin:'' });
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
   const submit = async () => {
     if (!form.company.trim()) { alert('Company name is required'); return; }
@@ -16,6 +16,7 @@ const AddLeadModal = ({ onClose, onAdd }) => {
         business_type: form.business_type||null, address: form.address||null, country: form.country||null,
         source: form.source||null, status: form.status, notes: form.notes||null,
         next_follow_up: form.next_follow_up||null, solution_skills: form.solution_skills||null,
+        segment: form.segment||null, company_linkedin: form.company_linkedin||null,
       });
       onAdd(res.data); onClose();
     } catch(e) { alert(e?.response?.data?.detail || 'Failed to add'); }
@@ -28,12 +29,22 @@ const AddLeadModal = ({ onClose, onAdd }) => {
           <button className="btn-icon" onClick={onClose}><span className="material-symbols-outlined">close</span></button>
         </div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'1rem'}}>
-          {[{l:'Company Name *',k:'company',t:'text',s:2},{l:'Contact Name',k:'full_name',t:'text'},{l:'Designation',k:'job_title',t:'text'},{l:'Email',k:'email',t:'email'},{l:'Phone',k:'phone',t:'tel'},{l:'Website',k:'website',t:'url'},{l:'Industry Type',k:'industry',t:'text'},{l:'Business Type / Skills',k:'business_type',t:'text'},{l:'Address / City',k:'address',t:'text'},{l:'Country',k:'country',t:'text'},{l:'Lead From (Source)',k:'source',t:'text'},{l:'Next Follow-up',k:'next_follow_up',t:'date'},{l:'Solution / Looking Skills',k:'solution_skills',t:'text',s:2}].map(f=>(
+          {[{l:'Company Name *',k:'company',t:'text',s:2},{l:'Contact Name',k:'full_name',t:'text'},{l:'Designation',k:'job_title',t:'text'},{l:'Email',k:'email',t:'email'},{l:'Phone',k:'phone',t:'tel'},{l:'Website',k:'website',t:'url'},{l:'Company LinkedIn',k:'company_linkedin',t:'url'},{l:'Industry Type',k:'industry',t:'text'},{l:'Business Type / Skills',k:'business_type',t:'text'},{l:'Address / City',k:'address',t:'text'},{l:'Country',k:'country',t:'text'},{l:'Lead From (Source)',k:'source',t:'text'},{l:'Next Follow-up',k:'next_follow_up',t:'date'},{l:'Solution / Looking Skills',k:'solution_skills',t:'text',s:2}].map(f=>(
             <div key={f.k} style={{gridColumn:f.s===2?'1/-1':undefined}}>
               <label style={{fontSize:'0.75rem',fontWeight:600,color:'var(--on-surface-variant)',display:'block',marginBottom:'0.25rem'}}>{f.l}</label>
               <input className="input" type={f.t} value={form[f.k]||''} onChange={e=>set(f.k,e.target.value)}/>
             </div>
           ))}
+          <div>
+            <label style={{fontSize:'0.75rem',fontWeight:600,color:'var(--on-surface-variant)',display:'block',marginBottom:'0.25rem'}}>Segment</label>
+            <select className="select" value={form.segment} onChange={e=>set('segment',e.target.value)}>
+              <option value="">— Select segment —</option>
+              <option value="staffing_partner">Staffing Partner</option>
+              <option value="end_client">End Client</option>
+              <option value="ireland_company">Ireland Company</option>
+              <option value="general">General</option>
+            </select>
+          </div>
           <div>
             <label style={{fontSize:'0.75rem',fontWeight:600,color:'var(--on-surface-variant)',display:'block',marginBottom:'0.25rem'}}>Status</label>
             <select className="select" value={form.status} onChange={e=>set('status',e.target.value)}>

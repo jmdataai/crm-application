@@ -9,24 +9,53 @@ const Icon = ({ name, style = {} }) => (
 const EMP_TYPES   = ['Full-time','Part-time','Contract','Internship'];
 const DEPARTMENTS = ['Engineering','AI Research','Product','Platform','Design','Operations','Sales'];
 
+// Map backend field names (is_active, department, employment_type, description)
+// to the short names the rest of the JSX uses (active, dept, type, desc)
+const normalizeJob = (j) => ({
+  ...j,
+  active: j.is_active     ?? j.active ?? true,
+  urgent: j.is_urgent     ?? j.urgent ?? false,
+  dept:   j.department    ?? j.dept   ?? '',
+  type:   j.employment_type ?? j.type ?? '',
+  desc:   j.description   ?? j.desc   ?? '',
+  posted: j.posted || (j.created_at ? j.created_at.slice(0, 10) : ''),
+});
+
 // Jobs loaded from API
 
 /* ── Add Job Modal ──────────────────────────────────── */
 const AddJobModal = ({ onClose, onAdd }) => {
   const [form, setForm] = useState({
     title:'', dept:'Engineering', location:'', type:'Full-time',
-    desc:'', skills:'', urgent:false,
+    desc:'', requirements:'', salary_range:'', skills:'', urgent:false,
   });
+  const [saving, setSaving] = useState(false);
+  const [error,  setError]  = useState('');
   const set = (k,v) => setForm(f => ({ ...f, [k]: v }));
-  const submit = () => {
+
+  const submit = async () => {
     if (!form.title.trim()) return;
-    onAdd({
-      ...form,
-      id:`j${Date.now()}`, apps:0, active:true,
-      posted:new Date().toISOString().slice(0,10),
-      skills: form.skills.split(',').map(s=>s.trim()).filter(Boolean),
-    });
-    onClose();
+    setSaving(true);
+    setError('');
+    try {
+      const res = await jobsAPI.create({
+        title:           form.title,
+        department:      form.dept,
+        location:        form.location,
+        employment_type: form.type,
+        description:     form.desc,
+        skills:          form.skills.split(',').map(s => s.trim()).filter(Boolean),
+        requirements:    form.requirements || null,
+        salary_range:    form.salary_range  || null,
+        is_urgent:       form.urgent,
+        is_active:       true,
+      });
+      onAdd(normalizeJob(res.data));
+      onClose();
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Failed to post job. Please try again.');
+      setSaving(false);
+    }
   };
 
   return (
@@ -62,8 +91,16 @@ const AddJobModal = ({ onClose, onAdd }) => {
             <textarea className="textarea" rows={4} placeholder="Describe the role and responsibilities…" value={form.desc} onChange={e => set('desc',e.target.value)} />
           </div>
           <div style={{ gridColumn:'1/-1' }}>
+            <label className="label">Requirements</label>
+            <textarea className="textarea" rows={3} placeholder="Minimum qualifications, certifications, years of experience…" value={form.requirements} onChange={e => set('requirements',e.target.value)} />
+          </div>
+          <div style={{ gridColumn:'1/-1' }}>
             <label className="label">Required Skills (comma separated)</label>
             <input className="input" placeholder="e.g. Python, TensorFlow, Docker" value={form.skills} onChange={e => set('skills',e.target.value)} />
+          </div>
+          <div style={{ gridColumn:'1/-1' }}>
+            <label className="label">Salary Range</label>
+            <input className="input" placeholder="e.g. ₹12–18 LPA or $80k–$100k" value={form.salary_range} onChange={e => set('salary_range',e.target.value)} />
           </div>
           <div style={{ gridColumn:'1/-1' }}>
             <label style={{ display:'flex', alignItems:'center', gap:'0.625rem', cursor:'pointer' }}>
@@ -73,14 +110,133 @@ const AddJobModal = ({ onClose, onAdd }) => {
           </div>
         </div>
         <div style={{ display:'flex', gap:'0.75rem', justifyContent:'flex-end', marginTop:'1.5rem' }}>
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button onClick={submit} style={{
+          {error && <p style={{ fontSize:'0.8125rem', color:'var(--error)', alignSelf:'center', flex:1 }}>{error}</p>}
+          <button className="btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button onClick={submit} disabled={saving} style={{
             display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1.25rem',
-            borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none', cursor:'pointer',
+            borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none', cursor: saving ? 'not-allowed' : 'pointer',
             background:'linear-gradient(135deg,var(--tertiary),#009966)',
-            boxShadow:'0 2px 8px rgba(0,98,67,0.25)',
+            boxShadow:'0 2px 8px rgba(0,98,67,0.25)', opacity: saving ? 0.7 : 1,
           }}>
-            <Icon name="add" style={{ fontSize:'1rem', color:'#fff' }} /> Post Job
+            <Icon name={saving ? 'progress_activity' : 'add'} style={{ fontSize:'1rem', color:'#fff' }} /> {saving ? 'Posting…' : 'Post Job'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+/* ── Edit Job Modal ─────────────────────────────────── */
+const EditJobModal = ({ job, onClose, onSave }) => {
+  const [form, setForm] = React.useState({
+    title:        job.title        || '',
+    dept:         job.dept         || 'Engineering',
+    location:     job.location     || '',
+    type:         job.type         || 'Full-time',
+    desc:         job.desc         || '',
+    requirements: job.requirements || '',
+    salary_range: job.salary_range || '',
+    skills:       (job.skills||[]).join(', '),
+    urgent:       job.urgent       || false,
+  });
+  const [saving, setSaving] = React.useState(false);
+  const [error,  setError]  = React.useState('');
+  const set = (k,v) => setForm(f => ({ ...f, [k]:v }));
+
+  const submit = async () => {
+    if (!form.title.trim()) { setError('Title is required'); return; }
+    setSaving(true); setError('');
+    try {
+      await jobsAPI.update(job.id, {
+        title:           form.title,
+        department:      form.dept,
+        location:        form.location,
+        employment_type: form.type,
+        description:     form.desc,
+        requirements:    form.requirements || null,
+        salary_range:    form.salary_range  || null,
+        skills:          form.skills.split(',').map(s => s.trim()).filter(Boolean),
+        is_urgent:       form.urgent,
+      });
+      onSave({
+        ...job,
+        title: form.title, dept: form.dept, location: form.location,
+        type: form.type, desc: form.desc, requirements: form.requirements,
+        salary_range: form.salary_range,
+        skills: form.skills.split(',').map(s => s.trim()).filter(Boolean),
+        urgent: form.urgent,
+      });
+      onClose();
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Failed to update job.');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay scale-in" onClick={e => e.target===e.currentTarget && onClose()}>
+      <div className="modal modal-lg">
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.5rem' }}>
+          <h2 style={{ fontSize:'1.125rem', fontWeight:700 }}>Edit Job</h2>
+          <button className="btn-icon" onClick={onClose}><Icon name="close" /></button>
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
+          <div style={{ gridColumn:'1/-1' }}>
+            <label className="label">Job Title *</label>
+            <input className="input" value={form.title} onChange={e => set('title',e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Department</label>
+            <select className="select" value={form.dept} onChange={e => set('dept',e.target.value)}>
+              {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Employment Type</label>
+            <select className="select" value={form.type} onChange={e => set('type',e.target.value)}>
+              {EMP_TYPES.map(t => <option key={t}>{t}</option>)}
+            </select>
+          </div>
+          <div style={{ gridColumn:'1/-1' }}>
+            <label className="label">Location</label>
+            <input className="input" value={form.location} onChange={e => set('location',e.target.value)} />
+          </div>
+          <div style={{ gridColumn:'1/-1' }}>
+            <label className="label">Job Description</label>
+            <textarea className="textarea" rows={4} value={form.desc} onChange={e => set('desc',e.target.value)} />
+          </div>
+          <div style={{ gridColumn:'1/-1' }}>
+            <label className="label">Requirements</label>
+            <textarea className="textarea" rows={3} value={form.requirements} onChange={e => set('requirements',e.target.value)} />
+          </div>
+          <div style={{ gridColumn:'1/-1' }}>
+            <label className="label">Required Skills (comma separated)</label>
+            <input className="input" value={form.skills} onChange={e => set('skills',e.target.value)} />
+          </div>
+          <div style={{ gridColumn:'1/-1' }}>
+            <label className="label">Salary Range</label>
+            <input className="input" placeholder="e.g. ₹12–18 LPA or $80k–$100k" value={form.salary_range} onChange={e => set('salary_range',e.target.value)} />
+          </div>
+          <div style={{ gridColumn:'1/-1' }}>
+            <label style={{ display:'flex', alignItems:'center', gap:'0.625rem', cursor:'pointer' }}>
+              <input type="checkbox" checked={form.urgent} onChange={e => set('urgent',e.target.checked)} style={{ width:16, height:16, accentColor:'var(--error)' }} />
+              <span style={{ fontSize:'0.875rem', fontWeight:500 }}>Mark as Urgent Hire</span>
+            </label>
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:'0.75rem', justifyContent:'flex-end', marginTop:'1.5rem' }}>
+          {error && <p style={{ fontSize:'0.8125rem', color:'var(--error)', alignSelf:'center', flex:1 }}>{error}</p>}
+          <button className="btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button onClick={submit} disabled={saving} style={{
+            display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1.25rem',
+            borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none',
+            cursor: saving ? 'not-allowed' : 'pointer',
+            background:'linear-gradient(135deg,var(--primary),#3366cc)',
+            boxShadow:'0 2px 8px rgba(68,104,176,0.25)', opacity: saving ? 0.7 : 1,
+          }}>
+            <Icon name={saving ? 'progress_activity' : 'save'} style={{ fontSize:'1rem', color:'#fff' }} />
+            {saving ? 'Saving…' : 'Save Changes'}
           </button>
         </div>
       </div>
@@ -89,7 +245,7 @@ const AddJobModal = ({ onClose, onAdd }) => {
 };
 
 /* ── Job Detail Panel ───────────────────────────────── */
-const JobPanel = ({ job, onClose, onToggle }) => (
+const JobPanel = ({ job, onClose, onToggle, onViewApplicants, onEdit, candidateCount }) => (
   <div style={{
     position:'fixed', top:0, right:0, bottom:0, width:480, zIndex:60,
     background:'var(--surface-container-lowest)', boxShadow:'-8px 0 40px rgba(19,27,46,0.12)',
@@ -121,8 +277,8 @@ const JobPanel = ({ job, onClose, onToggle }) => (
       {/* Stats */}
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.875rem', marginBottom:'1.5rem' }}>
         {[
-          { label:'Applications', value:job.apps,   icon:'group' },
-          { label:'Posted',       value:job.posted, icon:'calendar_today' },
+          { label:'Applications', value: candidateCount ?? 0, icon:'group' },
+          { label:'Posted',       value: job.posted,          icon:'calendar_today' },
         ].map(s => (
           <div key={s.label} style={{ padding:'0.875rem', background:'var(--surface-container-low)', borderRadius:'0.625rem', textAlign:'center' }}>
             <Icon name={s.icon} style={{ fontSize:'1.125rem', color:'var(--tertiary)', display:'block', margin:'0 auto 0.25rem' }} />
@@ -150,13 +306,16 @@ const JobPanel = ({ job, onClose, onToggle }) => (
 
       {/* Actions */}
       <div style={{ display:'flex', gap:'0.75rem' }}>
-        <a href="#" onClick={e => { e.preventDefault(); viewApplicants(job.id); }} style={{
+        <button onClick={() => onViewApplicants(job.id)} style={{
           flex:1, display:'inline-flex', alignItems:'center', justifyContent:'center', gap:'0.5rem',
-          padding:'0.625rem', borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none', cursor:'pointer', textDecoration:'none',
+          padding:'0.625rem', borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none', cursor:'pointer',
           background:'linear-gradient(135deg,var(--tertiary),#009966)',
         }}>
           <Icon name="person_search" style={{ fontSize:'1rem', color:'#fff' }} /> View Candidates
-        </a>
+        </button>
+        <button onClick={() => onEdit(job)} className="btn-secondary" style={{ flex:1, display:'inline-flex', alignItems:'center', justifyContent:'center', gap:'0.375rem' }}>
+          <span className="material-symbols-outlined" style={{ fontSize:'1rem' }}>edit</span> Edit Job
+        </button>
         <button onClick={() => onToggle(job.id)} className="btn-secondary" style={{ flex:1 }}>
           {job.active ? 'Close Position' : 'Reopen Position'}
         </button>
@@ -170,7 +329,8 @@ export default function JobsList() {
   const navigate = useNavigate();
   const [jobs, setJobs]       = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
+  const [showAdd, setShowAdd]   = useState(false);
+  const [showEdit, setShowEdit] = useState(null);  // job being edited, or null
   const [selected, setSelected] = useState(null);
   const [candidateCounts, setCandidateCounts] = useState({}); // {job_id: count}
   const [websiteJobs, setWebsiteJobs]         = useState([]); // [{job_id, job_title, count, latest}]
@@ -181,7 +341,7 @@ export default function JobsList() {
       const res = await jobsAPI.getAll({ limit: 200 });
       const data = Array.isArray(res.data) ? res.data
         : Array.isArray(res.data?.data) ? res.data.data : [];
-      setJobs(data);
+      setJobs(data.map(normalizeJob));
     } catch { /* show empty */ }
     finally { setLoading(false); }
   }, []);
@@ -227,12 +387,21 @@ export default function JobsList() {
   const [statusFilter, setStat] = useState('active');
   const [view, setView]       = useState('grid'); // grid | list
 
-  const toggle = (id) => {
-    setJobs(js => js.map(j => j.id===id ? {...j, active:!j.active} : j));
-    setSelected(s => s?.id===id ? {...s, active:!s.active} : s);
+  const toggle = async (id) => {
+    const job = jobs.find(j => j.id === id);
+    if (!job) return;
+    const newActive = !job.active;
+    setJobs(js => js.map(j => j.id===id ? {...j, active:newActive} : j));
+    setSelected(s => s?.id===id ? {...s, active:newActive} : s);
+    try { await jobsAPI.update(id, { is_active: newActive }); } catch {}
   };
 
   const addJob = (j) => setJobs(js => [j, ...js]);
+
+  const saveEditedJob = (updated) => {
+    setJobs(js => js.map(j => j.id === updated.id ? { ...j, ...updated } : j));
+    setSelected(s => s?.id === updated.id ? { ...s, ...updated } : s);
+  };
 
   const filtered = useMemo(() => {
     return jobs.filter(j => {
@@ -403,7 +572,7 @@ export default function JobsList() {
                   <td style={{ padding:'0.875rem 1rem' }}>
                     <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.2rem 0.5rem', borderRadius:4, background:'rgba(0,98,67,0.08)', color:'var(--tertiary)' }}>{job.type}</span>
                   </td>
-                  <td style={{ padding:'0.875rem 1rem', fontWeight:700 }}>{job.apps}</td>
+                  <td style={{ padding:'0.875rem 1rem', fontWeight:700 }}>{candidateCounts[job.id] || 0}</td>
                   <td style={{ padding:'0.875rem 1rem', color:'var(--on-surface-variant)', fontSize:'0.8125rem' }}>{job.posted}</td>
                   <td style={{ padding:'0.875rem 1rem' }}>
                     <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.2rem 0.5rem', borderRadius:9999, background:job.active?'rgba(0,98,67,0.1)':'var(--surface-container)', color:job.active?'var(--tertiary)':'var(--on-surface-variant)' }}>
@@ -486,11 +655,12 @@ export default function JobsList() {
       {selected && (
         <>
           <div onClick={() => setSelected(null)} style={{ position:'fixed', inset:0, background:'rgba(19,27,46,0.25)', backdropFilter:'blur(2px)', zIndex:59 }} />
-          <JobPanel job={selected} onClose={() => setSelected(null)} onToggle={toggle} />
+          <JobPanel job={selected} onClose={() => setSelected(null)} onToggle={toggle} onViewApplicants={viewApplicants} onEdit={j => { setShowEdit(j); }} candidateCount={candidateCounts[selected?.id] || 0} />
         </>
       )}
 
       {showAdd && <AddJobModal onClose={() => setShowAdd(false)} onAdd={addJob} />}
+      {showEdit && <EditJobModal job={showEdit} onClose={() => setShowEdit(null)} onSave={saveEditedJob} />}
     </div>
   );
 }
