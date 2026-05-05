@@ -5,6 +5,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 
 import Login from './pages/Login';
+import Apply from './pages/Apply';
 
 // Sales
 import SalesDashboard  from './pages/sales/SalesDashboard';
@@ -68,6 +69,8 @@ const TimesheetRoute = () => {
 function AppRoutes() {
   return (
     <Routes>
+      {/* ── Public routes — no auth required ── */}
+      <Route path="/apply" element={<Apply />} />
       <Route path="/login" element={<Login />} />
 
       {/* ── Sales — admin, sales, viewer only ── */}

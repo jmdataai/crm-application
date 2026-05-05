@@ -245,7 +245,21 @@ const EditJobModal = ({ job, onClose, onSave }) => {
 };
 
 /* ── Job Detail Panel ───────────────────────────────── */
-const JobPanel = ({ job, onClose, onToggle, onViewApplicants, onEdit, candidateCount }) => (
+const JobPanel = ({ job, onClose, onToggle, onViewApplicants, onEdit, candidateCount }) => {
+  const [copied, setCopied] = React.useState(false);
+  const applyUrl = job.apply_key
+    ? `${window.location.origin}/apply?key=${job.apply_key}`
+    : null;
+
+  const copyLink = () => {
+    if (!applyUrl) return;
+    navigator.clipboard.writeText(applyUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
   <div style={{
     position:'fixed', top:0, right:0, bottom:0, width:480, zIndex:60,
     background:'var(--surface-container-lowest)', boxShadow:'-8px 0 40px rgba(19,27,46,0.12)',
@@ -304,6 +318,46 @@ const JobPanel = ({ job, onClose, onToggle, onViewApplicants, onEdit, candidateC
         </div>
       </div>
 
+      {/* Application link — for sharing with Framer team */}
+      {applyUrl && (
+        <div style={{ marginBottom:'1.5rem' }}>
+          <p className="label-sm" style={{ marginBottom:'0.5rem' }}>Public Application Link</p>
+          <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', marginBottom:'0.5rem', lineHeight:1.5 }}>
+            Share this URL with the Framer team. Candidates who click Apply will land here.
+          </p>
+          <div style={{ display:'flex', gap:'0.5rem', alignItems:'center' }}>
+            <div style={{
+              flex:1, padding:'0.5rem 0.75rem', borderRadius:'0.5rem',
+              background:'var(--surface-container-low)', border:'1px solid var(--outline-variant)',
+              fontSize:'0.8125rem', fontFamily:'monospace', color:'var(--on-surface)',
+              overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
+            }}>
+              {applyUrl}
+            </div>
+            <button
+              onClick={copyLink}
+              title="Copy link"
+              style={{
+                flexShrink:0, padding:'0.5rem 0.75rem', borderRadius:'0.5rem',
+                border:'1px solid var(--outline-variant)', background: copied ? 'rgba(0,98,67,0.1)' : 'var(--surface-container-low)',
+                cursor:'pointer', display:'flex', alignItems:'center', gap:'0.375rem',
+                fontSize:'0.8125rem', fontWeight:600,
+                color: copied ? 'var(--tertiary)' : 'var(--on-surface-variant)',
+                transition:'all 0.15s',
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize:'1rem' }}>
+                {copied ? 'check' : 'content_copy'}
+              </span>
+              {copied ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+          <p style={{ fontSize:'0.6875rem', color:'var(--on-surface-variant)', marginTop:'0.375rem', opacity:0.7 }}>
+            Key: <code style={{ fontFamily:'monospace' }}>{job.apply_key}</code> — tamper-proof, validated server-side
+          </p>
+        </div>
+      )}
+
       {/* Actions */}
       <div style={{ display:'flex', gap:'0.75rem' }}>
         <button onClick={() => onViewApplicants(job.id)} style={{
@@ -322,7 +376,8 @@ const JobPanel = ({ job, onClose, onToggle, onViewApplicants, onEdit, candidateC
       </div>
     </div>
   </div>
-);
+  );
+};
 
 /* ── Main ───────────────────────────────────────────── */
 export default function JobsList() {

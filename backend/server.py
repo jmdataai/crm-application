@@ -26,6 +26,10 @@ from typing import List, Optional
 from pydantic import BaseModel, EmailStr, field_validator, model_validator
 from enum import Enum
 import re as _re
+import secrets                        # apply_key generation
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # ── Google Drive helpers ──────────────────────────────────────
 try:
@@ -95,6 +99,11 @@ JWT_ALGORITHM = "HS256"
 # ── App ───────────────────────────────────────────────────────
 app        = FastAPI(title="Nexus CRM + ATS")
 api_router = APIRouter(prefix="/api")
+
+# ── Rate limiter (protects public /apply from spam bots) ──────
+limiter = Limiter(key_func=get_remote_address, default_limits=[])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Startup diagnostics — visible in HuggingFace / container logs
 logger.info("=== Nexus CRM startup ===")
@@ -1389,6 +1398,9 @@ async def create_job(job: JobCreate, request: Request):
         "is_active":       job.is_active,
         "is_urgent":       job.is_urgent,
         "created_by":      user["id"],
+        # URL-safe random key — used by the public /apply?key=… form.
+        # Generated here (not in the DB) so the value is visible in the response immediately.
+        "apply_key":       secrets.token_urlsafe(8),
     }).execute())
     return res.data[0]
 
@@ -2972,40 +2984,18 @@ def _validate_phone(phone: str) -> str:
  
  
 # ============================================================
-# PUBLIC JOB API  (no authentication required for GET,
-#                  X-API-Key header required for POST /apply)
+# PUBLIC JOB API  (no authentication required — secured via
+#                  per-job apply_key validated server-side)
+#
+# Security model:
+#   • apply_key is a random URL-safe string stored in the jobs table.
+#   • It is generated server-side at job creation (secrets.token_urlsafe).
+#   • Even if a candidate tampers the URL, a wrong key returns 404 —
+#     no CRM data is exposed and no credentials touch the browser.
+#   • job_title is NEVER taken from user input; it is always fetched
+#     from the database using the validated key.
+#   • Rate-limited: 5 submissions per minute per IP (slowapi).
 # ============================================================
- 
-def _check_public_api_key(request: Request) -> None:
-    """Validate the public API key on write endpoints."""
-    configured = os.environ.get("PUBLIC_API_KEY", "").strip()
-    if not configured:
-        raise HTTPException(
-            503,
-            detail={
-                "error": "SERVER_MISCONFIGURED",
-                "message": "Public API key not configured on this server. Contact the CRM admin.",
-            },
-        )
-    provided = request.headers.get("X-API-Key", "").strip()
-    if not provided:
-        raise HTTPException(
-            401,
-            detail={
-                "error": "MISSING_API_KEY",
-                "message": "Missing required header: X-API-Key. "
-                           "Contact the CRM admin for credentials.",
-                "header": "X-API-Key",
-            },
-        )
-    if provided != configured:
-        raise HTTPException(
-            401,
-            detail={
-                "error": "INVALID_API_KEY",
-                "message": "Invalid API key. Contact the CRM admin.",
-            },
-        )
  
  
 @api_router.get("/public/jobs")
@@ -3085,9 +3075,51 @@ async def public_get_job(job_id: str):
             },
         )
     return {"success": True, "job": job}
- 
- 
+
+
+@api_router.get("/public/jobs/by-key/{apply_key}")
+async def public_get_job_by_key(apply_key: str):
+    """
+    PUBLIC — No authentication required.
+    Validates the apply_key and returns safe job details for the application form.
+    Returns 404 if the key is wrong, the job is closed, or the job doesn't exist.
+
+    Only returns data the candidate is allowed to see (title, dept, location, type).
+    Never exposes internal IDs, credentials, or CRM data.
+    """
+    apply_key = apply_key.strip()
+    if not apply_key or len(apply_key) > 64:
+        raise HTTPException(404, detail={"error": "JOB_NOT_FOUND", "message": "Job not found."})
+
+    job = await safe_single(
+        lambda: sb("jobs")
+        .select("id,title,department,location,employment_type,is_urgent")
+        .eq("apply_key", apply_key)
+        .eq("is_active", True)
+        .single()
+        .execute()
+    )
+    if not job:
+        raise HTTPException(
+            404,
+            detail={
+                "error":   "JOB_NOT_FOUND",
+                "message": "This job is no longer available or the link is invalid.",
+            },
+        )
+    # Return only what the form needs — internal job UUID is intentionally excluded
+    return {
+        "success":         True,
+        "title":           job["title"],
+        "department":      job.get("department") or "",
+        "location":        job.get("location") or "",
+        "employment_type": job.get("employment_type") or "",
+        "is_urgent":       job.get("is_urgent") or False,
+    }
+
+
 @api_router.post("/public/apply")
+@limiter.limit("5/minute")          # 5 submissions per IP per minute — prevents spam bots
 async def public_apply_job(
     request:          Request,
     # Required fields
@@ -3095,8 +3127,7 @@ async def public_apply_job(
     last_name:        str            = Form(..., description="Applicant's last name"),
     email:            str            = Form(..., description="Applicant's email address"),
     phone:            str            = Form(..., description="Phone with country code, e.g. +91-9876543210"),
-    job_id:           str            = Form(..., description="Job ID from the website's own job system"),
-    job_title:        str            = Form(..., description="Job title from the website's own job system"),
+    apply_key:        str            = Form(..., description="Unique job key from the URL (?key=…)"),
     resume:           UploadFile     = File(...,  description="Resume file — PDF, DOC, or DOCX, max 10 MB"),
     # Optional fields
     current_company:  Optional[str]  = Form(None, description="Current employer"),
@@ -3106,16 +3137,17 @@ async def public_apply_job(
     portfolio_url:    Optional[str]  = Form(None, description="Portfolio, GitHub, or personal site URL"),
 ):
     """
-    PUBLIC — Requires header: X-API-Key: <your_key>
+    PUBLIC — No authentication header required.
 
-    Submit a job application from the website.
-    job_id and job_title come from the website's own job listings — not validated against the CRM.
-    Uploads resume to Google Drive and creates a candidate record in the CRM.
+    Security: job_id and job_title are NEVER taken from user input.
+    The apply_key is validated against the database; the real job data
+    is fetched server-side. A tampered key returns 404 — no CRM data exposed.
 
-    Returns 409 if the same email has already applied for the same job_id.
+    Returns 409 if the same email has already applied for the same job.
+    Returns 429 if the IP exceeds 5 submissions per minute.
     """
 
-    # ── 0. Compute full name ─────────────────────────────────
+    # ── 0. Compute full name ─────────────────────────────────────
     first_name = first_name.strip()
     last_name  = last_name.strip()
     if not first_name:
@@ -3124,18 +3156,36 @@ async def public_apply_job(
         raise HTTPException(422, detail={"error": "MISSING_LAST_NAME", "message": "Last name is required.", "field": "last_name"})
     full_name = f"{first_name} {last_name}"
 
-    # ── 1. Auth ───────────────────────────────────────────────
-    _check_public_api_key(request)
+    # ── 1. Validate apply_key → fetch real job data server-side ──
+    #   This is the core security step. job_title is NEVER sourced from user input.
+    apply_key = apply_key.strip()
+    if not apply_key or len(apply_key) > 64:
+        raise HTTPException(404, detail={"error": "JOB_NOT_FOUND", "message": "Invalid application link."})
 
-    # ── 2. Validate required text fields ─────────────────────
-    job_id    = job_id.strip()
-    job_title = job_title.strip()
-    if not job_id:
-        raise HTTPException(422, detail={"error": "MISSING_JOB_ID", "message": "job_id is required.", "field": "job_id"})
-    if not job_title:
-        raise HTTPException(422, detail={"error": "MISSING_JOB_TITLE", "message": "job_title is required.", "field": "job_title"})
+    job_row = await safe_single(
+        lambda: sb("jobs")
+        .select("id,title,department")
+        .eq("apply_key", apply_key)
+        .eq("is_active", True)
+        .single()
+        .execute()
+    )
+    if not job_row:
+        raise HTTPException(
+            404,
+            detail={
+                "error":   "JOB_NOT_FOUND",
+                "message": "This job is no longer available. The position may have been filled.",
+            },
+        )
+    # Real values from the DB — not from the user
+    real_job_id    = job_row["id"]
+    real_job_title = job_row["title"]
 
-    # ── 3. Validate email ─────────────────────────────────────
+    # ── 2. Validate required text fields ─────────────────────────
+    # (No job_id / job_title validation needed — they come from DB)
+
+    # ── 3. Validate email ─────────────────────────────────────────
     email = email.strip().lower()
     if not _re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
         raise HTTPException(
@@ -3147,7 +3197,7 @@ async def public_apply_job(
             },
         )
 
-    # ── 4. Validate phone ─────────────────────────────────────
+    # ── 4. Validate phone ─────────────────────────────────────────
     try:
         phone_clean = _validate_phone(phone)
     except ValueError as exc:
@@ -3161,7 +3211,7 @@ async def public_apply_job(
             },
         )
 
-    # ── 5. Validate resume file ───────────────────────────────
+    # ── 5. Validate resume file ───────────────────────────────────
     if resume.content_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(
             422,
@@ -3186,12 +3236,12 @@ async def public_apply_job(
             },
         )
 
-    # ── 6. Duplicate check — same email + job_id ─────────────
+    # ── 6. Duplicate check — same email + real job UUID ──────────
     dup_check = await run(
         lambda: sb("candidates")
         .select("id")
         .eq("email", email)
-        .eq("job_id", job_id)
+        .eq("job_id", real_job_id)
         .eq("source", "website")
         .execute()
     )
@@ -3202,12 +3252,11 @@ async def public_apply_job(
                 "error":   "ALREADY_APPLIED",
                 "message": "An application with this email already exists for this position. "
                            "Our team will review it and be in touch.",
-                "job_id":  job_id,
                 "email":   email,
             },
         )
 
-    # ── 7. Upload resume to Google Drive ─────────────────────
+    # ── 7. Upload resume to Google Drive ─────────────────────────
     ext       = ALLOWED_MIME_TYPES[resume.content_type]
     safe_name = _re.sub(r"[^\w\s-]", "", full_name.strip()).replace(" ", "_")[:30]
     short_id  = str(uuid.uuid4()).replace("-", "")[:8]
@@ -3230,7 +3279,7 @@ async def public_apply_job(
     else:
         logger.warning("[public-apply] Google Drive not configured — resume not uploaded")
 
-    # ── 8. Parse optional numeric fields ─────────────────────
+    # ── 8. Parse optional numeric fields ─────────────────────────
     exp_years = None
     if experience_years:
         try:
@@ -3240,7 +3289,7 @@ async def public_apply_job(
         except (ValueError, AttributeError):
             pass
 
-    # ── 9. Create candidate record ────────────────────────────
+    # ── 9. Create candidate record ────────────────────────────────
     candidate_payload = {
         "full_name":        full_name,
         "email":            email,
@@ -3252,9 +3301,9 @@ async def public_apply_job(
         "portfolio_url":    (portfolio_url    or "").strip() or None,
         "source":           "website",
         "status":           "sourced",
-        "job_id":           job_id,
-        "job_title":        job_title,
-        "notes":            f"Applied via website for: {job_title}",
+        "job_id":           real_job_id,       # from DB — not from user
+        "job_title":        real_job_title,    # from DB — not from user
+        "notes":            f"Applied via website for: {real_job_title}",
         "resume_url":       resume_url,
     }
 
@@ -3270,25 +3319,23 @@ async def public_apply_job(
 
     new_candidate = result.data[0]
 
-    # ── 10. Audit log ─────────────────────────────────────────
+    # ── 10. Audit log ─────────────────────────────────────────────
     asyncio.create_task(_audit(
         action="create",
         user={"id": None, "email": email, "name": full_name},
         entity_type="candidate",
         entity_id=new_candidate["id"],
-        entity_name=f"{full_name} → {job_title} (website)",
+        entity_name=f"{full_name} → {real_job_title} (website)",
     ))
 
     logger.info(
         f"[public-apply] New application: {full_name} <{email}> "
-        f"→ job_title={job_title} job_id={job_id} candidate_id={new_candidate['id']}"
+        f"→ {real_job_title} (job_id={real_job_id}) candidate_id={new_candidate['id']}"
     )
 
     return {
         "success":        True,
         "application_id": new_candidate["id"],
-        "job_id":         job_id,
-        "job_title":      job_title,
         "message":        "Your application has been submitted successfully. "
                           "Our team will review it and be in touch.",
     }
