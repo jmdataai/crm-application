@@ -72,6 +72,7 @@ const StatusBadge = ({ status }) => {
 };
 
 const WeekForm = ({ weekStart, onSaved }) => {
+  const { isMobile } = useBreakpoint();
   const [ts, setTs]             = useState(null);
   const [entries, setEntries]   = useState({});
   const [saving, setSaving]     = useState(false);
@@ -235,6 +236,7 @@ const WeekForm = ({ weekStart, onSaved }) => {
 };
 
 const MonthlyView = ({ year, month }) => {
+  const { isMobile } = useBreakpoint();
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
