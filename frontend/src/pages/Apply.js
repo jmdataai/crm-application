@@ -319,9 +319,18 @@ export default function Apply() {
 
   // ─────────────────────────────────────────────────────────────
   return (
-    <div style={{ minHeight:'100vh', display:'flex', background:'var(--surface)', fontFamily:'var(--font-ui, system-ui, sans-serif)' }}>
+    <div style={{ minHeight:'100vh', display:'flex', flexDirection: isMobile ? 'column' : 'row', background:'var(--surface)', fontFamily:'var(--font-ui, system-ui, sans-serif)' }}>
 
-      {/* ── Left branding ── */}
+      {/* ── Left branding — hidden on mobile, compact header instead ── */}
+      {isMobile ? (
+        <div style={{ background:'linear-gradient(135deg, #0C162A 0%, #141B34 100%)', padding:'1.25rem 1.5rem', display:'flex', alignItems:'center', gap:'0.875rem' }}>
+          <img src="/jm-logo.png" alt="JMData Talent" style={{ width:36, height:36, borderRadius:'0.5rem', objectFit:'cover' }} />
+          <div>
+            <p style={{ margin:0, fontSize:'0.625rem', fontWeight:500, letterSpacing:'0.2em', textTransform:'uppercase', color:'#92A0BA' }}>JMData Talent</p>
+            <p style={{ margin:0, fontSize:'0.9375rem', fontWeight:700, color:'#FAF7FB' }}>Recruitment</p>
+          </div>
+        </div>
+      ) : (
       <div style={{ width:380, flexShrink:0, background:'linear-gradient(160deg, #0C162A 0%, #141B34 60%, #1e2d52 100%)', display:'flex', flexDirection:'column', justifyContent:'space-between', padding:'3rem 2.5rem', position:'relative', overflow:'hidden' }}>
         <div style={{ position:'absolute', top:-80, right:-80, width:320, height:320, borderRadius:'50%', border:'1px solid rgba(68,104,176,0.15)', pointerEvents:'none' }} />
         <div style={{ position:'absolute', top:-40, right:-40, width:200, height:200, borderRadius:'50%', border:'1px solid rgba(68,104,176,0.2)', pointerEvents:'none' }} />
@@ -367,9 +376,10 @@ export default function Apply() {
           ))}
         </div>
       </div>
+      )}{/* end left panel */}
 
       {/* ── Right: form panel ── */}
-      <div style={{ flex:1, display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'3rem 2.5rem', overflowY:'auto' }}>
+      <div style={{ flex:1, display:'flex', alignItems:'flex-start', justifyContent:'center', padding: isMobile ? '1.5rem 1rem' : '3rem 2.5rem', overflowY:'auto' }}>
         <div style={{ width:'100%', maxWidth:560 }}>
 
           {/* Validating */}

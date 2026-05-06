@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import { useBreakpoint } from '../hooks/useBreakpoint';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 import { Eye, EyeOff, ArrowRight } from 'lucide-react';
 
 const Login = () => {
+  const { isMobile } = useBreakpoint();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -85,6 +87,16 @@ const Login = () => {
       {/* Right Panel - Login Form */}
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-md animate-fadeIn">
+
+          {/* Mobile logo — only visible when left panel is hidden */}
+          {isMobile && (
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', marginBottom:'2rem' }}>
+              <img src="/jm-logo.png" alt="JMData Talent" style={{ width:56, height:56, borderRadius:'0.875rem', objectFit:'cover', marginBottom:'0.75rem', boxShadow:'0 4px 16px rgba(68,104,176,0.2)' }} />
+              <p style={{ margin:0, fontSize:'0.625rem', fontWeight:600, letterSpacing:'0.2em', textTransform:'uppercase', color:'var(--on-surface-variant)' }}>JMData Talent</p>
+              <p style={{ margin:'0.125rem 0 0', fontSize:'1rem', fontWeight:700, color:'var(--on-surface)' }}>CRM Platform</p>
+            </div>
+          )}
+
           <div className="text-center mb-8">
             <h2 className="headline-sm mb-2" style={{ color: 'var(--on-surface)' }}>Welcome back</h2>
             <p className="body-md" style={{ color: 'var(--on-surface-variant)' }}>Sign in to your account</p>

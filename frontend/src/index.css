@@ -116,6 +116,7 @@ body {
 .sidebar {
   width: 256px;
   height: 100vh;
+  height: 100dvh; /* iOS Safari fix — dynamic viewport height */
   position: fixed;
   left: 0;
   top: 0;
@@ -160,6 +161,7 @@ body {
   padding-right: 2rem;
   padding-bottom: 3rem;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 /* =============================================
@@ -953,5 +955,86 @@ body {
   }
   .pipeline-column {
     min-width: 240px !important;
+  }
+}
+
+/* =============================================
+   INPUT-FIELD alias (used by Login / Register)
+   ============================================= */
+.input-field {
+  width: 100%;
+  background-color: var(--surface-container-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.9375rem;
+  color: var(--on-surface);
+  font-family: var(--font-display);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.input-field::placeholder {
+  color: var(--on-surface-variant);
+  opacity: 0.6;
+}
+
+.input-field:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(68, 104, 176, 0.12);
+}
+
+/* =============================================
+   MOBILE MODALS — slide up from bottom on phone
+   ============================================= */
+@media (max-width: 480px) {
+  .modal-overlay {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+
+  .modal, .modal-lg {
+    border-radius: 1rem 1rem 0 0 !important;
+    max-height: 90dvh !important;
+    max-height: 90vh !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+  }
+}
+
+/* =============================================
+   SAFE AREA (iPhone notch / home bar)
+   ============================================= */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .main-content {
+    padding-bottom: calc(3rem + env(safe-area-inset-bottom));
+  }
+
+  @media (max-width: 768px) {
+    .main-content {
+      padding-bottom: calc(1.5rem + env(safe-area-inset-bottom)) !important;
+    }
+  }
+}
+
+/* =============================================
+   SIDEBAR — fill full height including safe area
+   ============================================= */
+@supports (height: 100dvh) {
+  .sidebar {
+    height: 100dvh !important;
+  }
+}
+
+/* =============================================
+   APPLY / LOGIN full-page layouts
+   ============================================= */
+@media (max-width: 768px) {
+  /* Ensure scrollable on small screens */
+  .apply-page, .login-page {
+    min-height: 100dvh;
+    overflow-y: auto;
   }
 }
