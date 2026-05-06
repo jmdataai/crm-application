@@ -1,3 +1,4 @@
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { candidatesAPI } from '../../services/api';
@@ -61,6 +62,7 @@ const RankBadge = ({ rank }) => (
 );
 
 export default function ATSMatch() {
+  const { isMobile } = useBreakpoint();
   const navigate = useNavigate();
   const [jdText, setJdText]           = useState('');
   const [candidateType, setType]      = useState('domestic');
@@ -330,7 +332,7 @@ export default function ATSMatch() {
                       {/* Expanded details */}
                       {isExpanded && (
                         <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--outline-variant)' }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '1rem' }}>
                             {/* Missing skills */}
                             {m.missing_skills?.length > 0 && (
                               <div>

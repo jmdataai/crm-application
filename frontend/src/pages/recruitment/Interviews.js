@@ -1,3 +1,4 @@
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { interviewsAPI } from '../../services/api';
 
@@ -111,7 +112,7 @@ const InterviewCard = ({ iv, onFeedback, onComplete }) => {
         </div>
 
         {/* Actions */}
-        <div style={{ display:'flex', gap:'0.375rem', flexShrink:0 }}>
+        <div style={{ display:'flex', gap:'0.375rem', flexWrap:'wrap', flexShrink:0 }}>
           {!iv.completed && (
             <button onClick={() => onComplete(iv.id)} style={{ display:'inline-flex', alignItems:'center', gap:'0.375rem', padding:'0.375rem 0.75rem', borderRadius:'0.5rem', fontSize:'0.8125rem', fontWeight:600, color:'#fff', border:'none', cursor:'pointer', background:'linear-gradient(135deg,var(--tertiary),#009966)', whiteSpace:'nowrap' }}>
               <Icon name="done" style={{ fontSize:'0.875rem', color:'#fff' }} /> Complete
@@ -129,6 +130,7 @@ const InterviewCard = ({ iv, onFeedback, onComplete }) => {
 
 /* ── Main ───────────────────────────────────────────── */
 export default function Interviews() {
+  const { isMobile } = useBreakpoint();
   const [interviews, setInterviews] = useState([]);
   const [loading, setLoading]       = useState(true);
   const [filter, setFilter]         = useState('upcoming');
@@ -211,7 +213,7 @@ export default function Interviews() {
       {loading && <div style={{ textAlign:'center', padding:'4rem', color:'var(--on-surface-variant)' }}><Icon name="progress_activity" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.75rem' }} />Loading interviews…</div>}
       {!loading && <>
       {/* Header */}
-      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem' }}>
+      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem', flexWrap:'wrap', gap:'0.75rem' }}>
         <div>
           <p className="label-sm" style={{ marginBottom:'0.25rem', color:'var(--tertiary)' }}>Recruitment ATS</p>
           <h1 className="headline-sm">Interviews</h1>
@@ -223,12 +225,12 @@ export default function Interviews() {
         </div>
       </div>
 
-      <div style={{ display:'grid', gridTemplateColumns:'7fr 5fr', gap:'1.25rem', alignItems:'start' }}>
+      <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '7fr 5fr', gap:'1.25rem', alignItems:'start' }}>
 
         {/* LEFT */}
         <div>
           {/* Filter tabs */}
-          <div style={{ display:'flex', gap:'0.375rem', background:'var(--surface-container-low)', padding:'4px', borderRadius:'0.75rem', marginBottom:'1.25rem', overflowX:'auto' }}>
+          <div style={{ display:'flex', gap:'0.375rem', flexWrap:'wrap', background:'var(--surface-container-low)', padding:'4px', borderRadius:'0.75rem', marginBottom:'1.25rem', overflowX:'auto' }}>
             {FILTER_TABS.map(t => (
               <button key={t.key} onClick={() => setFilter(t.key)} style={{
                 display:'flex', alignItems:'center', gap:'0.375rem', padding:'0.4rem 0.875rem',

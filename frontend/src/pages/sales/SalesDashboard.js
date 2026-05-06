@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { leadsAPI } from '../../services/api';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 
 const STATUS_VALUES = ['new','contacted','called','interested','follow_up_needed','closed','completed','rejected','lost'];
 
 const AddLeadModal = ({ onClose, onAdd }) => {
+  const { isMobile } = useBreakpoint();
   const [form, setForm] = React.useState({ company:'', full_name:'', job_title:'', email:'', phone:'', website:'', industry:'', business_type:'', address:'', country:'', source:'', status:'new', notes:'', next_follow_up:'', solution_skills:'', segment:'', company_linkedin:'' });
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
   const submit = async () => {
@@ -28,7 +30,7 @@ const AddLeadModal = ({ onClose, onAdd }) => {
           <h2 style={{fontSize:'1.125rem',fontWeight:700}}>Add Company / Lead</h2>
           <button className="btn-icon" onClick={onClose}><span className="material-symbols-outlined">close</span></button>
         </div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'1rem'}}>
+        <div style={{display:'grid',gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',gap:'1rem'}}>
           {[{l:'Company Name *',k:'company',t:'text',s:2},{l:'Contact Name',k:'full_name',t:'text'},{l:'Designation',k:'job_title',t:'text'},{l:'Email',k:'email',t:'email'},{l:'Phone',k:'phone',t:'tel'},{l:'Website',k:'website',t:'url'},{l:'Company LinkedIn',k:'company_linkedin',t:'url'},{l:'Industry Type',k:'industry',t:'text'},{l:'Business Type / Skills',k:'business_type',t:'text'},{l:'Address / City',k:'address',t:'text'},{l:'Country',k:'country',t:'text'},{l:'Lead From (Source)',k:'source',t:'text'},{l:'Next Follow-up',k:'next_follow_up',t:'date'},{l:'Solution / Looking Skills',k:'solution_skills',t:'text',s:2}].map(f=>(
             <div key={f.k} style={{gridColumn:f.s===2?'1/-1':undefined}}>
               <label style={{fontSize:'0.75rem',fontWeight:600,color:'var(--on-surface-variant)',display:'block',marginBottom:'0.25rem'}}>{f.l}</label>
@@ -167,6 +169,7 @@ const ContactCell = ({ name, desig, email, phone }) => {
 export default function SalesDashboard() {
   const navigate      = useNavigate();
   const { user }      = useAuth();
+  const { isMobile, isTablet } = useBreakpoint();
   const [showAdd, setShowAdd] = useState(false);
   const [leads,   setLeads]   = useState([]);
   const [loading, setLoading] = useState(true);
@@ -352,7 +355,7 @@ export default function SalesDashboard() {
       )}
 
       {/* ── Summary KPI row ───────────────────────────── */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:'0.75rem', marginBottom:'1.5rem' }}>
+      <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : isTablet ? 'repeat(3,1fr)' : 'repeat(6,1fr)', gap:'0.75rem', marginBottom:'1.5rem' }}>
         {[
           { label:'Total Companies',  value:summary.total,       icon:'business',      color:'#1d4ed8', bg:'#eff6ff' },
           { label:'Not Yet Contacted',value:summary.not_started, icon:'pending',        color:'#64748b', bg:'#f1f5f9' },
@@ -544,7 +547,7 @@ export default function SalesDashboard() {
             <p style={{ fontSize:'0.8125rem', color:'var(--on-surface-variant)' }}>
               Showing <b>{Math.min((page-1)*PER_PAGE+1,filtered.length)}–{Math.min(page*PER_PAGE,filtered.length)}</b> of <b>{filtered.length}</b> companies
             </p>
-            <div style={{ display:'flex', gap:'0.375rem' }}>
+            <div style={{ display:'flex', gap:'0.375rem', flexWrap:'wrap' }}>
               <button className="btn-icon" disabled={page===1} onClick={()=>setPage(p=>p-1)} style={{ opacity:page===1?0.35:1 }}><Icon name="chevron_left"/></button>
               {Array.from({length:totalPages},(_,i)=>i+1).filter(p=>p===1||p===totalPages||Math.abs(p-page)<=1).map((p,i,arr)=>(
                 <React.Fragment key={p}>{i>0&&arr[i-1]!==p-1&&<span style={{alignSelf:'center',color:'var(--on-surface-variant)',fontSize:'0.875rem'}}>…</span>}

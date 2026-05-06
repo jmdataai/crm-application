@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { remindersAPI } from '../../services/api';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
@@ -13,6 +14,7 @@ const REPEAT_LABEL = { none:'One-time', daily:'Daily', weekly:'Weekly', monthly:
 
 /* ── Add Reminder Modal ─────────────────────────────── */
 const AddReminderModal = ({ onClose, onAdd }) => {
+  const { isMobile } = useBreakpoint();
   const [form, setForm] = useState({
     title:'', lead:'', company:'', due:today, time:'09:00',
     emailAlert:true, repeat:'none', note:'',
@@ -47,7 +49,7 @@ const AddReminderModal = ({ onClose, onAdd }) => {
             <label className="label">Reminder Title *</label>
             <input className="input" placeholder="e.g. Follow up with Priya about pricing" value={form.title} onChange={e => set('title',e.target.value)} />
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
+          <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'1rem' }}>
             <div>
               <label className="label">Date</label>
               <input className="input" type="date" value={form.due} onChange={e => set('due',e.target.value)} />
@@ -185,6 +187,7 @@ const ReminderCard = ({ reminder, onDismiss, onDelete, onToggleEmail }) => {
 
 /* ── Main ───────────────────────────────────────────── */
 export default function SalesReminders() {
+  const { isMobile } = useBreakpoint();
   const [reminders, setReminders] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [showAdd, setShowAdd]     = useState(false);
@@ -256,7 +259,7 @@ export default function SalesReminders() {
       {loading && <div style={{ textAlign:'center', padding:'4rem', color:'var(--on-surface-variant)' }}><Icon name="progress_activity" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.75rem' }} />Loading reminders…</div>}
       {!loading && <>
       {/* Header */}
-      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem' }}>
+      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem', flexWrap:'wrap', gap:'0.75rem' }}>
         <div>
           <p className="label-sm" style={{ marginBottom:'0.25rem' }}>Sales CRM</p>
           <h1 className="headline-sm">Reminders</h1>
@@ -266,13 +269,13 @@ export default function SalesReminders() {
         </button>
       </div>
 
-      <div style={{ display:'grid', gridTemplateColumns:'7fr 5fr', gap:'1.25rem', alignItems:'start' }}>
+      <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '7fr 5fr', gap:'1.25rem', alignItems:'start' }}>
 
         {/* LEFT — Reminders list */}
         <div style={{ display:'flex', flexDirection:'column', gap:'1.25rem' }}>
 
           {/* Filter tabs */}
-          <div style={{ display:'flex', gap:'0.375rem', background:'var(--surface-container-low)', padding:'4px', borderRadius:'0.75rem', alignSelf:'flex-start' }}>
+          <div style={{ display:'flex', gap:'0.375rem', flexWrap:'wrap', background:'var(--surface-container-low)', padding:'4px', borderRadius:'0.75rem', alignSelf:'flex-start' }}>
             {FILTER_TABS.map(t => (
               <button key={t.key} onClick={() => setFilter(t.key)} style={{
                 display:'flex', alignItems:'center', gap:'0.375rem',

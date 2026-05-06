@@ -1,3 +1,4 @@
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { candidatesAPI, jobsAPI } from '../../services/api';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -82,6 +83,7 @@ const ResumeViewerModal = ({ url, candidateName, onClose }) => (
 
 /* ── Add Candidate Modal ─────────────────────────────── */
 const AddCandidateModal = ({ onClose, onAdd, defaultType, activeJobs = [] }) => {
+  const { isMobile } = useBreakpoint();
   const fileInputRef = useRef(null);
   const [form, setForm] = useState({
     full_name:'', email:'', phone:'', candidate_role:'',
@@ -189,7 +191,7 @@ const AddCandidateModal = ({ onClose, onAdd, defaultType, activeJobs = [] }) => 
         </div>
 
         {/* Fields grid */}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
+        <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'1rem' }}>
           {[
             { label:'Full Name *',         key:'full_name',           type:'text', span:2 },
             { label:'Email',               key:'email',               type:'email' },
@@ -434,6 +436,7 @@ const TechMultiSelect = ({ allTech, selected, onChange }) => {
 
 /* ── Experience filter ────────────────────────────────────── */
 const ExpFilter = ({ value, onChange }) => {
+  const { isMobile } = useBreakpoint();
   // value: { op: '>' | '<' | '>=' | '<=' | '=', years: string }
   const ops = ['>', '>=', '=', '<=', '<'];
   return (
@@ -458,6 +461,7 @@ const ExpFilter = ({ value, onChange }) => {
 };
 
 export default function CandidatesList() {
+  const { isMobile } = useBreakpoint();
   const navigate = useNavigate();
   const location = useLocation();
   const [candidates, setCandidates] = useState([]);
@@ -687,7 +691,7 @@ export default function CandidatesList() {
         ))}
       </div>
       {/* Stats */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'1rem',marginBottom:'1.5rem'}}>
+      <div style={{display:'grid',gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)',gap:'1rem',marginBottom:'1.5rem'}}>
         {[
           {label:'In View',value:filtered.length,icon:'group',color:'var(--tertiary)'},
           {label:'Active Pipeline',value:filtered.filter(c=>!['rejected','onboarded'].includes(c.status)).length,icon:'pending',color:'var(--tertiary)'},
@@ -778,7 +782,7 @@ export default function CandidatesList() {
       {/* Table */}
       <div data-tour="candidates-list" className="card" style={{padding:0,overflow:'hidden'}}>
         <div style={{overflowX:'auto'}}>
-          <table className="data-table" style={{margin:0}}>
+          <div className="table-scroll-wrapper"><table className="data-table" style={{margin:0}}>
             <thead>
               <tr style={{background:'var(--surface-container-low)'}}>
                 <th style={{padding:'0.75rem 1rem',width:44}}><input type="checkbox" checked={selected.size===paged.length&&paged.length>0} onChange={()=>{if(selected.size===paged.length)setSelected(new Set());else setSelected(new Set(paged.map(c=>c.id)));}} style={{cursor:'pointer',width:16,height:16,accentColor:'var(--tertiary)'}}/></th>
@@ -910,6 +914,7 @@ export default function CandidatesList() {
               })}
             </tbody>
           </table>
+          </div>
         </div>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0.875rem 1.25rem',borderTop:'1px solid var(--ghost-border)',background:'var(--surface-container-low)'}}>
           <p style={{fontSize:'0.8125rem',color:'var(--on-surface-variant)'}}>Showing <b>{Math.min((page-1)*PER_PAGE+1,filtered.length)}–{Math.min(page*PER_PAGE,filtered.length)}</b> of <b>{filtered.length}</b></p>

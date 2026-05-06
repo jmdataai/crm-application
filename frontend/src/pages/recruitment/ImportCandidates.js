@@ -1,3 +1,4 @@
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import React, { useState, useRef, useCallback } from 'react';
 import { candidatesAPI } from '../../services/api';
 
@@ -186,6 +187,7 @@ const StepDot = ({n,current,label}) => {
 };
 
 export default function ImportCandidates() {
+  const { isMobile } = useBreakpoint();
   const [step, setStep]             = useState(1);
   const [candidateType, setCandType]= useState('domestic'); // domestic | international
   const [file, setFile]             = useState(null);
@@ -367,7 +369,7 @@ export default function ImportCandidates() {
         </p>
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:'7fr 5fr',gap:'1.25rem',alignItems:'start'}}>
+      <div style={{display:'grid',gridTemplateColumns: isMobile ? '1fr' : '7fr 5fr',gap:'1.25rem',alignItems:'start'}}>
         <div style={{display:'flex',flexDirection:'column',gap:'1.25rem'}}>
 
           {/* Steps */}

@@ -1,3 +1,4 @@
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import React, { useState, useRef, useCallback } from 'react';
 import { leadsAPI } from '../../services/api';
 
@@ -107,6 +108,7 @@ const StatCard = ({ label, value, icon, color }) => (
    MAIN COMPONENT
 ════════════════════════════════════════════════════════════ */
 export default function EnrichLeads() {
+  const { isMobile, isTablet } = useBreakpoint();
   const fileRef = useRef();
 
   const [rows,     setRows]     = useState([]);
@@ -336,7 +338,7 @@ export default function EnrichLeads() {
     <div className="fade-in">
 
       {/* Page header */}
-      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem' }}>
+      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem', flexWrap:'wrap', gap:'0.75rem' }}>
         <div>
           <p className="label-sm" style={{ marginBottom:'0.25rem' }}>Sales CRM</p>
           <h1 className="headline-sm">Enrich Leads</h1>
@@ -383,7 +385,7 @@ export default function EnrichLeads() {
           {/* How it works */}
           <div className="card" style={{ marginTop:'1.5rem', padding:'1.5rem' }}>
             <h2 style={{ fontSize:'1rem', fontWeight:700, marginBottom:'1.25rem' }}>How it works</h2>
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'1.25rem' }}>
+            <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : isTablet ? 'repeat(2,1fr)' : 'repeat(3,1fr)', gap:'1.25rem' }}>
               {[
                 { n:'1', icon:'upload_file',   title:'Upload any CSV',            desc:'Drop the file. We scan every column automatically — no manual mapping needed.' },
                 { n:'2', icon:'auto_fix_high', title:'Auto-detect what\'s missing', desc:'We check which rows are missing email or phone, then use their LinkedIn URL to find both.' },
@@ -411,7 +413,7 @@ export default function EnrichLeads() {
       {(step === 'preview' || step === 'enriching' || step === 'done') && (
         <>
           {/* Stat cards — DYNAMIC based on actual data */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
+          <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
             <StatCard label="Rows in File"        value={rows.length}                    icon="group"          color="var(--primary)" />
             <StatCard label="Need Enrichment"     value={toEnrich.length}                icon="auto_fix_high"  color="var(--primary)" />
             <StatCard label="Missing Email"       value={missingEmail.length}            icon="mail_off"       color="var(--amber)" />

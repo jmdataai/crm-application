@@ -1,3 +1,4 @@
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import React, { useState, useRef, useCallback } from 'react';
 import { leadsAPI } from '../../services/api';
 
@@ -385,6 +386,7 @@ function transformRow(row, mapping, filename) {
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════ */
 export default function ImportLeads() {
+  const { isMobile } = useBreakpoint();
   // ── State ─────────────────────────────────────────────
   const [step, setStep]           = useState(1); // 1=upload 2=map 3=preview 4=result
   const [file, setFile]           = useState(null);
@@ -520,7 +522,7 @@ export default function ImportLeads() {
       {/* Format guide */}
       <div className="card" style={{ marginTop:'1.5rem' }}>
         <h3 style={{ fontWeight:700, fontSize:'0.9375rem', marginBottom:'1rem' }}>Supported Sheet Formats</h3>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
+        <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'0.75rem' }}>
           {[
             { icon:'table_chart', label:'Ireland Companies Sheet',  desc:'Company Name, Type, Location, Domain Focus, 3 Contact Persons' },
             { icon:'handshake',   label:'End Client Sheet',         desc:'Company, Type, Location, Domain, 3 Contact Persons' },
@@ -557,7 +559,7 @@ export default function ImportLeads() {
 
       {/* Sheet tabs */}
       {sheets.length > 1 && (
-        <div style={{ display:'flex', gap:'0.375rem', marginBottom:'1rem', overflowX:'auto' }}>
+        <div style={{ display:'flex', gap:'0.375rem', flexWrap:'wrap', marginBottom:'1rem', overflowX:'auto' }}>
           {sheets.map((sh, i) => (
             <button key={sh} onClick={() => switchSheet(i)} style={{
               padding:'0.375rem 0.875rem', borderRadius:9999, border:'none', cursor:'pointer',
@@ -653,7 +655,7 @@ export default function ImportLeads() {
       <div style={{ display:'flex', flexDirection:'column', gap:'0.75rem' }}>
         {preview.slice(0, 10).map((row, i) => (
           <div key={i} className="card" style={{ padding:'1rem' }}>
-            <div style={{ display:'grid', gridTemplateColumns:'3fr 1fr 1fr 1fr', gap:'0.75rem', alignItems:'start' }}>
+            <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '3fr 1fr 1fr 1fr', gap:'0.75rem', alignItems:'start' }}>
               {/* Company */}
               <div>
                 <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.25rem' }}>

@@ -1,3 +1,4 @@
+import { useBreakpoint } from '../hooks/useBreakpoint';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
@@ -9,6 +10,7 @@ const Icon = ({ name, style }) => (
 
 /* ── Notifications Panel ─────────────────────────────── */
 const NotificationsPanel = ({ onClose }) => {
+  const { isMobile, width: vw } = useBreakpoint();
   const [reminders, setReminders] = useState([]);
   const [loading, setLoading]     = useState(true);
   const ref = useRef();
@@ -42,7 +44,7 @@ const NotificationsPanel = ({ onClose }) => {
       position:'absolute', top:'calc(100% + 8px)', right:0, zIndex:200,
       background:'var(--surface-container-lowest)', border:'1px solid var(--outline-variant)',
       borderRadius:'0.875rem', boxShadow:'0 8px 32px rgba(0,0,0,0.14)',
-      width:340, maxHeight:460, overflow:'hidden', display:'flex', flexDirection:'column',
+      width: Math.min(340, vw - 16), maxHeight:460, overflow:'hidden', display:'flex', flexDirection:'column',
     }}>
       <div style={{ padding:'1rem 1.25rem', borderBottom:'1px solid var(--outline-variant)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
         <p style={{ fontWeight:700, fontSize:'0.9375rem', color:'var(--on-surface)' }}>Notifications</p>
@@ -89,6 +91,7 @@ const NotificationsPanel = ({ onClose }) => {
 
 /* ── Help Panel ──────────────────────────────────────── */
 const HelpPanel = ({ onClose }) => {
+  const { width: vw } = useBreakpoint();
   const ref = useRef();
   useEffect(() => {
     const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
@@ -110,7 +113,7 @@ const HelpPanel = ({ onClose }) => {
     <div ref={ref} style={{
       position:'absolute', top:'calc(100% + 8px)', right:0, zIndex:200,
       background:'var(--surface-container-lowest)', border:'1px solid var(--outline-variant)',
-      borderRadius:'0.875rem', boxShadow:'0 8px 32px rgba(0,0,0,0.14)', width:260,
+      borderRadius:'0.875rem', boxShadow:'0 8px 32px rgba(0,0,0,0.14)', width: Math.min(260, vw - 16),
     }}>
       <div style={{ padding:'1rem 1.25rem', borderBottom:'1px solid var(--outline-variant)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
         <p style={{ fontWeight:700, fontSize:'0.9375rem', color:'var(--on-surface)' }}>Quick Help</p>

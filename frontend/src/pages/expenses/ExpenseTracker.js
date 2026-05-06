@@ -1,3 +1,4 @@
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -271,7 +272,7 @@ const ExpenseModal = ({ expense, onClose, onSave }) => {
           </div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '1rem' }}>
           {/* Title */}
           <div style={{ gridColumn: '1/-1' }}>
             <label style={labelStyle}>Title *</label>
@@ -445,6 +446,7 @@ const ExpenseModal = ({ expense, onClose, onSave }) => {
 
 /* ── Delete Confirm Modal ───────────────────────────────────── */
 const DeleteModal = ({ expense, onClose, onDeleted }) => {
+  const { isMobile } = useBreakpoint();
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
 
@@ -508,6 +510,7 @@ const DeleteModal = ({ expense, onClose, onDeleted }) => {
    MAIN PAGE
 ═══════════════════════════════════════════════════════════════ */
 export default function ExpenseTracker() {
+  const { isMobile } = useBreakpoint();
   const { can } = useAuth();
   const isAdmin = can('canDelete') || can('viewCEO'); // admin + CEO can delete expenses
 

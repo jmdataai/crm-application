@@ -1,3 +1,4 @@
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { candidatesAPI, activitiesAPI, interviewsAPI } from '../../services/api';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -243,6 +244,7 @@ const ResumeCard = ({ candidateId, candidateName, initialUrl, onSaved }) => {
 
 /* ── Schedule Interview Modal ───────────────────────── */
 const ScheduleModal = ({ onClose, onAdd }) => {
+  const { isMobile } = useBreakpoint();
   const [form, setForm] = useState({ type:'Technical Round', date:'', time:'10:00', interviewer:'', notes:'' });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const submit = () => {
@@ -264,7 +266,7 @@ const ScheduleModal = ({ onClose, onAdd }) => {
               {['Technical Round','HR Round','Final Round','Research Panel','Culture Fit'].map(t => <option key={t}>{t}</option>)}
             </select>
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
+          <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'1rem' }}>
             <div><label className="label">Date</label><input className="input" type="date" value={form.date} onChange={e => set('date', e.target.value)} /></div>
             <div><label className="label">Time</label><input className="input" type="time" value={form.time} onChange={e => set('time', e.target.value)} /></div>
           </div>
@@ -284,6 +286,7 @@ const ScheduleModal = ({ onClose, onAdd }) => {
 
 /* ── Main ───────────────────────────────────────────── */
 export default function CandidateDetail() {
+  const { isMobile } = useBreakpoint();
   const { id } = useParams();
   const navigate = useNavigate();
   const [candidate, setCand]        = useState(null);
@@ -421,7 +424,7 @@ export default function CandidateDetail() {
         <span style={{ fontSize:'0.875rem', fontWeight:600 }}>{cand.full_name}</span>
       </div>
 
-      <div style={{ display:'grid', gridTemplateColumns:'5fr 7fr', gap:'1.25rem', alignItems:'start' }}>
+      <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '5fr 7fr', gap:'1.25rem', alignItems:'start' }}>
 
         {/* ── LEFT COLUMN ── */}
         <div style={{ display:'flex', flexDirection:'column', gap:'1.25rem' }}>
@@ -659,7 +662,7 @@ export default function CandidateDetail() {
               <h2 style={{ fontSize:'1.125rem', fontWeight:700 }}>Edit Candidate</h2>
               <button className="btn-icon" onClick={() => setEditing(false)}><Icon name="close" /></button>
             </div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
+            <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'1rem' }}>
               {[
                 { label:'Full Name *',  key:'full_name',      type:'text',  span:2 },
                 { label:'Email',        key:'email',          type:'email' },

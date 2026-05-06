@@ -1,3 +1,4 @@
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import React, { useState, useEffect, useCallback } from 'react';
 import { dashboardAPI } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -24,6 +25,7 @@ const STAGE_LABEL = {
 };
 
 export default function RecruitmentDashboard() {
+  const { isMobile, isTablet } = useBreakpoint();
   const { user } = useAuth();
   const [period, setPeriod] = useState('weekly');
   const [data, setData]     = useState(null);
@@ -66,7 +68,7 @@ export default function RecruitmentDashboard() {
 
   return (
     <div className="fade-in">
-      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem' }}>
+      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem', flexWrap:'wrap', gap:'0.75rem' }}>
         <div>
           <p className="label-sm" style={{ marginBottom:'0.25rem', color:'var(--tertiary)' }}>Recruitment ATS</p>
           <h1 className="headline-sm">{greeting}, {firstName} 👋</h1>
@@ -89,7 +91,7 @@ export default function RecruitmentDashboard() {
 
       {!loading && (
         <>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'1.25rem', marginBottom:'1.75rem' }}>
+          <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap:'1.25rem', marginBottom:'1.75rem' }}>
             {[
               { label:'Total Candidates', value:total,      icon:'group',      color:'var(--tertiary)' },
               { label:'In Pipeline',      value:inPipeline, icon:'pending',    color:'var(--tertiary)' },
@@ -106,7 +108,7 @@ export default function RecruitmentDashboard() {
             ))}
           </div>
 
-          <div style={{ display:'grid', gridTemplateColumns:'7fr 5fr', gap:'1.25rem' }}>
+          <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '7fr 5fr', gap:'1.25rem' }}>
             <div className="card">
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.25rem' }}>
                 <h2 style={{ fontSize:'1rem', fontWeight:700 }}>Recent Candidates</h2>

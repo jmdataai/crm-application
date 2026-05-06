@@ -1,3 +1,4 @@
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { jobsAPI, candidatesAPI } from '../../services/api';
 import { useNavigate } from 'react-router-dom';
@@ -25,6 +26,7 @@ const normalizeJob = (j) => ({
 
 /* ── Add Job Modal ──────────────────────────────────── */
 const AddJobModal = ({ onClose, onAdd }) => {
+  const { isMobile } = useBreakpoint();
   const [form, setForm] = useState({
     title:'', dept:'Engineering', location:'', type:'Full-time',
     desc:'', requirements:'', salary_range:'', skills:'', urgent:false,
@@ -65,7 +67,7 @@ const AddJobModal = ({ onClose, onAdd }) => {
           <h2 style={{ fontSize:'1.125rem', fontWeight:700 }}>Post New Job</h2>
           <button className="btn-icon" onClick={onClose}><Icon name="close" /></button>
         </div>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
+        <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'1rem' }}>
           <div style={{ gridColumn:'1/-1' }}>
             <label className="label">Job Title *</label>
             <input className="input" placeholder="e.g. Senior ML Engineer" value={form.title} onChange={e => set('title',e.target.value)} />
@@ -129,6 +131,7 @@ const AddJobModal = ({ onClose, onAdd }) => {
 
 /* ── Edit Job Modal ─────────────────────────────────── */
 const EditJobModal = ({ job, onClose, onSave }) => {
+  const { isMobile } = useBreakpoint();
   const [form, setForm] = React.useState({
     title:        job.title        || '',
     dept:         job.dept         || 'Engineering',
@@ -181,7 +184,7 @@ const EditJobModal = ({ job, onClose, onSave }) => {
           <h2 style={{ fontSize:'1.125rem', fontWeight:700 }}>Edit Job</h2>
           <button className="btn-icon" onClick={onClose}><Icon name="close" /></button>
         </div>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
+        <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'1rem' }}>
           <div style={{ gridColumn:'1/-1' }}>
             <label className="label">Job Title *</label>
             <input className="input" value={form.title} onChange={e => set('title',e.target.value)} />
@@ -246,6 +249,7 @@ const EditJobModal = ({ job, onClose, onSave }) => {
 
 /* ── Job Detail Panel ───────────────────────────────── */
 const JobPanel = ({ job, onClose, onToggle, onViewApplicants, onEdit, candidateCount }) => {
+  const { isMobile } = useBreakpoint();
   const [copied, setCopied] = React.useState(false);
   const applyUrl = job.apply_key
     ? `${window.location.origin}/apply?key=${job.apply_key}`
@@ -289,7 +293,7 @@ const JobPanel = ({ job, onClose, onToggle, onViewApplicants, onEdit, candidateC
       </div>
 
       {/* Stats */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.875rem', marginBottom:'1.5rem' }}>
+      <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'0.875rem', marginBottom:'1.5rem' }}>
         {[
           { label:'Applications', value: candidateCount ?? 0, icon:'group' },
           { label:'Posted',       value: job.posted,          icon:'calendar_today' },
@@ -381,6 +385,7 @@ const JobPanel = ({ job, onClose, onToggle, onViewApplicants, onEdit, candidateC
 
 /* ── Main ───────────────────────────────────────────── */
 export default function JobsList() {
+  const { isMobile, isTablet } = useBreakpoint();
   const navigate = useNavigate();
   const [jobs, setJobs]       = useState([]);
   const [loading, setLoading] = useState(true);
@@ -461,7 +466,7 @@ export default function JobsList() {
   return (
     <div className="fade-in">
       {/* Header */}
-      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem' }}>
+      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem', flexWrap:'wrap', gap:'0.75rem' }}>
         <div>
           <p className="label-sm" style={{ marginBottom:'0.25rem', color:'var(--tertiary)' }}>Recruitment ATS</p>
           <h1 className="headline-sm">Job Openings</h1>
@@ -477,7 +482,7 @@ export default function JobsList() {
       </div>
 
       {/* Stats */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
+      <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
         {[
           { label:'Total Positions', value:statCounts.total,  icon:'work',          color:'var(--tertiary)' },
           { label:'Active',          value:statCounts.active, icon:'check_circle',   color:'var(--tertiary)' },
@@ -535,7 +540,7 @@ export default function JobsList() {
 
       {/* Grid view */}
       {view === 'grid' && (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'1rem' }}>
+        <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : isTablet ? 'repeat(2,1fr)' : 'repeat(3,1fr)', gap:'1rem' }}>
           {filtered.map(job => (
             <div
               key={job.id}
@@ -547,7 +552,7 @@ export default function JobsList() {
                 <div style={{ width:44, height:44, borderRadius:'0.75rem', background:'rgba(0,98,67,0.1)', display:'flex', alignItems:'center', justifyContent:'center' }}>
                   <Icon name="work" style={{ fontSize:'1.375rem', color:'var(--tertiary)' }} />
                 </div>
-                <div style={{ display:'flex', gap:'0.375rem', alignItems:'center' }}>
+                <div style={{ display:'flex', gap:'0.375rem', flexWrap:'wrap', alignItems:'center' }}>
                   {job.urgent && <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.15rem 0.5rem', borderRadius:9999, background:'var(--error-container)', color:'var(--on-error-container)' }}>Urgent</span>}
                   <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.15rem 0.5rem', borderRadius:9999, background: job.active?'rgba(0,98,67,0.1)':'var(--surface-container)', color: job.active?'var(--tertiary)':'var(--on-surface-variant)' }}>
                     {job.active ? '● Active' : '○ Closed'}
@@ -587,7 +592,7 @@ export default function JobsList() {
       {/* List view */}
       {view === 'list' && (
         <div className="card" style={{ padding:0, overflow:'hidden' }}>
-          <table className="data-table" style={{ margin:0 }}>
+          <div className="table-scroll-wrapper"><table className="data-table" style={{ margin:0 }}>
             <thead>
               <tr style={{ background:'var(--surface-container-low)' }}>
                 {['Job Title','Department','Location','Type','Applications','Posted','Status',''].map(h => (
@@ -631,6 +636,7 @@ export default function JobsList() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

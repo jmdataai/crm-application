@@ -14,6 +14,7 @@
  *   • Rate-limited 5/min per IP on the backend
  */
 
+import { useBreakpoint } from '../hooks/useBreakpoint';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -192,6 +193,7 @@ const STATES = { VALIDATING:'validating', NOT_FOUND:'not_found', FORM:'form', SU
 // Main Component
 // ─────────────────────────────────────────────────────────────
 export default function Apply() {
+  const { isMobile } = useBreakpoint();
   const [searchParams] = useSearchParams();
   const applyKey = (searchParams.get('key') || '').trim().slice(0, 64);
 
@@ -429,7 +431,7 @@ export default function Apply() {
             )}
 
             {/* Name row */}
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
+            <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'1rem' }}>
               <Field label="First name" required error={errors.first_name}>
                 <input {...bind('first_name', { maxLen:50, noTags:true })} placeholder="Ravi" autoComplete="given-name" />
               </Field>
@@ -548,7 +550,7 @@ export default function Apply() {
                 Add more details (optional)
               </summary>
 
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
+              <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'1rem' }}>
                 <Field label="Current company" error={errors.current_company}>
                   <input {...bind('current_company', { maxLen:100, noTags:true })} placeholder="Infosys" autoComplete="organization" />
                 </Field>

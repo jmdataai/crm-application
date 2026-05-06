@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { leadsAPI, activitiesAPI, submissionsAPI, candidatesAPI } from '../../services/api';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
@@ -133,6 +134,7 @@ const ContactCard = ({ label, num, name, designation, email, phone, linkedin, ac
 
 // ── Edit Company Modal ───────────────────────────────────────
 const EditCompanyModal = ({ lead, onClose, onSave }) => {
+  const { isMobile } = useBreakpoint();
   const [form, setForm] = useState({ ...lead });
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -188,7 +190,7 @@ const EditCompanyModal = ({ lead, onClose, onSave }) => {
   const ContactSection = ({ prefix, label, nameKey, desgKey, emailKey, phoneKey, liKey }) => (
     <div>
       <p style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.625rem' }}>{label}</p>
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
+      <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'0.75rem' }}>
         <div><label className="label">Name</label><input className="input" value={form[nameKey]||''} onChange={e=>set(nameKey,e.target.value)} /></div>
         <div><label className="label">Designation</label><input className="input" value={form[desgKey]||''} onChange={e=>set(desgKey,e.target.value)} /></div>
         <div><label className="label">Email</label><input className="input" type="email" value={form[emailKey]||''} onChange={e=>set(emailKey,e.target.value)} /></div>
@@ -208,7 +210,7 @@ const EditCompanyModal = ({ lead, onClose, onSave }) => {
 
         {/* Company */}
         <p style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.75rem' }}>Company Details</p>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.875rem', marginBottom:'1rem' }}>
+        <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'0.875rem', marginBottom:'1rem' }}>
           <div style={{gridColumn:'1/-1'}}><label className="label">Company Name *</label><input className="input" value={form.company||''} onChange={e=>set('company',e.target.value)} /></div>
           <div>
             <label className="label">Company Type</label>
@@ -390,7 +392,7 @@ export default function LeadDetail() {
         <span style={{ fontSize:'0.875rem', fontWeight:600, color:'var(--on-surface)' }}>{lead?.company || '…'}</span>
       </div>
 
-      <div style={{ display:'grid', gridTemplateColumns:'4fr 8fr', gap:'1.25rem', alignItems:'start' }}>
+      <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '4fr 8fr', gap:'1.25rem', alignItems:'start' }}>
 
         {/* LEFT — Company Profile */}
         <div style={{ display:'flex', flexDirection:'column', gap:'1.25rem' }}>

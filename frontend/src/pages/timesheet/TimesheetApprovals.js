@@ -1,3 +1,4 @@
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { timesheetAPI, usersAPI, formatApiError } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -369,7 +370,7 @@ const DetailModal = ({ ts, onClose, onReviewed, monthDate }) => {
           {weekDays.map(date=>{
             const e=entriesMap[date]; const hrs=parseFloat(e?.hours||0);
             return(
-              <div key={date} style={{display:'grid',gridTemplateColumns:'80px 55px 1fr',padding:'9px 0',borderBottom:'1px solid var(--surface-container-high)',alignItems:'start',gap:10}}>
+              <div key={date} style={{display:'grid',gridTemplateColumns: isMobile ? '1fr' : '80px 55px 1fr',padding:'9px 0',borderBottom:'1px solid var(--surface-container-high)',alignItems:'start',gap:10}}>
                 <div>
                   <p style={{margin:0,fontWeight:600,fontSize:'0.8125rem',color:'var(--on-surface)'}}>{DAY_NAMES[weekDaysAll.indexOf(date)]}</p>
                   <p style={{margin:0,fontSize:'0.7rem',color:'var(--on-surface-variant)'}}>{new Date(date+'T00:00:00').toLocaleDateString('en-GB',{day:'numeric',month:'short'})}</p>

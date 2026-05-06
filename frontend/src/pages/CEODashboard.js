@@ -1,3 +1,4 @@
+import { useBreakpoint } from '../hooks/useBreakpoint';
 import React, { useState, useEffect, useCallback } from 'react';
 import { ceoDashboardAPI } from '../services/api';
 
@@ -24,6 +25,7 @@ const KPI = ({ label, value, sub, icon, color, onClick }) => (
 );
 
 export default function CEODashboard() {
+  const { isMobile, isTablet } = useBreakpoint();
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab,     setTab]     = useState('overview');
@@ -48,7 +50,7 @@ export default function CEODashboard() {
 
   return (
     <div className="fade-in">
-      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem' }}>
+      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem', flexWrap:'wrap', gap:'0.75rem' }}>
         <div>
           <p className="label-sm" style={{ marginBottom:'0.25rem' }}>Admin View</p>
           <h1 className="headline-sm">CEO Dashboard</h1>
@@ -69,7 +71,7 @@ export default function CEODashboard() {
       {!loading && data && (
         <>
           {/* KPI strip */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
+          <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : isTablet ? 'repeat(3,1fr)' : 'repeat(5,1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
             <KPI label="Pipeline Value"    value={fmt(pv)}                         sub={`${data.pipeline_leads} active deals`}   icon="trending_up"   color="var(--primary)" />
             <KPI label="Closed Value"      value={fmt(cv)}                         sub={`${data.closed_leads} deals closed`}     icon="check_circle"  color="var(--tertiary)" />
             <KPI label="Total Leads"       value={data.total_leads}                sub={`${data.leads_this_week} this week`}     icon="group"         color="var(--primary)" />
@@ -106,7 +108,7 @@ export default function CEODashboard() {
 
           {/* TAB: OVERVIEW */}
           {tab === 'overview' && (
-            <div style={{ display:'grid', gridTemplateColumns:'7fr 5fr', gap:'1.25rem' }}>
+            <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '7fr 5fr', gap:'1.25rem' }}>
               {/* Pipeline funnel */}
               <div className="card">
                 <h2 style={{ fontSize:'1rem', fontWeight:700, marginBottom:'1.25rem' }}>Pipeline by Stage</h2>

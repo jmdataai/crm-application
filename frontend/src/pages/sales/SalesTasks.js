@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { tasksAPI } from '../../services/api';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
@@ -21,6 +22,7 @@ const tomorrow = new Date(Date.now()+86400000).toISOString().slice(0,10);
 
 /* ── Add Task Modal ─────────────────────────────────── */
 const AddTaskModal = ({ onClose, onAdd }) => {
+  const { isMobile } = useBreakpoint();
   const [form, setForm] = useState({ title:'', type:'call', priority:'medium', due:today, time:'09:00', lead:'', company:'', notes:'' });
   const set = (k,v) => setForm(f => ({ ...f, [k]: v }));
   const submit = () => { if(!form.title.trim()) return; onAdd({ ...form, id:`t${Date.now()}`, done:false }); onClose(); };
@@ -53,7 +55,7 @@ const AddTaskModal = ({ onClose, onAdd }) => {
           </div>
         </div>
 
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
+        <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'1rem' }}>
           <div style={{ gridColumn:'1/-1' }}>
             <label className="label">Task Title *</label>
             <input className="input" placeholder="e.g. Follow-up call with Priya" value={form.title} onChange={e => set('title', e.target.value)} />
@@ -167,6 +169,7 @@ const TaskRow = ({ task, onToggle, onDelete }) => {
 
 /* ── Main ───────────────────────────────────────────── */
 export default function SalesTasks() {
+  const { isMobile } = useBreakpoint();
   const [tasks, setTasks]   = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -237,7 +240,7 @@ export default function SalesTasks() {
       {loading && <div style={{ textAlign:'center', padding:'4rem', color:'var(--on-surface-variant)' }}><Icon name="progress_activity" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.75rem' }} />Loading tasks…</div>}
       {!loading && <>
       {/* Header */}
-      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem' }}>
+      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem', flexWrap:'wrap', gap:'0.75rem' }}>
         <div>
           <p className="label-sm" style={{ marginBottom:'0.25rem' }}>Sales CRM</p>
           <h1 className="headline-sm">Tasks</h1>
@@ -248,7 +251,7 @@ export default function SalesTasks() {
       </div>
 
       {/* Stats row */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
+      <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
         {FILTERS.map(f => (
           <button
             key={f.key}
@@ -269,7 +272,7 @@ export default function SalesTasks() {
 
       {/* Filter row */}
       <div className="card" style={{ padding:'0.875rem 1.25rem', marginBottom:'1rem', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'1rem' }}>
-        <div style={{ display:'flex', gap:'0.375rem' }}>
+        <div style={{ display:'flex', gap:'0.375rem', flexWrap:'wrap' }}>
           {['all','high','medium','low'].map(p => (
             <button key={p} onClick={() => setPriority(p)} style={{
               padding:'0.3rem 0.875rem', borderRadius:9999, border:'none', cursor:'pointer',

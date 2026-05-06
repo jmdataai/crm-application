@@ -1,3 +1,4 @@
+import { useBreakpoint } from '../hooks/useBreakpoint';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -15,6 +16,7 @@ const ROLE_COLORS = {
 const ROLE_LABELS = { admin: 'Admin', sales: 'Sales Rep', viewer: 'Viewer (CEO)', worker: 'Worker' };
 
 export default function Settings() {
+  const { isMobile } = useBreakpoint();
   const { user: me } = useAuth();
   const isAdmin = me?.role === 'admin';
 
@@ -181,7 +183,7 @@ export default function Settings() {
                   {formError}
                 </div>
               )}
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.875rem', marginBottom:'0.875rem' }}>
+              <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'0.875rem', marginBottom:'0.875rem' }}>
                 {[
                   { label:'Full Name',    key:'name',     type:'text',     placeholder:'e.g. Rahul Sharma' },
                   { label:'Email',        key:'email',    type:'email',    placeholder:'priya@company.com' },
@@ -268,7 +270,7 @@ export default function Settings() {
                       <td style={{ padding:'0.75rem', color:'var(--on-surface-variant)' }}>{u.email}</td>
                       <td style={{ padding:'0.75rem' }}>
                         {editingRole === u.id ? (
-                          <div style={{ display:'flex', gap:'0.375rem', alignItems:'center' }}>
+                          <div style={{ display:'flex', gap:'0.375rem', flexWrap:'wrap', alignItems:'center' }}>
                             <select
                               defaultValue={u.role || 'sales'}
                               onChange={e => handleRoleChange(u.id, e.target.value)}
@@ -331,7 +333,7 @@ export default function Settings() {
       {/* ── Account Info (visible to all) ── */}
       <div style={card}>
         <h2 style={{ fontSize:'1.1rem', fontWeight:600, color:'var(--on-surface)', marginBottom:'1rem' }}>Your Account</h2>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
+        <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'1rem' }}>
           {[
             { label:'Name',  value: me?.name },
             { label:'Email', value: me?.email },

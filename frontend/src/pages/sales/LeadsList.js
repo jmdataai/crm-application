@@ -1,3 +1,4 @@
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { leadsAPI } from '../../services/api';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -54,6 +55,7 @@ const SegmentBadge = ({ segment }) => {
 const CONTACT_INIT = { name:'', designation:'', email:'', phone:'', linkedin:'' };
 
 const AddCompanyModal = ({ onClose, onAdd }) => {
+  const { isMobile } = useBreakpoint();
   const [form, setForm] = useState({
     company:'', company_type:'', segment:'', hq_location:'', india_office:'',
     domain_focus:'', website:'', company_linkedin:'',
@@ -116,7 +118,7 @@ const AddCompanyModal = ({ onClose, onAdd }) => {
   const ContactPersonSection = ({ label, values, setter }) => (
     <div style={{ marginTop:'0.5rem' }}>
       <p style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.625rem' }}>{label}</p>
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
+      <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'0.75rem' }}>
         {[
           { l:'Name',        k:'name',        t:'text' },
           { l:'Designation', k:'designation', t:'text' },
@@ -146,7 +148,7 @@ const AddCompanyModal = ({ onClose, onAdd }) => {
 
         {/* Company Details */}
         <p style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.75rem' }}>Company Information</p>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.875rem' }}>
+        <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'0.875rem' }}>
           <div style={{ gridColumn:'1/-1' }}>
             <label className="label">Company Name *</label>
             <input className="input" type="text" value={form.company} onChange={e => setF('company', e.target.value)} placeholder="e.g. Accenture Ireland" />
@@ -279,6 +281,7 @@ const normalise = (l) => ({
 
 // ── Main Component ──────────────────────────────────────────
 export default function LeadsList() {
+  const { isMobile } = useBreakpoint();
   const navigate   = useNavigate();
   const location   = useLocation();
   const [leads, setLeads]         = useState([]);
@@ -647,7 +650,7 @@ export default function LeadsList() {
               <p style={{ fontSize:'0.8125rem', color:'var(--on-surface-variant)' }}>
                 Page {page} of {totalPages} · {filtered.length} total
               </p>
-              <div style={{ display:'flex', gap:'0.375rem' }}>
+              <div style={{ display:'flex', gap:'0.375rem', flexWrap:'wrap' }}>
                 <button className="btn-secondary" onClick={() => setPage(p => Math.max(1,p-1))} disabled={page===1} style={{ padding:'0.375rem 0.75rem', fontSize:'0.8125rem' }}>← Prev</button>
                 {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                   const pn = Math.max(1, Math.min(page-2, totalPages-4)) + i;

@@ -1,3 +1,4 @@
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import React, { useState, useEffect, useCallback } from 'react';
 import { timesheetAPI, formatApiError } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -167,9 +168,10 @@ const WeekForm = ({ weekStart, onSaved }) => {
       )}
 
       {/* Daily rows */}
-      <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--surface-container-high)' }}>
+      <div style={{ overflowX: isMobile ? 'auto' : undefined, WebkitOverflowScrolling: 'touch' }}>
+      <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--surface-container-high)', minWidth: isMobile ? 360 : undefined }}>
         {/* Desktop header */}
-        <div style={{ display: 'grid', gridTemplateColumns: '130px 75px 1fr', padding: '8px 14px', background: 'var(--surface-container)', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--on-surface-variant)', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '130px 75px 1fr', minWidth: isMobile ? 320 : undefined, padding: '8px 14px', background: 'var(--surface-container)', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--on-surface-variant)', gap: 10 }}>
           <span>Day / Date</span><span>Hours</span><span>What I worked on</span>
         </div>
 
@@ -178,7 +180,7 @@ const WeekForm = ({ weekStart, onSaved }) => {
           return (
             <div key={date} style={{ borderTop: '1px solid var(--surface-container-high)', background: 'var(--surface-container-lowest)' }}>
               {/* Desktop row */}
-              <div style={{ display: 'grid', gridTemplateColumns: '130px 75px 1fr', padding: '10px 14px', gap: 10, alignItems: 'center' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '130px 75px 1fr', minWidth: isMobile ? 320 : undefined, padding: '10px 14px', gap: 10, alignItems: 'center' }}>
                 <div>
                   <p style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--on-surface)', margin: 0 }}>{DAY_NAMES[i]}</p>
                   <p style={{ fontSize: '0.7rem', color: 'var(--on-surface-variant)', margin: 0 }}>{formatShortDate(date)}</p>
@@ -202,6 +204,8 @@ const WeekForm = ({ weekStart, onSaved }) => {
           );
         })}
       </div>
+
+      </div>{/* end scroll wrapper */}
 
       {/* Footer */}
       <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
@@ -274,7 +278,8 @@ const MonthlyView = ({ year, month }) => {
         </div>
       </div>
       {/* Column headers */}
-      <div style={{ display: 'grid', gridTemplateColumns: '100px 65px 1fr auto', padding: '7px 14px', background: 'var(--surface-container)', borderRadius: '10px 10px 0 0', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--on-surface-variant)', gap: 10, border: '1px solid var(--surface-container-high)', borderBottom: 'none' }}>
+      <div style={{ overflowX: isMobile ? 'auto' : undefined, WebkitOverflowScrolling: 'touch' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '100px 65px 1fr auto', minWidth: isMobile ? 360 : undefined, padding: '7px 14px', background: 'var(--surface-container)', borderRadius: '10px 10px 0 0', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--on-surface-variant)', gap: 10, border: '1px solid var(--surface-container-high)', borderBottom: 'none' }}>
         <span>Date</span><span>Hours</span><span>Notes</span><span>Status</span>
       </div>
       <div style={{ borderRadius: '0 0 10px 10px', overflow: 'hidden', border: '1px solid var(--surface-container-high)' }}>
@@ -286,7 +291,7 @@ const MonthlyView = ({ year, month }) => {
           const isWeekend = dayNum === 0 || dayNum === 6;
           return (
             <div key={date} style={{
-              display: 'grid', gridTemplateColumns: '100px 65px 1fr auto',
+              display: 'grid', gridTemplateColumns: '100px 65px 1fr auto', minWidth: isMobile ? 360 : undefined,
               padding: '8px 14px', gap: 10, alignItems: 'center',
               borderTop: i === 0 ? 'none' : '1px solid var(--surface-container-high)',
               background: isWeekend ? 'var(--surface-container)' : (hrs > 0 ? 'rgba(234,88,12,0.02)' : 'var(--surface-container-lowest)'),
@@ -309,6 +314,7 @@ const MonthlyView = ({ year, month }) => {
           );
         })}
       </div>
+      </div>{/* end scroll wrapper */}
     </div>
   );
 };

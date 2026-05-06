@@ -840,3 +840,118 @@ body {
   color: var(--on-surface);
   flex: 1;
 }
+
+/* =============================================
+   RESPONSIVE ENHANCEMENTS — All Screens
+   ============================================= */
+
+/* ── Overflow-scroll wrapper for tables/grids on mobile ── */
+.table-scroll-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Page header — always wraps nicely ── */
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1.75rem;
+}
+
+/* ── Notification panel — prevent off-screen on small viewports ── */
+@media (max-width: 480px) {
+  /* Notification & help panels clamp to viewport */
+  .notif-panel,
+  .help-panel {
+    right: -1rem !important;
+    width: calc(100vw - 2rem) !important;
+    max-width: 340px;
+  }
+}
+
+/* ── Topbar panel popups ── */
+@media (max-width: 768px) {
+  /* Panels that anchor to icon buttons need viewport-clamping */
+  div[style*="position:\'absolute\'"][style*="top:\'calc(100%"],
+  div[style*="position: absolute"][style*="top: calc(100%"] {
+    right: 0 !important;
+    max-width: calc(100vw - 1rem) !important;
+  }
+
+  /* Modal: full-screen on small devices */
+  .modal {
+    padding: 1.25rem !important;
+    max-height: 95vh !important;
+    border-radius: 0.875rem !important;
+  }
+
+  /* Stats/KPI 4-col cards: 2-col on mobile */
+  .stats-grid-4 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Sidebar layout: stack on mobile */
+  .sidebar-layout {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Form grid 2-col: single col on mobile */
+  .form-grid-2 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Filter row: wrap */
+  .filter-row {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 480px) {
+  .stats-grid-4 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  .modal {
+    padding: 1rem !important;
+  }
+}
+
+/* ── Tablet: tighten multi-col layouts ── */
+@media (max-width: 1024px) {
+  .stats-grid-5,
+  .stats-grid-6 {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+
+  .sidebar-layout-lg {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .stats-grid-5,
+  .stats-grid-6 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+/* ── Pipeline Kanban: horizontal scroll on mobile ── */
+.kanban-board {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 1rem;
+}
+
+/* ── Pipeline board hint on mobile ── */
+@media (max-width: 768px) {
+  .kanban-board {
+    gap: 0.75rem !important;
+  }
+  .pipeline-column {
+    min-width: 240px !important;
+  }
+}
