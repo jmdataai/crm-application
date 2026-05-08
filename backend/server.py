@@ -26,6 +26,7 @@ from typing import List, Optional
 from pydantic import BaseModel, EmailStr, field_validator, model_validator
 from enum import Enum
 import re as _re
+import json
 import secrets                        # apply_key generation
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -1929,6 +1930,118 @@ async def ats_match(body: ATSMatchRequest, request: Request):
         "total_scanned": len(all_candidates),
         "pre_filtered":  len(pre_filtered),
     }
+
+
+# ─────────────────────────────────────────────────────────────
+# ATS RESUME UPLOAD SCORING  (free-tier safe: 1 LLM call/resume)
+# ─────────────────────────────────────────────────────────────
+
+class ParseJDRequest(BaseModel):
+    jd_text: str
+
+@api_router.post("/candidates/parse-jd-for-scoring")
+async def parse_jd_for_scoring(body: ParseJDRequest, request: Request):
+    """Parse JD into structured skills (1 LLM call). Call once before scoring resumes."""
+    await get_current_user(request)
+    if not LLM_AVAILABLE:
+        raise HTTPException(503, "LLM service not configured. Set LLM_PROVIDER and API key.")
+    jd_text = (body.jd_text or "").strip()
+    if len(jd_text) < 30:
+        raise HTTPException(400, "Job description is too short (minimum 30 characters).")
+    jd_meta = await extract_jd_keywords(jd_text)
+    return jd_meta
+
+
+@api_router.post("/candidates/score-resume-upload")
+async def score_resume_upload(
+    request: Request,
+    resume: UploadFile = File(...),
+    jd_skills: str = Form(...),
+):
+    """
+    Score a single uploaded resume against pre-parsed JD skills.
+    1 LLM call per resume. Caller should sleep 2s between consecutive calls (Groq free tier).
+    """
+    await get_current_user(request)
+
+    allowed_ct = {
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }
+    ct = (resume.content_type or "").split(";")[0].strip()
+    if ct not in allowed_ct:
+        raise HTTPException(400, f"Unsupported file: {resume.filename}. Upload PDF or DOCX only.")
+
+    contents = await resume.read()
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(400, "Resume too large (max 10 MB).")
+
+    resume_text = _extract_resume_text(contents, ct)
+    if not resume_text.strip():
+        return {
+            "filename": resume.filename,
+            "ats_score": 0,
+            "matched_skills": [],
+            "missing_skills": [],
+            "tech_stack": [],
+            "experience_years": None,
+            "fit_summary": "Could not extract text from this file.",
+            "error": "text_extraction_failed",
+        }
+
+    insights = await extract_resume_insights(resume_text)
+    tech_stack = insights.get("tech_stack") or []
+    experience_years = insights.get("experience_years")
+
+    try:
+        jd_meta = json.loads(jd_skills)
+    except Exception:
+        raise HTTPException(400, "Invalid jd_skills JSON.")
+
+    required = set(s.lower() for s in jd_meta.get("required_skills") or [])
+    nice     = set(s.lower() for s in jd_meta.get("nice_to_have_skills") or [])
+    cand_set = set(s.lower() for s in tech_stack)
+
+    req_hits  = cand_set & required
+    nice_hits = cand_set & nice
+    req_pct   = len(req_hits) / max(len(required), 1)
+    nice_pct  = len(nice_hits) / max(len(nice), 1) if nice else 0.0
+
+    if not required and not nice:
+        ats_score = 0
+    elif not required:
+        ats_score = round(nice_pct * 60)
+    else:
+        ats_score = round(req_pct * 75 + nice_pct * 25)
+
+    jd_req_orig  = {s.lower(): s for s in jd_meta.get("required_skills") or []}
+    jd_nice_orig = {s.lower(): s for s in jd_meta.get("nice_to_have_skills") or []}
+
+    matched  = sorted(jd_req_orig.get(k, k)  for k in req_hits)
+    matched += sorted(jd_nice_orig.get(k, k) for k in nice_hits)
+    missing  = sorted(jd_req_orig.get(k, k)  for k in (required - cand_set))
+
+    nr, nt = len(required), len(req_hits)
+    if ats_score >= 75:
+        summary = f"Strong match: {nt}/{nr} required skills covered."
+    elif ats_score >= 50:
+        summary = f"Good match: {nt}/{nr} required skills found. Gaps are bridgeable."
+    elif ats_score >= 25:
+        summary = f"Partial match: only {nt}/{nr} required skills present."
+    else:
+        summary = f"Limited overlap: {nt}/{nr} required skills found."
+
+    return {
+        "filename": resume.filename,
+        "ats_score": ats_score,
+        "matched_skills": matched,
+        "missing_skills": missing,
+        "tech_stack": tech_stack,
+        "experience_years": experience_years,
+        "fit_summary": summary,
+    }
+
 
 
 # ============================================================

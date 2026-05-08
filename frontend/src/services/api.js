@@ -137,9 +137,22 @@ export const candidatesAPI = {
   // Resume — delete from Google Drive + clear in Supabase
   deleteResume: (candidateId) => api.delete(`/candidates/${candidateId}/resume`),
 
-  // ATS Match — score candidates against a job description
+  // ATS Match — score candidates against a job description (existing DB candidates)
   atsMatch: (jd_text, candidate_type = 'domestic') =>
     api.post('/candidates/ats-match', { jd_text, candidate_type }),
+
+  // ATS Resume Upload — parse JD once, then score each uploaded resume file
+  parseJDForScoring: (jd_text) =>
+    api.post('/candidates/parse-jd-for-scoring', { jd_text }),
+
+  scoreResumeUpload: (file, jdMeta) => {
+    const fd = new FormData();
+    fd.append('resume', file);
+    fd.append('jd_skills', JSON.stringify(jdMeta));
+    return api.post('/candidates/score-resume-upload', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
 };
 
 // Interviews APIs
