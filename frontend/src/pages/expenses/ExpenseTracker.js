@@ -159,6 +159,7 @@ const BarTooltip = ({ active, payload, label, displayCcy }) => {
 
 /* ── Add / Edit Expense Modal ───────────────────────────────── */
 const ExpenseModal = ({ expense, onClose, onSave }) => {
+  const { isMobile } = useBreakpoint();
   const isEdit = !!expense?.id;
   const fileRef = useRef(null);
 

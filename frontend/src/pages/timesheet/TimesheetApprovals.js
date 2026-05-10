@@ -319,6 +319,7 @@ const MonthlyBarChart = ({ data, monthLabel }) => {
 
 // ── Detail modal ─────────────────────────────────────────────
 const DetailModal = ({ ts, onClose, onReviewed, monthDate }) => {
+  const { isMobile } = useBreakpoint();
   const [note, setNote]     = useState('');
   const [acting, setActing] = useState(false);
   const [err, setErr]       = useState(null);
