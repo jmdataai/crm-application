@@ -118,11 +118,11 @@ const Sidebar = ({ isOpen, onClose }) => {
       <div style={{ padding: '0 0.25rem', marginBottom: '1.75rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
         <img
           src="/jm-logo.png"
-          alt="JMData"
+          alt="JM Data"
           style={{ width: 40, height: 40, borderRadius: '0.625rem', flexShrink: 0, objectFit: 'cover' }}
         />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#FAF7FB', fontFamily: 'var(--font-display)', margin: 0 }}>JMData Talent CRM</p>
+          <p style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#FAF7FB', fontFamily: 'var(--font-display)', margin: 0 }}>JM Data Talent CRM</p>
           <p style={{ fontSize: '0.6875rem', color: 'var(--sidebar-text)', opacity: 0.7, margin: 0, marginTop: 1, fontFamily: 'var(--font-ui)' }}>
             {isTimesheet ? 'Timesheet' : isRecruit ? 'Recruitment' : 'Sales'} Portal
           </p>

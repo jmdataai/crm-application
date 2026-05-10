@@ -55,9 +55,9 @@ const Login = () => {
 
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', marginBottom: '2rem' }}>
-            <img src="/jm-logo.png" alt="JMData" style={{ width: 48, height: 48, borderRadius: '0.75rem', objectFit: 'cover' }} />
+            <img src="/jm-logo.png" alt="JM Data" style={{ width: 48, height: 48, borderRadius: '0.75rem', objectFit: 'cover' }} />
             <div>
-              <p style={{ margin: 0, fontSize: '0.6875rem', fontWeight: 500, letterSpacing: '0.25em', textTransform: 'uppercase', color: '#92A0BA', fontFamily: 'var(--font-ui)' }}>JMData Talent</p>
+              <p style={{ margin: 0, fontSize: '0.6875rem', fontWeight: 500, letterSpacing: '0.25em', textTransform: 'uppercase', color: '#92A0BA', fontFamily: 'var(--font-ui)' }}>JM Data Talent</p>
               <p style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#FAF7FB', fontFamily: 'var(--font-display)' }}>CRM Platform</p>
             </div>
           </div>
@@ -80,7 +80,7 @@ const Login = () => {
         </div>
 
         <p style={{ fontSize: '0.75rem', color: '#92A0BA', fontFamily: 'var(--font-ui)', letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.6 }}>
-          © 2026 JMData Talent. All rights reserved.
+          © 2026 JM Data Talent. All rights reserved.
         </p>
       </div>
 
@@ -91,8 +91,8 @@ const Login = () => {
           {/* Mobile logo — only visible when left panel is hidden */}
           {isMobile && (
             <div style={{ display:'flex', flexDirection:'column', alignItems:'center', marginBottom:'2rem' }}>
-              <img src="/jm-logo.png" alt="JMData Talent" style={{ width:56, height:56, borderRadius:'0.875rem', objectFit:'cover', marginBottom:'0.75rem', boxShadow:'0 4px 16px rgba(68,104,176,0.2)' }} />
-              <p style={{ margin:0, fontSize:'0.625rem', fontWeight:600, letterSpacing:'0.2em', textTransform:'uppercase', color:'var(--on-surface-variant)' }}>JMData Talent</p>
+              <img src="/jm-logo.png" alt="JM Data Talent" style={{ width:56, height:56, borderRadius:'0.875rem', objectFit:'cover', marginBottom:'0.75rem', boxShadow:'0 4px 16px rgba(68,104,176,0.2)' }} />
+              <p style={{ margin:0, fontSize:'0.625rem', fontWeight:600, letterSpacing:'0.2em', textTransform:'uppercase', color:'var(--on-surface-variant)' }}>JM Data Talent</p>
               <p style={{ margin:'0.125rem 0 0', fontSize:'1rem', fontWeight:700, color:'var(--on-surface)' }}>CRM Platform</p>
             </div>
           )}

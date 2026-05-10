@@ -732,6 +732,10 @@ body {
 
 /* Mobile breakpoint: ≤ 768px */
 @media (max-width: 768px) {
+  /* Prevent page-level horizontal scroll that causes browser zoom-out */
+  body {
+    overflow-x: hidden;
+  }
   /* ── Sidebar: off-canvas drawer ── */
   .sidebar {
     transform: translateX(-100%);

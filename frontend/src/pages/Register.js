@@ -66,8 +66,8 @@ const Register = () => {
           {/* Mobile logo */}
           {isMobile && (
             <div style={{ display:'flex', flexDirection:'column', alignItems:'center', marginBottom:'2rem' }}>
-              <img src="/jm-logo.png" alt="JMData Talent" style={{ width:56, height:56, borderRadius:'0.875rem', objectFit:'cover', marginBottom:'0.75rem', boxShadow:'0 4px 16px rgba(68,104,176,0.2)' }} />
-              <p style={{ margin:0, fontSize:'0.625rem', fontWeight:600, letterSpacing:'0.2em', textTransform:'uppercase', color:'var(--on-surface-variant)' }}>JMData Talent</p>
+              <img src="/jm-logo.png" alt="JM Data Talent" style={{ width:56, height:56, borderRadius:'0.875rem', objectFit:'cover', marginBottom:'0.75rem', boxShadow:'0 4px 16px rgba(68,104,176,0.2)' }} />
+              <p style={{ margin:0, fontSize:'0.625rem', fontWeight:600, letterSpacing:'0.2em', textTransform:'uppercase', color:'var(--on-surface-variant)' }}>JM Data Talent</p>
               <p style={{ margin:'0.125rem 0 0', fontSize:'1rem', fontWeight:700, color:'var(--on-surface)' }}>CRM Platform</p>
             </div>
           )}

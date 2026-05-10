@@ -406,6 +406,7 @@ const DetailModal = ({ ts, onClose, onReviewed, monthDate }) => {
 // ── Main ─────────────────────────────────────────────────────
 const TimesheetApprovals = () => {
   const { user }   = useAuth();
+  const { isMobile } = useBreakpoint();
   const isCEO      = user?.role === 'admin' || user?.role === 'viewer';
 
   const [view, setView]             = useState('all');

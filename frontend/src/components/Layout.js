@@ -161,7 +161,7 @@ const TopBar = ({ onMenuClick }) => {
       </button>
 
       {/* App title — shown on very small screens when search hidden */}
-      <span className="topbar-title">JMData Talent CRM</span>
+      <span className="topbar-title">JM Data Talent CRM</span>
       {/* Search */}
       <div className="search-bar" style={{ maxWidth: 340 }}>
         <Icon name="search" style={{ position:'absolute', left:'0.625rem', top:'50%', transform:'translateY(-50%)', color:'var(--on-surface-variant)', fontSize:'1.1rem' }} />

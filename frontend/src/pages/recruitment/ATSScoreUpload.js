@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { candidatesAPI } from '../../services/api';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
@@ -70,6 +71,7 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const MAX_FILES = 10;
 
 export default function ATSScoreUpload() {
+  const { isMobile } = useBreakpoint();
   const [jdText, setJdText]         = useState('');
   const [files, setFiles]           = useState([]);           // File objects
   const [fileStates, setFileStates] = useState([]);          // { name, status, result, error }
@@ -241,7 +243,7 @@ export default function ATSScoreUpload() {
         </p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: results.length > 0 ? '1fr' : 'minmax(0,1fr) minmax(0,1fr)', gap: '1.25rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: results.length > 0 ? '1fr' : (isMobile ? '1fr' : 'minmax(0,1fr) minmax(0,1fr)'), gap: '1.25rem' }}>
 
         {/* ── LEFT: Inputs (hidden once results shown) ── */}
         {results.length === 0 && (
@@ -511,7 +513,7 @@ export default function ATSScoreUpload() {
                 <Icon name="emoji_events" style={{ color: '#f59e0b' }} />
                 <h2 style={{ fontSize: '1rem', fontWeight: 700 }}>Top Candidates</h2>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(results.length, 3)}, 1fr)`, gap: '0.875rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : `repeat(${Math.min(results.length, 3)}, 1fr)`, gap: '0.875rem' }}>
                 {results.slice(0, 3).map((r, idx) => {
                   const borderColor = idx === 0 ? '#f59e0b' : idx === 1 ? '#94a3b8' : '#c97b4b';
                   return (
@@ -638,7 +640,7 @@ export default function ATSScoreUpload() {
                   {/* Expanded */}
                   {isExpanded && (
                     <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--outline-variant)' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '1rem' }}>
                         {r.missing_skills?.length > 0 && (
                           <div>
                             <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--error)', marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>

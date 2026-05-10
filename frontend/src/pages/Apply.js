@@ -207,7 +207,7 @@ export default function Apply() {
 
   const [form, setForm] = useState({
     first_name:'', last_name:'', email:'',
-    phoneCode:'91', phoneNumber:'',
+    phoneCode:'353', phoneNumber:'',
     current_company:'', candidate_role:'',
     experience_years:'', linkedin_url:'', portfolio_url:'',
   });
@@ -324,9 +324,9 @@ export default function Apply() {
       {/* ── Left branding — hidden on mobile, compact header instead ── */}
       {isMobile ? (
         <div style={{ background:'linear-gradient(135deg, #0C162A 0%, #141B34 100%)', padding:'1.25rem 1.5rem', display:'flex', alignItems:'center', gap:'0.875rem' }}>
-          <img src="/jm-logo.png" alt="JMData Talent" style={{ width:36, height:36, borderRadius:'0.5rem', objectFit:'cover' }} />
+          <img src="/jm-logo.png" alt="JM Data Talent" style={{ width:36, height:36, borderRadius:'0.5rem', objectFit:'cover' }} />
           <div>
-            <p style={{ margin:0, fontSize:'0.625rem', fontWeight:500, letterSpacing:'0.2em', textTransform:'uppercase', color:'#92A0BA' }}>JMData Talent</p>
+            <p style={{ margin:0, fontSize:'0.625rem', fontWeight:500, letterSpacing:'0.2em', textTransform:'uppercase', color:'#92A0BA' }}>JM Data Talent</p>
             <p style={{ margin:0, fontSize:'0.9375rem', fontWeight:700, color:'#FAF7FB' }}>Recruitment</p>
           </div>
         </div>
@@ -337,9 +337,9 @@ export default function Apply() {
 
         <div>
           <div style={{ display:'flex', alignItems:'center', gap:'0.875rem', marginBottom:'2.5rem' }}>
-            <img src="/jm-logo.png" alt="JMData Talent" style={{ width:44, height:44, borderRadius:'0.625rem', objectFit:'cover' }} />
+            <img src="/jm-logo.png" alt="JM Data Talent" style={{ width:44, height:44, borderRadius:'0.625rem', objectFit:'cover' }} />
             <div>
-              <p style={{ margin:0, fontSize:'0.625rem', fontWeight:500, letterSpacing:'0.25em', textTransform:'uppercase', color:'#92A0BA' }}>JMData Talent</p>
+              <p style={{ margin:0, fontSize:'0.625rem', fontWeight:500, letterSpacing:'0.25em', textTransform:'uppercase', color:'#92A0BA' }}>JM Data Talent</p>
               <p style={{ margin:0, fontSize:'0.9375rem', fontWeight:700, color:'#FAF7FB' }}>Recruitment</p>
             </div>
           </div>
@@ -443,16 +443,16 @@ export default function Apply() {
             {/* Name row */}
             <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'1rem' }}>
               <Field label="First name" required error={errors.first_name}>
-                <input {...bind('first_name', { maxLen:50, noTags:true })} placeholder="Ravi" autoComplete="given-name" />
+                <input {...bind('first_name', { maxLen:50, noTags:true })} placeholder="Freddy" autoComplete="given-name" />
               </Field>
               <Field label="Last name" required error={errors.last_name}>
-                <input {...bind('last_name', { maxLen:50, noTags:true })} placeholder="Teja" autoComplete="family-name" />
+                <input {...bind('last_name', { maxLen:50, noTags:true })} placeholder="White" autoComplete="family-name" />
               </Field>
             </div>
 
             {/* Email */}
             <Field label="Email address" required error={errors.email} hint="Double-check your email — we will use this to contact you.">
-              <input type="email" {...bind('email', { maxLen:254 })} placeholder="ravi@example.com" autoComplete="email" />
+              <input type="email" {...bind('email', { maxLen:254 })} placeholder="white@example.com" autoComplete="email" />
             </Field>
 
             {/* Phone — split UI */}
@@ -630,7 +630,7 @@ export default function Apply() {
             </button>
 
             <p style={{ textAlign:'center', marginTop:'0.875rem', fontSize:'0.8125rem', color:'var(--on-surface-variant)', lineHeight:1.5 }}>
-              By submitting, you agree to let JMData Talent process your application data.
+              By submitting, you agree to let JM Data Talent process your application data.
             </p>
           </>)}
         </div>
