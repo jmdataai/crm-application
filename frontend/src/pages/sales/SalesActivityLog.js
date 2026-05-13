@@ -20,6 +20,20 @@ const fmtDate = (d) => {
   return `${String(d.getDate()).padStart(2,'0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
 };
 
+const toISODate = (d) => d.toISOString().slice(0, 10);
+const parseISODate = (iso) => new Date(`${iso}T00:00:00`);
+const shiftISODate = (iso, days) => {
+  const d = parseISODate(iso);
+  d.setDate(d.getDate() + days);
+  return toISODate(d);
+};
+const getWeekStartISO = (iso) => {
+  const d = parseISODate(iso);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return toISODate(d);
+};
+const getWeekEndISO = (iso) => shiftISODate(getWeekStartISO(iso), 6);
+
 const getStatusPill = (val, min, max) => {
   const n = parseInt(val) || 0;
   if (n === 0) return null;
@@ -38,7 +52,11 @@ const EMPTY_FORM = {
 export default function SalesActivityLog() {
   const { isMobile } = useBreakpoint();
   const today  = useMemo(() => new Date(), []);
-  const todayISO = today.toISOString().slice(0, 10);
+  const todayISO = toISODate(today);
+  const [selectedDateISO, setSelectedDateISO] = useState(todayISO);
+  const selectedDate = useMemo(() => parseISODate(selectedDateISO), [selectedDateISO]);
+  const [historyFromISO, setHistoryFromISO] = useState(() => shiftISODate(todayISO, -13));
+  const [historyToISO, setHistoryToISO] = useState(todayISO);
 
   const [form, setForm]         = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
@@ -60,37 +78,46 @@ export default function SalesActivityLog() {
   const loadRecentLogs = useCallback(async () => {
     try {
       setLoadingLogs(true);
-      // Get logs for last 7 days
-      const from = new Date(today); from.setDate(from.getDate() - 6);
-      const fromISO = from.toISOString().slice(0, 10);
-      const res = await salesTrackerAPI.getLogs({ from_date: fromISO, to_date: todayISO });
+      setForm(EMPTY_FORM);
+      setSubmitted(false);
+      const selectedWeekStartISO = getWeekStartISO(selectedDateISO);
+      const selectedWeekEndISO = getWeekEndISO(selectedDateISO);
+      const fromISO = historyFromISO < selectedWeekStartISO ? historyFromISO : selectedWeekStartISO;
+      const toISO = historyToISO > selectedWeekEndISO ? historyToISO : selectedWeekEndISO;
+      const res = await salesTrackerAPI.getLogs({ from_date: fromISO, to_date: toISO });
       const logs = res.data || [];
       setRecentLogs(logs);
-      // Pre-fill if already logged today
-      const todayLog = logs.find(l => l.log_date === todayISO);
-      if (todayLog) {
+      // Pre-fill if already logged for the selected date
+      const selectedLog = logs.find(l => l.log_date === selectedDateISO);
+      if (selectedLog) {
         setForm({
-          emails_sent:      String(todayLog.emails_sent      || ''),
-          linkedin_sent:    String(todayLog.linkedin_sent    || ''),
-          calls_made:       String(todayLog.calls_made       || ''),
-          replies_received: String(todayLog.replies_received || ''),
-          meetings_booked:  String(todayLog.meetings_booked  || ''),
-          meetings_done:    String(todayLog.meetings_done    || ''),
-          proposals_sent:   String(todayLog.proposals_sent   || ''),
-          followups_done:   String(todayLog.followups_done   || ''),
-          new_leads_added:  String(todayLog.new_leads_added  || ''),
-          hours_worked:     String(todayLog.hours_worked     || ''),
-          mood:             todayLog.mood || null,
-          biggest_win:      todayLog.biggest_win     || '',
-          biggest_blocker:  todayLog.biggest_blocker || '',
+          emails_sent:      String(selectedLog.emails_sent      || ''),
+          linkedin_sent:    String(selectedLog.linkedin_sent    || ''),
+          calls_made:       String(selectedLog.calls_made       || ''),
+          replies_received: String(selectedLog.replies_received || ''),
+          meetings_booked:  String(selectedLog.meetings_booked  || ''),
+          meetings_done:    String(selectedLog.meetings_done    || ''),
+          proposals_sent:   String(selectedLog.proposals_sent   || ''),
+          followups_done:   String(selectedLog.followups_done   || ''),
+          new_leads_added:  String(selectedLog.new_leads_added  || ''),
+          hours_worked:     String(selectedLog.hours_worked     || ''),
+          mood:             selectedLog.mood || null,
+          biggest_win:      selectedLog.biggest_win     || '',
+          biggest_blocker:  selectedLog.biggest_blocker || '',
         });
         setSubmitted(true);
       }
     } catch (_) {}
     finally { setLoadingLogs(false); }
-  }, [today, todayISO]);
+  }, [historyFromISO, historyToISO, selectedDateISO]);
 
   useEffect(() => { loadRecentLogs(); }, [loadRecentLogs]);
+
+  const historyLogs = useMemo(() => {
+    const fromISO = historyFromISO <= historyToISO ? historyFromISO : historyToISO;
+    const toISO = historyFromISO <= historyToISO ? historyToISO : historyFromISO;
+    return recentLogs.filter(log => log.log_date >= fromISO && log.log_date <= toISO);
+  }, [recentLogs, historyFromISO, historyToISO]);
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -99,11 +126,11 @@ export default function SalesActivityLog() {
       setError('Please fill in at least one activity field.');
       return;
     }
-    setError('');
-    setSubmitting(true);
+      setError('');
+      setSubmitting(true);
     try {
       await salesTrackerAPI.submitLog({
-        log_date:          fmtDate(today),
+        log_date:          selectedDateISO,
         emails_sent:       parseInt(form.emails_sent)      || 0,
         linkedin_sent:     parseInt(form.linkedin_sent)    || 0,
         calls_made:        parseInt(form.calls_made)       || 0,
@@ -170,7 +197,7 @@ export default function SalesActivityLog() {
 
   // Build current week days map from recent logs
   const weekDaysMap = {};
-  const mon = new Date(today); mon.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+  const mon = new Date(selectedDate); mon.setDate(selectedDate.getDate() - ((selectedDate.getDay() + 6) % 7));
   for (let i = 0; i < 5; i++) {
     const d = new Date(mon); d.setDate(mon.getDate() + i);
     const iso = d.toISOString().slice(0, 10);
@@ -205,15 +232,55 @@ export default function SalesActivityLog() {
     );
   };
 
+  const quickPickers = [
+    { label: 'Today', dateISO: todayISO },
+    { label: 'Yesterday', dateISO: shiftISODate(todayISO, -1) },
+    { label: 'This Week', dateISO: getWeekStartISO(todayISO) },
+  ];
+
   return (
     <div className="fade-in">
       {/* Header */}
       <div style={{ marginBottom: '1.5rem' }}>
         <p className="label-sm" style={{ color: 'var(--tertiary)', marginBottom: '0.25rem' }}>Sales Tracker</p>
         <h1 className="headline-sm">Daily Activity Log</h1>
-        <p style={{ fontSize: '0.875rem', color: 'var(--on-surface-variant)', marginTop: '0.25rem' }}>
-          {today.toLocaleDateString('en-IE', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
-        </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', marginTop: '0.5rem' }}>
+          <p style={{ fontSize: '0.875rem', color: 'var(--on-surface-variant)', margin: 0 }}>
+            {selectedDate.toLocaleDateString('en-IE', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
+          </p>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--on-surface-variant)' }}>
+            Backfill date
+            <input
+              type="date"
+              value={selectedDateISO}
+              max={todayISO}
+              onChange={e => setSelectedDateISO(e.target.value)}
+              className="input"
+              style={{ width: 'auto', minWidth: 160 }}
+            />
+          </label>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem' }}>
+          {quickPickers.map(({ label, dateISO }) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => setSelectedDateISO(dateISO)}
+              style={{
+                padding: '0.45rem 0.75rem',
+                borderRadius: '9999px',
+                border: `1px solid ${selectedDateISO === dateISO ? 'var(--tertiary)' : 'var(--outline-variant)'}`,
+                background: selectedDateISO === dateISO ? 'rgba(0,98,67,0.1)' : 'var(--surface)',
+                color: selectedDateISO === dateISO ? 'var(--tertiary)' : 'var(--on-surface-variant)',
+                fontSize: '0.8125rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Target banner */}
@@ -238,7 +305,9 @@ export default function SalesActivityLog() {
         <div className="card" style={{ padding: '1.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
             <h2 style={{ fontSize: '1rem', fontWeight: 700 }}>
-              {submitted ? "Today's Log" : "Log Today's Activity"}
+              {submitted
+                ? (selectedDateISO === todayISO ? "Today's Log" : 'Backfilled Log')
+                : (selectedDateISO === todayISO ? "Log Today's Activity" : "Log This Day's Activity")}
             </h2>
             {submitted && (
               <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.8125rem', color: '#006633', fontWeight: 600 }}>
@@ -310,7 +379,7 @@ export default function SalesActivityLog() {
             </div>
           )}
 
-          <button onClick={handleSubmit} disabled={submitting} style={{
+              <button onClick={handleSubmit} disabled={submitting} style={{
             width: '100%', padding: '0.75rem', borderRadius: '0.5rem', border: 'none',
             cursor: submitting ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-display)',
             fontWeight: 700, fontSize: '0.9375rem', color: '#fff',
@@ -319,7 +388,7 @@ export default function SalesActivityLog() {
           }}>
             {submitting
               ? <><Icon name="progress_activity" style={{ animation: 'spin 1s linear infinite', color: '#fff' }} /> Saving…</>
-              : <><Icon name={submitted ? 'sync' : 'save'} style={{ color: '#fff' }} /> {submitted ? 'Update Log' : "Log Today's Activity"}</>}
+              : <><Icon name={submitted ? 'sync' : 'save'} style={{ color: '#fff' }} /> {submitted ? 'Update Log' : (selectedDateISO === todayISO ? "Log Today's Activity" : 'Save Backfilled Log')}</>}
           </button>
         </div>
 
@@ -372,6 +441,144 @@ export default function SalesActivityLog() {
                       </div>
                       {log && <Icon name="check_circle" style={{ fontSize: '0.875rem', color: '#006633' }} />}
                     </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="card" style={{ padding: '1.25rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '0.75rem' }}>
+              <div>
+                <h3 style={{ fontSize: '0.9375rem', fontWeight: 700, margin: 0 }}>History & Backfill</h3>
+                <p style={{ fontSize: '0.75rem', color: 'var(--on-surface-variant)', margin: '0.25rem 0 0' }}>
+                  Click a row to load that day into the form.
+                </p>
+              </div>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--on-surface-variant)' }}>
+                {historyLogs.length} log{historyLogs.length === 1 ? '' : 's'}
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+              <div>
+                <label className="label" style={{ fontSize: '0.75rem', marginBottom: '0.25rem', display: 'block' }}>From</label>
+                <input
+                  type="date"
+                  value={historyFromISO}
+                  max={todayISO}
+                  onChange={e => setHistoryFromISO(e.target.value)}
+                  className="input"
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div>
+                <label className="label" style={{ fontSize: '0.75rem', marginBottom: '0.25rem', display: 'block' }}>To</label>
+                <input
+                  type="date"
+                  value={historyToISO}
+                  max={todayISO}
+                  onChange={e => setHistoryToISO(e.target.value)}
+                  className="input"
+                  style={{ width: '100%' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setHistoryFromISO(shiftISODate(todayISO, -13));
+                  setHistoryToISO(todayISO);
+                }}
+                style={{
+                  padding: '0.4rem 0.65rem',
+                  borderRadius: '9999px',
+                  border: '1px solid var(--outline-variant)',
+                  background: 'transparent',
+                  color: 'var(--on-surface-variant)',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Last 14 days
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const weekStart = getWeekStartISO(selectedDateISO);
+                  setHistoryFromISO(weekStart);
+                  setHistoryToISO(getWeekEndISO(selectedDateISO));
+                }}
+                style={{
+                  padding: '0.4rem 0.65rem',
+                  borderRadius: '9999px',
+                  border: '1px solid var(--outline-variant)',
+                  background: 'transparent',
+                  color: 'var(--on-surface-variant)',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Selected week
+              </button>
+            </div>
+
+            {loadingLogs ? (
+              <p style={{ fontSize: '0.875rem', color: 'var(--on-surface-variant)' }}>Loading…</p>
+            ) : historyLogs.length === 0 ? (
+              <p style={{ fontSize: '0.875rem', color: 'var(--on-surface-variant)', fontStyle: 'italic', margin: 0 }}>
+                No logs in this range.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', maxHeight: 320, overflow: 'auto', paddingRight: 2 }}>
+                {historyLogs.map(log => {
+                  const isSelected = log.log_date === selectedDateISO;
+                  const moodLabel = log.mood ? `Mood ${log.mood}` : 'No mood';
+                  return (
+                    <button
+                      key={`${log.log_date}-${log.logged_by || 'me'}`}
+                      type="button"
+                      onClick={() => setSelectedDateISO(log.log_date)}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '76px 1fr',
+                        gap: '0.75rem',
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: '0.7rem 0.8rem',
+                        borderRadius: '0.75rem',
+                        border: `1px solid ${isSelected ? 'rgba(0,98,67,0.25)' : 'var(--outline-variant)'}`,
+                        background: isSelected ? 'rgba(0,98,67,0.06)' : 'var(--surface)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--on-surface)' }}>
+                          {fmtDate(new Date(`${log.log_date}T00:00:00`))}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--on-surface-variant)', marginTop: 2 }}>
+                          {log.day_of_week || ''} {isSelected ? '· Selected' : ''}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '0.15rem 0.35rem', borderRadius: 4, background: 'rgba(68,104,176,0.12)', color: '#4468B0' }}>
+                          E:{log.emails_sent || 0}
+                        </span>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '0.15rem 0.35rem', borderRadius: 4, background: 'rgba(124,58,237,0.12)', color: '#7C3AED' }}>
+                          L:{log.linkedin_sent || 0}
+                        </span>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '0.15rem 0.35rem', borderRadius: 4, background: 'rgba(217,119,6,0.12)', color: '#D97706' }}>
+                          C:{log.calls_made || 0}
+                        </span>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '0.15rem 0.35rem', borderRadius: 4, background: 'rgba(0,98,67,0.12)', color: '#006633' }}>
+                          {moodLabel}
+                        </span>
+                      </div>
+                    </button>
                   );
                 })}
               </div>
