@@ -529,6 +529,10 @@ def sb(table: str):
     """Shorthand for supabase.table()"""
     return supabase.table(table)
 
+def get_supabase() -> Client:
+    """Return the shared Supabase client used by route handlers."""
+    return supabase
+
 async def run(fn):
     """Run a synchronous supabase call in a thread pool."""
     return await asyncio.to_thread(fn)
