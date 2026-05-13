@@ -15,6 +15,8 @@ import ImportLeads     from './pages/sales/ImportLeads';
 import EnrichLeads     from './pages/sales/EnrichLeads';
 import SalesTasks      from './pages/sales/SalesTasks';
 import SalesReminders  from './pages/sales/SalesReminders';
+import SalesActivityLog    from './pages/sales/SalesActivityLog';
+import SalesTrackerDashboard from './pages/sales/SalesTrackerDashboard';
 
 // Recruitment
 import RecruitmentDashboard from './pages/recruitment/RecruitmentDashboard';
@@ -82,6 +84,8 @@ function AppRoutes() {
       <Route path="/sales/enrich"       element={<Page module="sales" permission="canViewImport"><EnrichLeads /></Page>} />
       <Route path="/sales/tasks"        element={<Page module="sales"><SalesTasks /></Page>} />
       <Route path="/sales/reminders"    element={<Page module="sales"><SalesReminders /></Page>} />
+      <Route path="/sales/activity-log"  element={<Page module="sales"><SalesActivityLog /></Page>} />
+      <Route path="/sales/tracker"        element={<Page module="sales"><SalesTrackerDashboard /></Page>} />
 
       {/* ── Recruitment — admin, sales, viewer only ── */}
       <Route path="/recruitment"                   element={<Page module="recruitment"><RecruitmentDashboard /></Page>} />

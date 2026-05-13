@@ -2043,6 +2043,465 @@ async def score_resume_upload(
     }
 
 
+# ============================================================
+# SALES TRACKER
+# ============================================================
+
+STAGE_PROBABILITY_MAP = {
+    "Cold Outreach": 10,
+    "Engaged / Replied": 20,
+    "Discovery Call Booked": 30,
+    "Discovery Done / Qualified": 40,
+    "Proposal Sent": 60,
+    "Negotiation": 75,
+    "Closed-Won": 100,
+    "Closed-Lost": 0,
+}
+
+SALES_TARGETS = {
+    "weeklyEmails":   {"min": 50,    "max": 75},
+    "weeklyLinkedin": {"min": 30,    "max": 50},
+    "weeklyCalls":    {"min": 15,    "max": 25},
+    "weeklyMeetings": {"min": 8,     "max": 12},
+    "weeklyProposals":{"min": 4,     "max": 6},
+    "dailyEmails":    {"min": 10,    "max": 15},
+    "dailyLinkedin":  {"min": 8,     "max": 10},
+    "dailyCalls":     {"min": 3,     "max": 5},
+    "dailyFollowups": {"min": 3,     "max": 5},
+    "monthlyClients": {"min": 2,     "max": 3},
+    "monthlyValue":   {"min": 15000, "max": 30000},
+    "monthlyProposals":{"min": 16,   "max": 24},
+    "pipelineValue":  50000,
+}
+
+def _get_week_bounds(iso_week: int, year: int):
+    from datetime import date, timedelta
+    jan4 = date(year, 1, 4)
+    delta = timedelta(weeks=iso_week - 1, days=-jan4.weekday())
+    monday = jan4 + delta
+    friday  = monday + timedelta(days=4)
+    return monday, friday
+
+def _current_iso_week():
+    from datetime import date
+    today = date.today()
+    iso   = today.isocalendar()
+    return iso[1], iso[0]   # week, year
+
+def _sum_logs(rows):
+    return {
+        "emails":         sum(r.get("emails_sent")      or 0 for r in rows),
+        "linkedin":       sum(r.get("linkedin_sent")    or 0 for r in rows),
+        "calls":          sum(r.get("calls_made")       or 0 for r in rows),
+        "replies":        sum(r.get("replies_received") or 0 for r in rows),
+        "meetingsBooked": sum(r.get("meetings_booked")  or 0 for r in rows),
+        "meetingsDone":   sum(r.get("meetings_done")    or 0 for r in rows),
+        "proposals":      sum(r.get("proposals_sent")   or 0 for r in rows),
+        "followups":      sum(r.get("followups_done")   or 0 for r in rows),
+        "newLeads":       sum(r.get("new_leads_added")  or 0 for r in rows),
+        "daysLogged":     len(rows),
+    }
+
+def _days_in_stage(stage_updated_date_str):
+    from datetime import date, datetime
+    if not stage_updated_date_str:
+        return 0
+    try:
+        d = datetime.strptime(stage_updated_date_str, "%Y-%m-%d").date()
+    except Exception:
+        return 0
+    return (date.today() - d).days
+
+
+# ── Pydantic models ────────────────────────────────────────────
+
+class SalesActivityLogCreate(BaseModel):
+    log_date:          str
+    emails_sent:       int = 0
+    linkedin_sent:     int = 0
+    calls_made:        int = 0
+    replies_received:  int = 0
+    meetings_booked:   int = 0
+    meetings_done:     int = 0
+    proposals_sent:    int = 0
+    followups_done:    int = 0
+    new_leads_added:   int = 0
+    hours_worked:      float = 0.0
+    mood:              Optional[int] = None
+    biggest_win:       Optional[str] = None
+    biggest_blocker:   Optional[str] = None
+
+class SalesPipelineDealCreate(BaseModel):
+    client_name:        str
+    industry:           Optional[str] = None
+    stage:              str = "Cold Outreach"
+    deal_value:         float = 0.0
+    next_action:        Optional[str] = None
+    next_action_date:   Optional[str] = None
+    owner:              Optional[str] = None
+    notes:              Optional[str] = None
+    stage_updated_date: Optional[str] = None
+
+class SalesPipelineDealUpdate(BaseModel):
+    client_name:        Optional[str] = None
+    industry:           Optional[str] = None
+    stage:              Optional[str] = None
+    deal_value:         Optional[float] = None
+    next_action:        Optional[str] = None
+    next_action_date:   Optional[str] = None
+    owner:              Optional[str] = None
+    notes:              Optional[str] = None
+    stage_updated_date: Optional[str] = None
+
+class SalesWeeklyReviewCreate(BaseModel):
+    week_number:     int
+    year:            int
+    date_range:      Optional[str] = None
+    new_leads:       int = 0
+    leads_qualified: int = 0
+    deals_lost:      int = 0
+    loss_reason:     Optional[str] = None
+    clients_signed:  int = 0
+    contract_value:  float = 0.0
+    what_worked:     Optional[str] = None
+    what_didnt:      Optional[str] = None
+    what_to_change:  Optional[str] = None
+    help_needed:     Optional[str] = None
+    top_priorities:  Optional[str] = None
+
+class SalesMonthlyRollupCreate(BaseModel):
+    month:                str
+    year:                 int
+    clients_signed:       int = 0
+    total_contract_value: float = 0.0
+    avg_deal_size:        float = 0.0
+    proposals_sent:       int = 0
+    proposal_close_rate:  float = 0.0
+    pipeline_value:       float = 0.0
+    best_industry:        Optional[str] = None
+    worst_industry:       Optional[str] = None
+    top_objection:        Optional[str] = None
+    best_channel:         Optional[str] = None
+    top_fix:              Optional[str] = None
+    pricing_feedback:     Optional[str] = None
+    competitor_names:     Optional[str] = None
+
+
+# ── Endpoints ──────────────────────────────────────────────────
+
+@api_router.get("/sales/tracker/dashboard")
+async def get_sales_tracker_dashboard(request: Request):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+
+    from datetime import date, timedelta
+    today = date.today()
+    week_num, year = _current_iso_week()
+    monday, friday = _get_week_bounds(week_num, year)
+    prev_monday, prev_friday = _get_week_bounds(week_num - 1, year) if week_num > 1 else _get_week_bounds(52, year - 1)
+
+    sb = get_supabase()
+
+    # ── This week logs ──
+    this_week_res = sb.table("sales_activity_log")        .select("*")        .gte("log_date", monday.isoformat())        .lte("log_date", friday.isoformat())        .execute()
+    this_week_rows = this_week_res.data or []
+
+    # ── Last week logs ──
+    last_week_res = sb.table("sales_activity_log")        .select("*")        .gte("log_date", prev_monday.isoformat())        .lte("log_date", prev_friday.isoformat())        .execute()
+    last_week_rows = last_week_res.data or []
+
+    # ── Last 4 weeks for traffic light ──
+    four_weeks_ago = monday - timedelta(weeks=3)
+    all_recent_res = sb.table("sales_activity_log")        .select("*")        .gte("log_date", four_weeks_ago.isoformat())        .lte("log_date", friday.isoformat())        .order("log_date")        .execute()
+    all_recent = all_recent_res.data or []
+
+    last4 = []
+    for w in range(3, -1, -1):
+        wk = week_num - w
+        yr = year
+        if wk <= 0:
+            wk += 52; yr -= 1
+        wmon, wfri = _get_week_bounds(wk, yr)
+        wrows = [r for r in all_recent
+                 if wmon.isoformat() <= r.get("log_date","") <= wfri.isoformat()]
+        s = _sum_logs(wrows)
+        s["weekNumber"] = wk
+        s["year"]       = yr
+        s["dateRange"]  = f"{wmon.strftime('%d %b')} – {wfri.strftime('%d %b')}"
+        last4.append(s)
+
+    # ── Daily breakdown for current week (keyed by weekday) ──
+    days_map = {}
+    for r in this_week_rows:
+        d = r.get("log_date", "")
+        if d:
+            try:
+                from datetime import datetime as dt
+                day_name = dt.strptime(d, "%Y-%m-%d").strftime("%A")
+                days_map[day_name] = r
+            except Exception:
+                pass
+
+    # ── Pipeline ──
+    pipeline_res = sb.table("sales_pipeline")        .select("*")        .eq("is_active", True)        .order("weighted_value", desc=True)        .execute()
+    pipeline = pipeline_res.data or []
+    for deal in pipeline:
+        deal["daysInStage"] = _days_in_stage(deal.get("stage_updated_date"))
+
+    total_value    = sum(float(d.get("deal_value") or 0) for d in pipeline)
+    weighted_total = sum(float(d.get("weighted_value") or 0) for d in pipeline)
+    stalled        = [d for d in pipeline if d.get("daysInStage", 0) > 7]
+    open_deals     = [d for d in pipeline if d.get("stage") not in ("Closed-Won","Closed-Lost")]
+    top_deals      = sorted(open_deals, key=lambda d: float(d.get("weighted_value") or 0), reverse=True)[:5]
+
+    # ── Latest monthly rollup ──
+    monthly_res = sb.table("sales_monthly_rollup")        .select("*")        .order("year", desc=True)        .order("created_at", desc=True)        .limit(1)        .execute()
+    monthly = (monthly_res.data or [None])[0]
+
+    return {
+        "thisWeek":       {**_sum_logs(this_week_rows),
+                           "weekNumber": week_num, "year": year,
+                           "dateRange": f"{monday.strftime('%d %b')} – {friday.strftime('%d %b')}",
+                           "days": days_map},
+        "lastWeek":       _sum_logs(last_week_rows),
+        "last4Weeks":     last4,
+        "pipeline":       pipeline,
+        "pipelineStats":  {"totalDeals": len(pipeline), "totalValue": total_value,
+                           "weightedValue": weighted_total, "stalledCount": len(stalled)},
+        "topDeals":       top_deals,
+        "stalledDeals":   stalled,
+        "monthlyRollup":  monthly,
+        "targets":        SALES_TARGETS,
+    }
+
+
+@api_router.post("/sales/tracker/log")
+async def submit_sales_log(body: SalesActivityLogCreate, request: Request):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    from datetime import datetime as dt
+    try:
+        d = dt.strptime(body.log_date, "%d-%b-%Y").date()
+    except Exception:
+        try:
+            from datetime import date
+            d = date.fromisoformat(body.log_date)
+        except Exception:
+            raise HTTPException(400, "Invalid date format. Use DD-MMM-YYYY.")
+    day_name = d.strftime("%A")
+    prob = STAGE_PROBABILITY_MAP.get("Cold Outreach", 10)
+    row = {
+        "logged_by":       user.get("id"),
+        "logged_by_name":  user.get("name", ""),
+        "log_date":        d.isoformat(),
+        "day_of_week":     day_name,
+        "emails_sent":     body.emails_sent,
+        "linkedin_sent":   body.linkedin_sent,
+        "calls_made":      body.calls_made,
+        "replies_received":body.replies_received,
+        "meetings_booked": body.meetings_booked,
+        "meetings_done":   body.meetings_done,
+        "proposals_sent":  body.proposals_sent,
+        "followups_done":  body.followups_done,
+        "new_leads_added": body.new_leads_added,
+        "hours_worked":    body.hours_worked,
+        "mood":            body.mood,
+        "biggest_win":     body.biggest_win,
+        "biggest_blocker": body.biggest_blocker,
+        "updated_at":      "now()",
+    }
+    sb = get_supabase()
+    res = sb.table("sales_activity_log").upsert(row, on_conflict="log_date,logged_by").execute()
+    return {"success": True, "data": (res.data or [{}])[0]}
+
+
+@api_router.get("/sales/tracker/log")
+async def get_sales_logs(
+    request: Request,
+    from_date: Optional[str] = None,
+    to_date:   Optional[str] = None,
+    limit:     int = 60,
+):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    sb = get_supabase()
+    q = sb.table("sales_activity_log").select("*").order("log_date", desc=True).limit(limit)
+    if from_date: q = q.gte("log_date", from_date)
+    if to_date:   q = q.lte("log_date", to_date)
+    res = q.execute()
+    rows = res.data or []
+    for r in rows:
+        pass  # days_in_stage not needed here
+    return rows
+
+
+@api_router.post("/sales/tracker/pipeline")
+async def create_pipeline_deal(body: SalesPipelineDealCreate, request: Request):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    from datetime import date
+    prob = STAGE_PROBABILITY_MAP.get(body.stage, 10)
+    wv   = round(body.deal_value * prob / 100, 2)
+    sud  = body.stage_updated_date or date.today().isoformat()
+    next_act_date = None
+    if body.next_action_date:
+        try:
+            from datetime import datetime as dt
+            next_act_date = dt.strptime(body.next_action_date, "%d-%b-%Y").date().isoformat()
+        except Exception:
+            next_act_date = body.next_action_date
+    row = {
+        "client_name":        body.client_name,
+        "industry":           body.industry,
+        "stage":              body.stage,
+        "deal_value":         body.deal_value,
+        "probability":        prob,
+        "weighted_value":     wv,
+        "next_action":        body.next_action,
+        "next_action_date":   next_act_date,
+        "owner":              body.owner or user.get("name",""),
+        "notes":              body.notes,
+        "stage_updated_date": sud,
+        "is_active":          True,
+    }
+    sb = get_supabase()
+    res = sb.table("sales_pipeline").insert(row).execute()
+    deal = (res.data or [{}])[0]
+    deal["daysInStage"] = _days_in_stage(deal.get("stage_updated_date"))
+    return {"success": True, "deal": deal}
+
+
+@api_router.get("/sales/tracker/pipeline")
+async def get_pipeline_deals(request: Request):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    sb = get_supabase()
+    res = sb.table("sales_pipeline").select("*").eq("is_active", True)        .order("weighted_value", desc=True).execute()
+    deals = res.data or []
+    for d in deals:
+        d["daysInStage"] = _days_in_stage(d.get("stage_updated_date"))
+    return deals
+
+
+@api_router.put("/sales/tracker/pipeline/{deal_id}")
+async def update_pipeline_deal(deal_id: str, body: SalesPipelineDealUpdate, request: Request):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    from datetime import date
+    updates = {}
+    if body.client_name is not None:      updates["client_name"]   = body.client_name
+    if body.industry    is not None:      updates["industry"]      = body.industry
+    if body.deal_value  is not None:      updates["deal_value"]    = body.deal_value
+    if body.next_action is not None:      updates["next_action"]   = body.next_action
+    if body.owner       is not None:      updates["owner"]         = body.owner
+    if body.notes       is not None:      updates["notes"]         = body.notes
+    if body.stage is not None:
+        prob = STAGE_PROBABILITY_MAP.get(body.stage, 10)
+        updates["stage"]       = body.stage
+        updates["probability"] = prob
+        if body.stage_updated_date:
+            updates["stage_updated_date"] = body.stage_updated_date
+        else:
+            updates["stage_updated_date"] = date.today().isoformat()
+    if body.deal_value is not None or "probability" in updates:
+        sb = get_supabase()
+        existing = sb.table("sales_pipeline").select("deal_value,probability").eq("id", deal_id).execute()
+        ex = (existing.data or [{}])[0]
+        dv  = updates.get("deal_value",  float(ex.get("deal_value")  or 0))
+        pr  = updates.get("probability", float(ex.get("probability") or 10))
+        updates["weighted_value"] = round(dv * pr / 100, 2)
+    if body.next_action_date is not None:
+        try:
+            from datetime import datetime as dt
+            updates["next_action_date"] = dt.strptime(body.next_action_date, "%d-%b-%Y").date().isoformat()
+        except Exception:
+            updates["next_action_date"] = body.next_action_date
+    updates["updated_at"] = "now()"
+    sb = get_supabase()
+    res = sb.table("sales_pipeline").update(updates).eq("id", deal_id).execute()
+    deal = (res.data or [{}])[0]
+    deal["daysInStage"] = _days_in_stage(deal.get("stage_updated_date"))
+    return {"success": True, "deal": deal}
+
+
+@api_router.delete("/sales/tracker/pipeline/{deal_id}")
+async def delete_pipeline_deal(deal_id: str, request: Request):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    sb = get_supabase()
+    sb.table("sales_pipeline").update({"is_active": False}).eq("id", deal_id).execute()
+    return {"success": True}
+
+
+@api_router.post("/sales/tracker/weekly-review")
+async def submit_weekly_review(body: SalesWeeklyReviewCreate, request: Request):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    row = {
+        "week_number":    body.week_number,
+        "year":           body.year,
+        "date_range":     body.date_range,
+        "new_leads":      body.new_leads,
+        "leads_qualified":body.leads_qualified,
+        "deals_lost":     body.deals_lost,
+        "loss_reason":    body.loss_reason,
+        "clients_signed": body.clients_signed,
+        "contract_value": body.contract_value,
+        "what_worked":    body.what_worked,
+        "what_didnt":     body.what_didnt,
+        "what_to_change": body.what_to_change,
+        "help_needed":    body.help_needed,
+        "top_priorities": body.top_priorities,
+    }
+    sb = get_supabase()
+    res = sb.table("sales_weekly_review").upsert(row, on_conflict="week_number,year").execute()
+    return {"success": True, "data": (res.data or [{}])[0]}
+
+
+@api_router.get("/sales/tracker/weekly-review")
+async def get_weekly_reviews(request: Request, limit: int = 8):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    sb = get_supabase()
+    res = sb.table("sales_weekly_review").select("*")        .order("year", desc=True).order("week_number", desc=True).limit(limit).execute()
+    return res.data or []
+
+
+@api_router.post("/sales/tracker/monthly-rollup")
+async def submit_monthly_rollup(body: SalesMonthlyRollupCreate, request: Request):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    row = {
+        "month":                body.month,
+        "year":                 body.year,
+        "clients_signed":       body.clients_signed,
+        "total_contract_value": body.total_contract_value,
+        "avg_deal_size":        body.avg_deal_size,
+        "proposals_sent":       body.proposals_sent,
+        "proposal_close_rate":  body.proposal_close_rate,
+        "pipeline_value":       body.pipeline_value,
+        "best_industry":        body.best_industry,
+        "worst_industry":       body.worst_industry,
+        "top_objection":        body.top_objection,
+        "best_channel":         body.best_channel,
+        "top_fix":              body.top_fix,
+        "pricing_feedback":     body.pricing_feedback,
+        "competitor_names":     body.competitor_names,
+    }
+    sb = get_supabase()
+    res = sb.table("sales_monthly_rollup").upsert(row, on_conflict="month,year").execute()
+    return {"success": True, "data": (res.data or [{}])[0]}
+
+
+@api_router.get("/sales/tracker/monthly-rollup")
+async def get_monthly_rollups(request: Request, limit: int = 6):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    sb = get_supabase()
+    res = sb.table("sales_monthly_rollup").select("*")        .order("year", desc=True).order("created_at", desc=True).limit(limit).execute()
+    return res.data or []
+
+
 
 # ============================================================
 # INTERVIEWS

@@ -7,14 +7,18 @@ const Icon = ({ name }) => (
 );
 
 // ── Nav definitions ──────────────────────────────────────────
-const salesNav = [
-  { path: '/sales',           icon: 'dashboard',    label: 'Dashboard',    exact: true },
-  { path: '/sales/leads',     icon: 'group',         label: 'Leads' },
-  { path: '/sales/import',    icon: 'upload_file',   label: 'Import Leads', requiresPerm: 'canViewImport' },
-  { path: '/sales/enrich',    icon: 'auto_fix_high', label: 'Enrich Leads', requiresPerm: 'canViewImport' },
-  { path: '/sales/tasks',     icon: 'task_alt',      label: 'Tasks' },
-  { path: '/sales/reminders', icon: 'notifications', label: 'Reminders' },
+const salesNavBase = [
+  { path: '/sales',               icon: 'dashboard',    label: 'Dashboard',    exact: true, hideForViewer: true },
+  { path: '/sales/tracker',       icon: 'analytics',    label: 'Sales Tracker',              showForAll: true },
+  { path: '/sales/activity-log',  icon: 'edit_note',    label: 'Daily Log',                  hideForViewer: true },
+  { path: '/sales/leads',         icon: 'group',         label: 'Leads',                     hideForViewer: true },
+  { path: '/sales/import',        icon: 'upload_file',   label: 'Import Leads', requiresPerm: 'canViewImport' },
+  { path: '/sales/enrich',        icon: 'auto_fix_high', label: 'Enrich Leads', requiresPerm: 'canViewImport' },
+  { path: '/sales/tasks',         icon: 'task_alt',      label: 'Tasks' },
+  { path: '/sales/reminders',     icon: 'notifications', label: 'Reminders' },
 ];
+// salesNav is dynamically filtered by role in the component
+const salesNav = salesNavBase;
 
 const recruitNav = [
   { path: '/recruitment',                   icon: 'dashboard',     label: 'Dashboard',         exact: true },
@@ -84,7 +88,11 @@ const Sidebar = ({ isOpen, onClose }) => {
 
   // Filter nav items by permission
   const filterNav = (items) =>
-    items.filter(item => !item.requiresPerm || can(item.requiresPerm));
+    items.filter(item => {
+      if (item.requiresPerm && !can(item.requiresPerm)) return false;
+      if (item.hideForViewer && isViewer) return false;
+      return true;
+    });
 
   let navItems;
   if (isTimesheet) navItems = filterNav(timesheetNav);
@@ -141,7 +149,7 @@ const Sidebar = ({ isOpen, onClose }) => {
             flexWrap: 'wrap',
           }}>
             {canSeeSales && (
-              <button onClick={() => navigate('/sales')} style={{
+              <button onClick={() => navigate(isViewer ? '/sales/tracker' : '/sales')} style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 gap: '0.375rem', padding: '0.5rem 0.5rem', borderRadius: '0.625rem',
                 border: 'none', cursor: 'pointer', fontFamily: 'var(--font-ui)',

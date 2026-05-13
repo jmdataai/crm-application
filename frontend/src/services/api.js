@@ -155,6 +155,21 @@ export const candidatesAPI = {
   },
 };
 
+
+// ── Sales Tracker API ──────────────────────────────────────────
+export const salesTrackerAPI = {
+  getDashboard:       ()           => api.get('/sales/tracker/dashboard'),
+  getLogs:            (params)     => api.get('/sales/tracker/log', { params }),
+  submitLog:          (data)       => api.post('/sales/tracker/log', data),
+  getPipeline:        ()           => api.get('/sales/tracker/pipeline'),
+  createDeal:         (data)       => api.post('/sales/tracker/pipeline', data),
+  updateDeal:         (id, data)   => api.put(`/sales/tracker/pipeline/${id}`, data),
+  deleteDeal:         (id)         => api.delete(`/sales/tracker/pipeline/${id}`),
+  submitWeeklyReview: (data)       => api.post('/sales/tracker/weekly-review', data),
+  getWeeklyReviews:   ()           => api.get('/sales/tracker/weekly-review'),
+  submitMonthlyRollup:(data)       => api.post('/sales/tracker/monthly-rollup', data),
+  getMonthlyRollups:  ()           => api.get('/sales/tracker/monthly-rollup'),
+};
 // Interviews APIs
 export const interviewsAPI = {
   getAll: (params) => api.get('/interviews', { params }),
