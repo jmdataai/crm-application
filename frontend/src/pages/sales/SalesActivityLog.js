@@ -20,7 +20,12 @@ const fmtDate = (d) => {
   return `${String(d.getDate()).padStart(2,'0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
 };
 
-const toISODate = (d) => d.toISOString().slice(0, 10);
+const toISODate = (d) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 const parseISODate = (iso) => new Date(`${iso}T00:00:00`);
 const shiftISODate = (iso, days) => {
   const d = parseISODate(iso);
@@ -157,8 +162,6 @@ export default function SalesActivityLog() {
   const handleWeeklySubmit = async () => {
     setWeeklySubmitting(true);
     try {
-      const iso = today.toISOString();
-      const week = today.toISOString().slice(0,10);
       const wn = getISOWeek(today);
       // Calculate week date range
       const mon = new Date(today); mon.setDate(today.getDate() - ((today.getDay() + 6) % 7));
@@ -200,7 +203,7 @@ export default function SalesActivityLog() {
   const mon = new Date(selectedDate); mon.setDate(selectedDate.getDate() - ((selectedDate.getDay() + 6) % 7));
   for (let i = 0; i < 5; i++) {
     const d = new Date(mon); d.setDate(mon.getDate() + i);
-    const iso = d.toISOString().slice(0, 10);
+    const iso = toISODate(d);
     const log = recentLogs.find(l => l.log_date === iso);
     weekDaysMap[DAYS[i]] = { date: d, iso, log };
   }
