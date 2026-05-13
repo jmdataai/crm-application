@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { salesTrackerAPI } from '../../services/api';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 
@@ -37,7 +37,7 @@ const EMPTY_FORM = {
 
 export default function SalesActivityLog() {
   const { isMobile } = useBreakpoint();
-  const today  = new Date();
+  const today  = useMemo(() => new Date(), []);
   const todayISO = today.toISOString().slice(0, 10);
 
   const [form, setForm]         = useState(EMPTY_FORM);
@@ -88,9 +88,9 @@ export default function SalesActivityLog() {
       }
     } catch (_) {}
     finally { setLoadingLogs(false); }
-  }, [todayISO]);
+  }, [today, todayISO]);
 
-  useEffect(() => { loadRecentLogs(); }, []);
+  useEffect(() => { loadRecentLogs(); }, [loadRecentLogs]);
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
 

@@ -116,9 +116,9 @@ export default function SalesTrackerDashboard() {
     } catch (_) {}
   }, []);
 
-  useEffect(() => { loadDashboard(); }, []);
-  useEffect(() => { if (activeTab === 'pipeline') loadPipeline(); }, [activeTab]);
-  useEffect(() => { if (activeTab === 'monthly')  loadMonthly(); }, [activeTab]);
+  useEffect(() => { loadDashboard(); }, [loadDashboard]);
+  useEffect(() => { if (activeTab === 'pipeline') loadPipeline(); }, [activeTab, loadPipeline]);
+  useEffect(() => { if (activeTab === 'monthly')  loadMonthly(); }, [activeTab, loadMonthly]);
 
   // ── Weekly log data for "Daily" tab ──────────────────────────
   // weekOffset=0 → current week, -1 → last week
