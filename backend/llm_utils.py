@@ -402,45 +402,115 @@ def _extract_tech_stack_keywords(text: str) -> list[str]:
     return sorted(found.keys())[:35]
 
 
-def _estimate_experience_years(text: str) -> int | None:
+def _estimate_experience_years(text: str):
     """
-    Estimate years of experience from date ranges in resume text.
-    Handles: "2019 – 2022", "Jan 2020 - Present", "2018 – current", etc.
+    Estimate years of experience. Priority:
+      1. Explicit claim: "N+ years of experience/contracting/etc."
+      2. Month-Year date ranges  (Jan 2020 – Present)
+      3. Year-Year date ranges   (2018 – 2022)
+      4. Year-span heuristic
+    Education lines skipped. Supports German (heute), French (maintenant).
     """
     current_year = 2026
-    present_tokens = {"present", "current", "now", "ongoing", "date"}
-
-    ranges = re.findall(
-        r"\b((?:19|20)\d{2})\s*[-–—]\s*((?:19|20)\d{2}|present|current|now|till\s+date|ongoing)",
-        text, re.IGNORECASE,
+    PRESENT_WORDS = (
+        "present", "current", "now", "ongoing", "today", "date",
+        "heute", "maintenant", "heden", "todate", "till date", "to date", "till now"
+    )
+    DEGREE_WORDS = re.compile(
+        r"\b(bachelor|master|msc|bsc|btech|mtech|phd|mba|degree|diploma"
+        r"|honours|honors|b\.sc|m\.sc|b\.eng|m\.eng|undergraduate)\b", re.IGNORECASE
+    )
+    INST_WORDS = re.compile(
+        r"\b(university|college|school|institute|academia)\b", re.IGNORECASE
+    )
+    WORK_ROLES = re.compile(
+        r"\b(researcher|postdoc|professor|lecturer|scientist|engineer|developer|analyst|manager)\b",
+        re.IGNORECASE
     )
 
-    if ranges:
-        total_months = 0
-        for start_str, end_str in ranges:
-            start = int(start_str)
-            end_clean = end_str.lower().strip()
-            end = current_year if any(t in end_clean for t in present_tokens) else int(end_str)
-            if 1980 <= start <= end <= current_year:
-                total_months += (end - start) * 12
-        if total_months > 0:
-            return min(total_months // 12, 50)
+    def is_edu(ctx):
+        has_degree = bool(DEGREE_WORDS.search(ctx))
+        has_inst   = bool(INST_WORDS.search(ctx))
+        has_work   = bool(WORK_ROLES.search(ctx))
+        # Degree keyword alone = education
+        # Institution alone = education only if no work role keyword
+        return has_degree or (has_inst and not has_work)
 
-    # Fallback: year-span heuristic (deduct 4 yrs for education)
-    years = sorted({
-        int(y) for y in re.findall(r"\b(19[89]\d|20[0-2]\d)\b", text)
-        if 1990 <= int(y) <= current_year
-    })
+    def get_line(pos):
+        s = text.rfind("\n", 0, pos) + 1
+        e = text.find("\n", pos)
+        return text[s: (e if e != -1 else len(text))]
+
+    # 1. Explicit claim (broadened)
+    for pat in [
+        r"\b(\d+(?:\.\d+)?)\s*\+?\s*years?\s*(?:of\s+)?(?:experience|exp|professional|contracting|freelancing|working|practice|industry|service)",
+        r"(?:total\s+)?experience\s*[:\=\-]?\s*(\d+(?:\.\d+)?)\s*\+?\s*years?",
+    ]:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            val = int(float(m.group(1)))
+            if 1 <= val <= 50:
+                return val
+
+    total_months = 0
+
+    # 2. Month-Year ranges: "Jan 2020 – Present", "April 2018 to March 2021"
+    MONTHS = (
+        r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?"
+        r"|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+    )
+    PRESENT_RX = (
+        r"(?:present|current|now|ongoing|heute|today|to[\s\-]?date|till[\s\-]?date|up\s+to\s+now)"
+    )
+    YR = r"((?:19|20)\d{2})"
+    MY = r"(?:" + MONTHS + r"[\s\.\-]+)?" + YR
+    range_pat = MY + r"\s*(?:[\-\u2013\u2014]|to|thru)\s*(?:" + MY + r"|" + PRESENT_RX + r")"
+
+    for m in re.finditer(range_pat, text, re.IGNORECASE):
+        ctx = get_line(m.start())
+        if is_edu(ctx):
+            continue
+        all_years = re.findall(r"\b((?:19|20)\d{2})\b", m.group(0))
+        is_present = bool(re.search(PRESENT_RX, m.group(0), re.IGNORECASE))
+        if all_years:
+            start_yr = int(all_years[0])
+            end_yr = current_year if is_present else (int(all_years[1]) if len(all_years) > 1 else 0)
+            if end_yr and 1980 <= start_yr <= end_yr <= current_year:
+                total_months += (end_yr - start_yr) * 12
+
+    if total_months > 0:
+        return min(total_months // 12, 50)
+
+    # 3. Pure YYYY-YYYY or YYYY-present ranges
+    for m in re.finditer(
+        r"\b((?:19|20)\d{2})\s*[\-\u2013\u2014]\s*((?:19|20)\d{2}|present|current|now|heute|till\s+date|ongoing)",
+        text, re.IGNORECASE
+    ):
+        ctx = get_line(m.start())
+        if is_edu(ctx):
+            continue
+        s = int(m.group(1))
+        e_raw = m.group(2).lower().strip()
+        if any(pw in e_raw for pw in PRESENT_WORDS):
+            e = current_year
+        elif m.group(2).isdigit():
+            e = int(m.group(2))
+        else:
+            continue
+        if 1980 <= s <= e <= current_year:
+            total_months += (e - s) * 12
+
+    if total_months > 0:
+        return min(total_months // 12, 50)
+
+    # 4. Year-span heuristic (deduct 4 years for education)
+    years = sorted({int(y) for y in re.findall(r"\b(19[89]\d|20[0-2]\d)\b", text)
+                    if 1990 <= int(y) <= current_year})
     if len(years) >= 2:
         span = years[-1] - years[0]
-        return max(0, span - 4) if span >= 5 else None
-
+        return max(0, span - 4) if span > 4 else 0
     return None
 
-
-# ════════════════════════════════════════════════════════════════
-# LLM CALLERS  (used only for JD keyword extraction)
-# ════════════════════════════════════════════════════════════════
 
 _SYSTEM_JSON = (
     "You are a precise JSON-outputting assistant. "
@@ -563,13 +633,40 @@ def _call_llm(full_prompt: str) -> str:
 # ════════════════════════════════════════════════════════════════
 
 
+
+def _extract_name_heuristic(text: str):
+    """Best-effort name extraction when LLM fails."""
+    STOP = {
+        "resume","cv","curriculum","vitae","profile","summary","skills","education",
+        "experience","contact","objective","technical","professional","engineer",
+        "developer","analyst","manager","senior","junior","lead","architect",
+        "linkedin","github","years","specialist","consultant","designer","scientist",
+    }
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    for line in lines[:8]:
+        test_line = line.title() if (line.isupper() and 2<=len(line.split())<=4) else line
+        words = test_line.split()
+        if 2 <= len(words) <= 4:
+            if not any(w.lower().rstrip(".:,@") in STOP for w in words):
+                if all(re.fullmatch(r"[\w\-\'.\u00C0-\u024F]+", w) for w in words):
+                    return test_line.title()
+    # ALL-CAPS embedded name (scrambled PDF columns)
+    for m in re.finditer(r"(?<![A-Z])([A-Z]{2,}(?:\s+[A-Z]{2,}){1,2})(?![A-Z])", text):
+        words = m.group(0).split()
+        if 2 <= len(words) <= 3:
+            if not any(w.lower() in STOP for w in words):
+                return m.group(0).title()
+    return None
+
+
 async def extract_resume_full_profile(resume_text: str) -> dict:
     """
-    Extract full candidate profile from resume text.
-    Returns: full_name, email, phone, current_company, candidate_role,
-             location, tech_stack, experience_years
-    Falls back to keyword extraction if LLM fails.
+    Extract full candidate profile: name, email, phone, company, role, location,
+    tech_stack, experience_years. Uses run_in_executor for the sync _call_llm.
+    Falls back to regex + keyword scan if LLM fails.
     """
+    import re as _re_prof
+
     fallback = {
         "full_name": None, "email": None, "phone": None,
         "current_company": None, "candidate_role": None, "location": None,
@@ -578,16 +675,19 @@ async def extract_resume_full_profile(resume_text: str) -> dict:
     if not resume_text or not resume_text.strip():
         return fallback
 
-    # Try to extract email + phone via regex as fallback
-    import re as _re2
-    email_match = _re2.search(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", resume_text)
-    phone_match  = _re2.search(r"[+]?[0-9][ \-.]?[(]?[0-9]{1,4}[)]?[ \-.]?[0-9]{3,4}[ \-.]?[0-9]{3,4}", resume_text)
-    regex_email = email_match.group(0) if email_match else None
-    regex_phone = phone_match.group(0).replace(" ","").replace("-","") if phone_match else None
+    # Regex fallbacks (run before LLM so we always have something)
+    clean_text  = resume_text.replace("✉", " ").replace("📧", " ").replace("@", " @ ")
+    email_match = _re_prof.search(r"[a-zA-Z0-9_.+-]+\s*@\s*[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", clean_text)
+    regex_email = email_match.group(0).replace(" ", "").lower() if email_match else None
+
+    phone_text  = resume_text.replace("📞", " ").replace("☎", " ").replace("📱", " ")
+    phone_match = _re_prof.search(r"[+]?[0-9][0-9 \-().]{7,18}[0-9]", phone_text)
+    regex_phone = _re_prof.sub(r"[\s\-().]", "", phone_match.group(0)) if phone_match else None
 
     try:
         prompt = _RESUME_FULL_PROFILE_PROMPT.replace("{resume_text}", resume_text[:12000])
-        raw    = await _call_llm(prompt)
+        loop   = asyncio.get_running_loop()
+        raw    = await loop.run_in_executor(None, _call_llm, prompt)
         result = _parse_json_response(raw)
 
         tech = [str(s).strip() for s in (result.get("tech_stack") or [])
@@ -597,21 +697,23 @@ async def extract_resume_full_profile(resume_text: str) -> dict:
             exp = None
 
         return {
-            "full_name":       result.get("full_name") or None,
-            "email":           result.get("email")     or regex_email,
-            "phone":           result.get("phone")     or regex_phone,
-            "current_company": result.get("current_company") or None,
-            "candidate_role":  result.get("candidate_role")  or None,
-            "location":        result.get("location")        or None,
-            "tech_stack":      tech,
+            "full_name":        (result.get("full_name") or "").strip() or None,
+            "email":            (result.get("email") or "").strip().replace(" ", "") or regex_email,
+            "phone":            (result.get("phone") or "").strip().replace(" ", "") or regex_phone,
+            "current_company":  (result.get("current_company") or "").strip() or None,
+            "candidate_role":   (result.get("candidate_role") or "").strip() or None,
+            "location":         (result.get("location") or "").strip() or None,
+            "tech_stack":       tech,
             "experience_years": exp,
         }
+
     except Exception as exc:
         logger.warning(f"[LLM] extract_resume_full_profile failed: {exc} — falling back")
         tech = _extract_tech_stack_keywords(resume_text)
         exp  = _estimate_experience_years(resume_text)
-        return {**fallback, "tech_stack": tech, "experience_years": exp,
-                "email": regex_email, "phone": regex_phone}
+        name = _extract_name_heuristic(resume_text)
+        return {**fallback, "full_name": name, "tech_stack": tech,
+                "experience_years": exp, "email": regex_email, "phone": regex_phone}
 
 async def extract_resume_insights(resume_text: str) -> dict:
     """

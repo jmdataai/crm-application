@@ -888,18 +888,20 @@ export default function CandidatesList() {
                     {/* ── Resume column ── */}
                     <td style={{padding:'0.75rem 1rem'}} onClick={e=>e.stopPropagation()}>
                       {c.resume_url ? (
-                        <button
-                          onClick={() => setViewer({ name: c.name, resume_url: c.resume_url })}
+                        <a
+                          href={c.resume_url.includes('/preview') ? c.resume_url.replace('/preview','/view') : c.resume_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
                           style={{
                             display:'inline-flex', alignItems:'center', gap:'0.25rem',
                             padding:'0.2rem 0.625rem', borderRadius:4, border:'none', cursor:'pointer',
-                            fontSize:'0.8125rem', fontWeight:600,
+                            fontSize:'0.8125rem', fontWeight:600, textDecoration:'none',
                             background:'rgba(0,98,67,0.08)', color:'var(--tertiary)',
                             fontFamily:'var(--font-display)',
                           }}
                         >
-                          <Icon name="description" style={{ fontSize:'0.875rem' }} /> View
-                        </button>
+                          <Icon name="open_in_new" style={{ fontSize:'0.875rem' }} /> View
+                        </a>
                       ) : (
                         <span style={{ fontSize:'0.75rem', color:'var(--outline)' }}>—</span>
                       )}

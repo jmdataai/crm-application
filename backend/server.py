@@ -2093,13 +2093,17 @@ async def _process_bulk_zip(job_id: str, zip_bytes: bytes, user: dict):
             # 2. LLM — full profile (1 call per resume)
             profile = await extract_resume_full_profile(resume_text)
 
-            # 3. Upload to Google Drive
+            # 3. Upload to Google Drive — upload_resume returns dict {file_id, preview_url, view_url}
             drive_url = None
             if upload_resume is not None:
                 try:
-                    drive_url = await asyncio.get_event_loop().run_in_executor(
+                    drive_result = await asyncio.get_event_loop().run_in_executor(
                         None, lambda b=file_bytes, fn=fname, m=mime: upload_resume(b, fn, m)
                     )
+                    if isinstance(drive_result, dict):
+                        drive_url = drive_result.get("preview_url") or drive_result.get("view_url")
+                    elif isinstance(drive_result, str):
+                        drive_url = drive_result
                 except Exception as de:
                     _l.getLogger(__name__).warning(f"[bulk] Drive upload failed for {fname}: {de}")
 
