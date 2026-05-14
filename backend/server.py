@@ -322,16 +322,17 @@ class ReminderCreate(BaseModel):
     candidate_id: Optional[str] = None
 
 class JobCreate(BaseModel):
-    title:           str
-    department:      Optional[str]  = None
-    location:        Optional[str]  = None
-    employment_type: Optional[str]  = None
-    description:     Optional[str]  = None
-    requirements:    Optional[str]  = None
-    salary_range:    Optional[str]  = None
-    skills:          List[str]      = []
-    is_active:       bool           = True
-    is_urgent:       bool           = False
+    title:             str
+    department:        Optional[str]  = None
+    location:          Optional[str]  = None
+    employment_type:   Optional[str]  = None
+    description:       Optional[str]  = None
+    requirements:      Optional[str]  = None
+    salary_range:      Optional[str]  = None
+    skills:            List[str]      = []
+    is_active:         bool           = True
+    is_urgent:         bool           = False
+    post_to_linkedin:  bool           = False   # trigger LinkedIn company page post
 
 class JobUpdate(BaseModel):
     title:           Optional[str]  = None
@@ -1391,6 +1392,7 @@ async def delete_reminder(reminder_id: str, request: Request):
 async def create_job(job: JobCreate, request: Request):
     user = await get_current_user(request)
     _require_module(user, "recruitment")
+    apply_key = secrets.token_urlsafe(8)
     res = await run(lambda: sb("jobs").insert({
         "title":           job.title,
         "department":      job.department,
@@ -1405,9 +1407,19 @@ async def create_job(job: JobCreate, request: Request):
         "created_by":      user["id"],
         # URL-safe random key — used by the public /apply?key=… form.
         # Generated here (not in the DB) so the value is visible in the response immediately.
-        "apply_key":       secrets.token_urlsafe(8),
+        "apply_key":       apply_key,
     }).execute())
-    return res.data[0]
+    created_job = res.data[0]
+
+    # Optionally post to LinkedIn (non-blocking — job creation succeeds even if LinkedIn fails)
+    linkedin_result = {"success": False, "error": "not_requested"}
+    if job.post_to_linkedin:
+        # Apply URL uses the frontend origin — stored as env var or derived from request
+        frontend_origin = os.environ.get("FRONTEND_URL", "https://jmdata-crm-application.jmdatatalent.com")
+        apply_url = f"{frontend_origin}/apply?key={apply_key}"
+        linkedin_result = await _post_job_to_linkedin(created_job, apply_url)
+
+    return {**created_job, "linkedin_post": linkedin_result}
 
 
 @api_router.get("/jobs")
@@ -1934,6 +1946,252 @@ async def ats_match(body: ATSMatchRequest, request: Request):
         "total_scanned": len(all_candidates),
         "pre_filtered":  len(pre_filtered),
     }
+
+
+# ============================================================
+# LINKEDIN POSTING
+# ============================================================
+
+async def _post_job_to_linkedin(job: dict, apply_url: str) -> dict:
+    """
+    Post a job opening to JM Data Talent LinkedIn company page.
+    Returns {"success": True/False, "post_id": "...", "error": "..."}
+    
+    Required HuggingFace env vars:
+      LINKEDIN_ACCESS_TOKEN    — OAuth 2.0 access token (pages:read + w_organization_social)
+      LINKEDIN_ORGANIZATION_ID — numeric ID from linkedin.com/company/<name>/admin/ URL
+    """
+    token  = os.environ.get("LINKEDIN_ACCESS_TOKEN", "").strip()
+    org_id = os.environ.get("LINKEDIN_ORGANIZATION_ID", "").strip()
+
+    if not token or not org_id:
+        return {"success": False, "error": "LinkedIn credentials not configured — set LINKEDIN_ACCESS_TOKEN and LINKEDIN_ORGANIZATION_ID in HuggingFace Spaces secrets."}
+
+    # Build post text
+    skills_lines = ""
+    if job.get("skills"):
+        skills_lines = "\n" + "\n".join(f"• {s}" for s in (job["skills"] or [])[:6])
+
+    desc = (job.get("description") or "").strip()
+    short_desc = desc[:300] + ("…" if len(desc) > 300 else "")
+
+    location_line = ""
+    if job.get("location"):
+        location_line = f"📍 {job['location']}"
+    if job.get("employment_type"):
+        location_line += f" | {job['employment_type']}" if location_line else f"💼 {job['employment_type']}"
+
+    post_text = f"""🚀 We're Hiring: {job['title']}
+
+{location_line}
+
+{short_desc}{skills_lines}
+
+👉 Apply here → {apply_url}
+
+#Hiring #ITJobs #Dublin #Ireland #JMDataTalent #TechJobs #Recruitment"""
+
+    payload = {
+        "author": f"urn:li:organization:{org_id}",
+        "lifecycleState": "PUBLISHED",
+        "specificContent": {
+            "com.linkedin.ugc.ShareContent": {
+                "shareCommentary": {"text": post_text},
+                "shareMediaCategory": "ARTICLE",
+                "media": [{
+                    "status": "READY",
+                    "description": {"text": short_desc or f"{job['title']} — Apply at JM Data Talent"},
+                    "originalUrl": apply_url,
+                    "title": {"text": f"Apply: {job['title']} at JM Data Talent"},
+                }],
+            }
+        },
+        "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
+    }
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type":  "application/json",
+        "X-Restli-Protocol-Version": "2.0.0",
+        "LinkedIn-Version": "202401",
+    }
+
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post("https://api.linkedin.com/v2/ugcPosts", json=payload, headers=headers)
+        if resp.status_code in (200, 201):
+            return {"success": True, "post_id": resp.headers.get("x-linkedin-id", "posted")}
+        return {"success": False, "error": f"LinkedIn API returned {resp.status_code}: {resp.text[:200]}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ============================================================
+# BULK RESUME ZIP UPLOAD
+# ============================================================
+
+import uuid as _uuid
+import zipfile as _zipfile
+import io as _io
+
+# In-memory job tracking (cleared on restart — that is fine for short jobs)
+_bulk_jobs: dict = {}
+
+
+async def _process_bulk_zip(job_id: str, zip_bytes: bytes, user: dict):
+    """Background task: extract ZIP → parse each resume → upload Drive → insert candidate."""
+    from llm_utils import extract_resume_full_profile
+
+    state = _bulk_jobs[job_id]
+
+    ALLOWED = {
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }
+    EXT_MIME = {".pdf": "application/pdf", ".doc": "application/msword", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
+
+    try:
+        zf = _zipfile.ZipFile(_io.BytesIO(zip_bytes))
+    except Exception as e:
+        state["status"] = "error"
+        state["error"]  = f"Could not open ZIP: {e}"
+        return
+
+    # Filter to resume files only (skip __MACOSX junk and directories)
+    entries = [
+        n for n in zf.namelist()
+        if not n.startswith("__MACOSX") and not n.endswith("/")
+        and any(n.lower().endswith(ext) for ext in EXT_MIME)
+    ]
+
+    state["total"] = len(entries)
+    if not entries:
+        state["status"] = "done"
+        return
+
+    for i, name in enumerate(entries):
+        fname = name.split("/")[-1]  # strip any folder prefix inside zip
+        ext   = "." + fname.rsplit(".", 1)[-1].lower()
+        mime  = EXT_MIME.get(ext, "application/pdf")
+
+        result_entry = {"filename": fname, "status": "processing", "candidate_id": None, "error": None}
+        state["results"].append(result_entry)
+
+        try:
+            file_bytes = zf.read(name)
+
+            # 1. Extract text
+            resume_text = _extract_resume_text(file_bytes, mime)
+            if not resume_text.strip():
+                result_entry["status"] = "skipped"
+                result_entry["error"]  = "Could not extract text"
+                state["processed"] += 1
+                continue
+
+            # 2. LLM — full profile (1 call per resume)
+            profile = await extract_resume_full_profile(resume_text)
+
+            # 3. Upload to Google Drive
+            drive_url = None
+            if upload_resume is not None:
+                try:
+                    drive_url = await asyncio.get_event_loop().run_in_executor(
+                        None, lambda b=file_bytes, fn=fname, m=mime: upload_resume(b, fn, m)
+                    )
+                except Exception as de:
+                    _l.getLogger(__name__).warning(f"[bulk] Drive upload failed for {fname}: {de}")
+
+            # 4. Insert candidate (upsert by email if available)
+            row = {
+                "full_name":        profile.get("full_name") or fname.rsplit(".", 1)[0].replace("_"," ").replace("-"," ").title(),
+                "email":            profile.get("email"),
+                "phone":            profile.get("phone"),
+                "current_company":  profile.get("current_company"),
+                "candidate_role":   profile.get("candidate_role"),
+                "experience_years": profile.get("experience_years"),
+                "location":         profile.get("location"),
+                "tech_stack":       profile.get("tech_stack") or [],
+                "skills":           profile.get("tech_stack") or [],
+                "resume_url":       drive_url,
+                "source":           "bulk_upload",
+                "status":           "sourced",
+                "created_by":       user.get("id"),
+            }
+
+            sb_client = get_supabase()
+            # Upsert by email if available, else plain insert
+            if row["email"]:
+                existing = sb_client.table("candidates").select("id").eq("email", row["email"]).execute()
+                if existing.data:
+                    cid = existing.data[0]["id"]
+                    sb_client.table("candidates").update({k: v for k, v in row.items() if v is not None}).eq("id", cid).execute()
+                    result_entry["candidate_id"] = cid
+                    result_entry["action"] = "updated"
+                else:
+                    ins = sb_client.table("candidates").insert(row).execute()
+                    result_entry["candidate_id"] = ins.data[0]["id"] if ins.data else None
+                    result_entry["action"] = "created"
+            else:
+                ins = sb_client.table("candidates").insert(row).execute()
+                result_entry["candidate_id"] = ins.data[0]["id"] if ins.data else None
+                result_entry["action"] = "created"
+
+            result_entry["status"]    = "done"
+            result_entry["full_name"] = row["full_name"]
+            result_entry["email"]     = row["email"]
+            state["created"] += 1
+
+        except Exception as exc:
+            result_entry["status"] = "error"
+            result_entry["error"]  = str(exc)[:200]
+            state["errors"] += 1
+
+        state["processed"] += 1
+
+        # Sleep between calls to respect Groq free-tier rate limits
+        if i < len(entries) - 1:
+            await asyncio.sleep(4)
+
+    state["status"] = "done"
+    zf.close()
+
+
+@api_router.post("/candidates/bulk-upload-zip")
+async def bulk_upload_zip(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    zip_file: UploadFile = File(...),
+):
+    """Accept a ZIP of resumes, process in background, return a job_id to poll."""
+    user = await get_current_user(request)
+    _require_module(user, "recruitment")
+
+    if not zip_file.filename.lower().endswith(".zip"):
+        raise HTTPException(400, "Please upload a .zip file.")
+
+    raw = await zip_file.read()
+    if len(raw) > 100 * 1024 * 1024:  # 100 MB limit
+        raise HTTPException(400, "ZIP file too large (max 100 MB).")
+
+    job_id = str(_uuid.uuid4())
+    _bulk_jobs[job_id] = {
+        "status": "running", "total": 0, "processed": 0,
+        "created": 0, "errors": 0, "results": [],
+    }
+
+    background_tasks.add_task(_process_bulk_zip, job_id, raw, user)
+    return {"job_id": job_id}
+
+
+@api_router.get("/candidates/bulk-upload-status/{job_id}")
+async def bulk_upload_status(job_id: str, request: Request):
+    """Poll for bulk upload progress."""
+    await get_current_user(request)
+    if job_id not in _bulk_jobs:
+        raise HTTPException(404, "Job not found. Jobs are cleared on server restart.")
+    return _bulk_jobs[job_id]
 
 
 # ─────────────────────────────────────────────────────────────

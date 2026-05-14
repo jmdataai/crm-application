@@ -153,6 +153,17 @@ export const candidatesAPI = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
+
+  // Bulk resume ZIP upload
+  bulkUploadZip: (zipFile) => {
+    const fd = new FormData();
+    fd.append('zip_file', zipFile);
+    return api.post('/candidates/bulk-upload-zip', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 30000,
+    });
+  },
+  bulkUploadStatus: (jobId) => api.get(`/candidates/bulk-upload-status/${jobId}`),
 };
 
 

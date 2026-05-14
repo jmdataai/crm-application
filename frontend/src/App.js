@@ -29,6 +29,7 @@ import Interviews           from './pages/recruitment/Interviews';
 import RecruitmentTasks     from './pages/recruitment/RecruitmentTasks';
 import ATSMatch             from './pages/recruitment/ATSMatch';
 import ATSScoreUpload       from './pages/recruitment/ATSScoreUpload';
+import BulkResumeUpload     from './pages/recruitment/BulkResumeUpload';
 
 // Timesheet
 import Timesheet          from './pages/timesheet/Timesheet';
@@ -99,6 +100,7 @@ function AppRoutes() {
       <Route path="/recruitment/tasks"             element={<Page module="recruitment"><RecruitmentTasks /></Page>} />
       <Route path="/recruitment/ats-match"         element={<Page module="recruitment"><ATSMatch /></Page>} />
       <Route path="/recruitment/ats-score"         element={<Page module="recruitment"><ATSScoreUpload /></Page>} />
+      <Route path="/recruitment/bulk-upload"         element={<Page module="recruitment"><BulkResumeUpload /></Page>} />
 
       {/* ── Timesheet — all roles ── */}
       <Route path="/timesheet"           element={<TimesheetRoute />} />

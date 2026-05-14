@@ -30,6 +30,7 @@ const recruitNav = [
   { path: '/recruitment/tasks',             icon: 'task_alt',       label: 'Tasks' },
   { path: '/recruitment/ats-match',         icon: 'manage_search',  label: 'ATS Match' },
   { path: '/recruitment/ats-score',         icon: 'upload_file',    label: 'Resume Score' },
+  { path: '/recruitment/bulk-upload',         icon: 'folder_zip',     label: 'Bulk Upload' },
 ];
 
 const timesheetNav = [

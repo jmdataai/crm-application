@@ -562,6 +562,57 @@ def _call_llm(full_prompt: str) -> str:
 # PUBLIC API
 # ════════════════════════════════════════════════════════════════
 
+
+async def extract_resume_full_profile(resume_text: str) -> dict:
+    """
+    Extract full candidate profile from resume text.
+    Returns: full_name, email, phone, current_company, candidate_role,
+             location, tech_stack, experience_years
+    Falls back to keyword extraction if LLM fails.
+    """
+    fallback = {
+        "full_name": None, "email": None, "phone": None,
+        "current_company": None, "candidate_role": None, "location": None,
+        "tech_stack": [], "experience_years": None,
+    }
+    if not resume_text or not resume_text.strip():
+        return fallback
+
+    # Try to extract email + phone via regex as fallback
+    import re as _re2
+    email_match = _re2.search(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", resume_text)
+    phone_match  = _re2.search(r"[+]?[0-9][ \-.]?[(]?[0-9]{1,4}[)]?[ \-.]?[0-9]{3,4}[ \-.]?[0-9]{3,4}", resume_text)
+    regex_email = email_match.group(0) if email_match else None
+    regex_phone = phone_match.group(0).replace(" ","").replace("-","") if phone_match else None
+
+    try:
+        prompt = _RESUME_FULL_PROFILE_PROMPT.replace("{resume_text}", resume_text[:12000])
+        raw    = await _call_llm(prompt)
+        result = _parse_json_response(raw)
+
+        tech = [str(s).strip() for s in (result.get("tech_stack") or [])
+                if s and len(str(s).strip()) >= 2][:35]
+        exp  = result.get("experience_years")
+        if not isinstance(exp, int):
+            exp = None
+
+        return {
+            "full_name":       result.get("full_name") or None,
+            "email":           result.get("email")     or regex_email,
+            "phone":           result.get("phone")     or regex_phone,
+            "current_company": result.get("current_company") or None,
+            "candidate_role":  result.get("candidate_role")  or None,
+            "location":        result.get("location")        or None,
+            "tech_stack":      tech,
+            "experience_years": exp,
+        }
+    except Exception as exc:
+        logger.warning(f"[LLM] extract_resume_full_profile failed: {exc} — falling back")
+        tech = _extract_tech_stack_keywords(resume_text)
+        exp  = _estimate_experience_years(resume_text)
+        return {**fallback, "tech_stack": tech, "experience_years": exp,
+                "email": regex_email, "phone": regex_phone}
+
 async def extract_resume_insights(resume_text: str) -> dict:
     """
     Extract tech_stack (list[str]) and experience_years (int | None)

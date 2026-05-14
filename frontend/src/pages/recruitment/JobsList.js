@@ -7,6 +7,95 @@ const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
 );
 
+/* Textarea with bullet-point toolbar */
+const BulletTextarea = ({ value, onChange, rows = 4, placeholder }) => {
+  const ref = React.useRef();
+
+  const insertBullet = () => {
+    const el = ref.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end   = el.selectionEnd;
+    const before = value.slice(0, start);
+    const after  = value.slice(end);
+    const lineStart = before.lastIndexOf('\n') + 1;
+    const currentLine = before.slice(lineStart);
+    const prefix = currentLine.startsWith('• ') ? '' : '• ';
+    const newVal = before.slice(0, lineStart) + prefix + currentLine + after;
+    onChange({ target: { value: newVal } });
+    setTimeout(() => {
+      el.selectionStart = el.selectionEnd = start + prefix.length;
+      el.focus();
+    }, 0);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      const el = ref.current;
+      const before = value.slice(0, el.selectionStart);
+      const lineStart = before.lastIndexOf('\n') + 1;
+      const currentLine = before.slice(lineStart);
+      if (currentLine.startsWith('• ')) {
+        e.preventDefault();
+        const after  = value.slice(el.selectionStart);
+        const newVal = before + '\n• ' + after;
+        onChange({ target: { value: newVal } });
+        setTimeout(() => { el.selectionStart = el.selectionEnd = el.selectionStart + 3; }, 0);
+      }
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '0.375rem' }}>
+        <button type="button" onClick={insertBullet} style={{
+          display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+          padding: '0.25rem 0.625rem', borderRadius: '0.375rem',
+          border: '1px solid var(--outline-variant)', background: 'var(--surface-container)',
+          cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600,
+          color: 'var(--on-surface-variant)', fontFamily: 'var(--font-display)',
+        }}>
+          <Icon name="format_list_bulleted" style={{ fontSize: '0.875rem' }} /> Bullet
+        </button>
+        <span style={{ fontSize: '0.725rem', color: 'var(--on-surface-variant)', alignSelf: 'center' }}>
+          Enter auto-continues bullets
+        </span>
+      </div>
+      <textarea
+        ref={ref}
+        className="textarea"
+        rows={rows}
+        placeholder={placeholder}
+        value={value}
+        onChange={onChange}
+        onKeyDown={handleKeyDown}
+        style={{ width: '100%' }}
+      />
+    </div>
+  );
+};
+
+/* Render stored bullet text as styled list */
+const BulletText = ({ text, style = {} }) => {
+  if (!text) return null;
+  const lines = text.split('\n');
+  return (
+    <div style={{ fontSize: '0.875rem', lineHeight: 1.6, ...style }}>
+      {lines.map((line, i) => {
+        if (line.startsWith('• ')) {
+          return (
+            <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+              <span style={{ color: 'var(--tertiary)', fontWeight: 700, flexShrink: 0, marginTop: 2 }}>•</span>
+              <span>{line.slice(2)}</span>
+            </div>
+          );
+        }
+        return <p key={i} style={{ margin: line ? '0.25rem 0' : 0 }}>{line}</p>;
+      })}
+    </div>
+  );
+};
+
 const EMP_TYPES   = ['Full-time','Part-time','Contract','Internship'];
 const DEPARTMENTS = ['Engineering','AI Research','Product','Platform','Design','Operations','Sales'];
 
@@ -31,6 +120,8 @@ const AddJobModal = ({ onClose, onAdd }) => {
     title:'', dept:'Engineering', location:'', type:'Full-time',
     desc:'', requirements:'', salary_range:'', skills:'', urgent:false,
   });
+  const [postLinkedin, setPostLinkedin] = useState(true);
+  const [linkedinResult, setLinkedinResult] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState('');
   const set = (k,v) => setForm(f => ({ ...f, [k]: v }));
@@ -41,17 +132,25 @@ const AddJobModal = ({ onClose, onAdd }) => {
     setError('');
     try {
       const res = await jobsAPI.create({
-        title:           form.title,
-        department:      form.dept,
-        location:        form.location,
-        employment_type: form.type,
-        description:     form.desc,
-        skills:          form.skills.split(',').map(s => s.trim()).filter(Boolean),
-        requirements:    form.requirements || null,
-        salary_range:    form.salary_range  || null,
-        is_urgent:       form.urgent,
-        is_active:       true,
+        title:            form.title,
+        department:       form.dept,
+        location:         form.location,
+        employment_type:  form.type,
+        description:      form.desc,
+        skills:           form.skills.split(',').map(s => s.trim()).filter(Boolean),
+        requirements:     form.requirements || null,
+        salary_range:     form.salary_range  || null,
+        is_urgent:        form.urgent,
+        is_active:        true,
+        post_to_linkedin: postLinkedin,
       });
+      const li = res.data?.linkedin_post;
+      if (postLinkedin && li && !li.success) {
+        setLinkedinResult(li.error || 'LinkedIn post failed');
+        onAdd(normalizeJob(res.data));
+        setSaving(false);
+        return; // stay open to show LinkedIn error
+      }
       onAdd(normalizeJob(res.data));
       onClose();
     } catch (err) {
@@ -90,11 +189,11 @@ const AddJobModal = ({ onClose, onAdd }) => {
           </div>
           <div style={{ gridColumn:'1/-1' }}>
             <label className="label">Job Description</label>
-            <textarea className="textarea" rows={4} placeholder="Describe the role and responsibilities…" value={form.desc} onChange={e => set('desc',e.target.value)} />
+            <BulletTextarea rows={4} placeholder="Describe the role and responsibilities… (use • Bullet button for bullet points)" value={form.desc} onChange={e => set('desc',e.target.value)} />
           </div>
           <div style={{ gridColumn:'1/-1' }}>
             <label className="label">Requirements</label>
-            <textarea className="textarea" rows={3} placeholder="Minimum qualifications, certifications, years of experience…" value={form.requirements} onChange={e => set('requirements',e.target.value)} />
+            <BulletTextarea rows={3} placeholder="• Minimum qualifications&#10;• Certifications&#10;• Years of experience" value={form.requirements} onChange={e => set('requirements',e.target.value)} />
           </div>
           <div style={{ gridColumn:'1/-1' }}>
             <label className="label">Required Skills (comma separated)</label>
@@ -104,12 +203,36 @@ const AddJobModal = ({ onClose, onAdd }) => {
             <label className="label">Salary Range</label>
             <input className="input" placeholder="e.g. ₹12–18 LPA or $80k–$100k" value={form.salary_range} onChange={e => set('salary_range',e.target.value)} />
           </div>
-          <div style={{ gridColumn:'1/-1' }}>
+          <div style={{ gridColumn:'1/-1', display:'flex', flexWrap:'wrap', gap:'1.5rem', alignItems:'center' }}>
             <label style={{ display:'flex', alignItems:'center', gap:'0.625rem', cursor:'pointer' }}>
               <input type="checkbox" checked={form.urgent} onChange={e => set('urgent',e.target.checked)} style={{ width:16, height:16, accentColor:'var(--error)' }} />
               <span style={{ fontSize:'0.875rem', fontWeight:500, color:'var(--on-surface)' }}>Mark as Urgent Hire</span>
             </label>
+            <label style={{ display:'flex', alignItems:'center', gap:'0.5rem', cursor:'pointer' }}>
+              <input type="checkbox" checked={postLinkedin} onChange={e => setPostLinkedin(e.target.checked)} style={{ width:16, height:16, accentColor:'#0077B5' }} />
+              <Icon name="share" style={{ fontSize:'1rem', color:'#0077B5' }} />
+              <span style={{ fontSize:'0.875rem', fontWeight:500 }}>Auto-post to LinkedIn</span>
+            </label>
           </div>
+          {postLinkedin && (
+            <div style={{ gridColumn:'1/-1', display:'flex', gap:'0.5rem', padding:'0.625rem 0.875rem', borderRadius:'0.5rem', background:'rgba(0,119,181,0.06)', border:'1px solid rgba(0,119,181,0.2)' }}>
+              <Icon name="info" style={{ fontSize:'0.875rem', color:'#0077B5', flexShrink:0, marginTop:2 }} />
+              <p style={{ fontSize:'0.775rem', color:'var(--on-surface-variant)', margin:0, lineHeight:1.5 }}>
+                Posts to JM Data Talent LinkedIn page with a direct link to the apply form.
+                Requires <code>LINKEDIN_ACCESS_TOKEN</code> + <code>LINKEDIN_ORGANIZATION_ID</code> in HuggingFace env vars.
+              </p>
+            </div>
+          )}
+          {linkedinResult && (
+            <div style={{ gridColumn:'1/-1', padding:'0.625rem 0.875rem', borderRadius:'0.5rem', background:'var(--error-container)' }}>
+              <p style={{ fontSize:'0.8125rem', color:'var(--error)', margin:0 }}>
+                <strong>Job posted ✓</strong> — but LinkedIn failed: {linkedinResult}
+              </p>
+              <button onClick={onClose} style={{ marginTop:'0.375rem', fontSize:'0.8125rem', fontWeight:600, color:'var(--primary)', background:'none', border:'none', cursor:'pointer', padding:0 }}>
+                Close anyway →
+              </button>
+            </div>
+          )}
         </div>
         <div style={{ display:'flex', gap:'0.75rem', justifyContent:'flex-end', marginTop:'1.5rem' }}>
           {error && <p style={{ fontSize:'0.8125rem', color:'var(--error)', alignSelf:'center', flex:1 }}>{error}</p>}
