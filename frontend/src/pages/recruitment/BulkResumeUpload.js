@@ -209,14 +209,14 @@ export default function BulkResumeUpload() {
           {(progress?.results || []).length > 0 && (
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
               {/* Table header */}
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 100px' : '1fr 200px 160px 100px', gap: '0.5rem', padding: '0.625rem 1rem', background: 'var(--surface-container)', borderBottom: '2px solid var(--outline-variant)' }}>
-                {['File', ...(isMobile ? [] : ['Name extracted', 'Email']), 'Status'].map(h => (
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 100px' : '1fr 200px 180px 160px 100px', gap: '0.5rem', padding: '0.625rem 1rem', background: 'var(--surface-container)', borderBottom: '2px solid var(--outline-variant)' }}>
+                {['File', ...(isMobile ? [] : ['Name extracted', 'Role', 'Email']), 'Status'].map(h => (
                   <span key={h} style={{ fontSize: '0.6875rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--on-surface-variant)' }}>{h}</span>
                 ))}
               </div>
               {progress.results.map((r, i) => (
                 <div key={i} style={{
-                  display: 'grid', gridTemplateColumns: isMobile ? '1fr 100px' : '1fr 200px 160px 100px',
+                  display: 'grid', gridTemplateColumns: isMobile ? '1fr 100px' : '1fr 200px 180px 160px 100px',
                   gap: '0.5rem', padding: '0.625rem 1rem', alignItems: 'center',
                   borderBottom: '1px solid var(--outline-variant)',
                   background: r.status === 'error' ? 'rgba(239,68,68,0.03)' : r.status === 'done' ? 'rgba(0,98,67,0.02)' : 'transparent',
@@ -226,6 +226,7 @@ export default function BulkResumeUpload() {
                     {r.error && <p style={{ fontSize: '0.75rem', color: 'var(--error)' }}>{r.error}</p>}
                   </div>
                   {!isMobile && <span style={{ fontSize: '0.8125rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.full_name || '—'}</span>}
+                  {!isMobile && <span style={{ fontSize: '0.8125rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.candidate_role || '—'}</span>}
                   {!isMobile && <span style={{ fontSize: '0.8125rem', color: 'var(--on-surface-variant)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.email || '—'}</span>}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
                     <StatusIcon status={r.status} />

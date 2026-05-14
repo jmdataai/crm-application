@@ -166,6 +166,43 @@ SELF-CHECK before responding:
 ---"""
 
 
+_RESUME_FULL_PROFILE_PROMPT = """\
+You are an expert ATS parser used by a technical staffing firm.
+Your job is to extract a clean candidate profile from a raw resume.
+
+Return ONLY JSON with these keys:
+{
+  "full_name": "<string or null>",
+  "email": "<string or null>",
+  "phone": "<string or null>",
+  "current_company": "<string or null>",
+  "candidate_role": "<string or null>",
+  "location": "<string or null>",
+  "tech_stack": ["Skill1", "Skill2", ...],
+  "experience_years": <integer or null>
+}
+
+Rules:
+- `candidate_role` must be the candidate's current or most recent job title.
+- Prefer a specific title such as "Salesforce Developer", "Power BI Developer",
+  "SAP FICO Consultant", "QA Engineer", "Data Analyst", "Backend Engineer",
+  "Frontend Engineer", or "Full-Stack Developer".
+- Do NOT return company names, names of employers, or generic words like
+  "resume", "profile", or "developer" alone if a more specific title is present.
+- Keep `tech_stack` normalized exactly as in the skills prompt.
+- If a field cannot be determined, use null.
+
+SELF-CHECK:
+- Is `candidate_role` a job title, not a skill?
+- Is `experience_years` an integer or null?
+- Is the output pure JSON with no markdown?
+
+## RESUME TEXT
+---
+{resume_text}
+---"""
+
+
 _JD_KEYWORDS_PROMPT = """\
 You are an expert technical recruiter building a candidate-matching pipeline. \
 Your task is to parse a job description into structured fields that will be \
@@ -659,6 +696,64 @@ def _extract_name_heuristic(text: str):
     return None
 
 
+_ROLE_ALIASES = [
+    ("salesforce marketing cloud specialist", "Salesforce Marketing Cloud Specialist"),
+    ("salesforce developer", "Salesforce Developer"),
+    ("sfmc specialist", "Salesforce Marketing Cloud Specialist"),
+    ("sfdc", "Salesforce Developer"),
+    ("power bi developer", "Power BI Developer"),
+    ("power bi", "Power BI Developer"),
+    ("sap btp cpi architect", "SAP BTP CPI Architect"),
+    ("sap fico consultant", "SAP FICO Consultant"),
+    ("sap fico", "SAP FICO Consultant"),
+    ("d365fo technical consultant", "D365FO Technical Consultant"),
+    ("d365fo", "D365FO Technical Consultant"),
+    ("aem developer", "AEM Developer"),
+    ("aem eds developer", "AEM Developer"),
+    ("mern stack developer", "MERN Stack Developer"),
+    ("mern stack", "MERN Stack Developer"),
+    ("java spring boot microservices developer", "Java Spring Boot Microservices Developer"),
+    ("java developer", "Java Developer"),
+    ("backend engineer", "Backend Engineer"),
+    ("frontend engineer", "Frontend Engineer"),
+    ("full stack engineer", "Full-Stack Engineer"),
+    ("full stack developer", "Full-Stack Developer"),
+    ("software engineer", "Software Engineer"),
+    ("software developer", "Software Developer"),
+    ("qa engineer", "QA Engineer"),
+    ("tester", "QA Engineer"),
+    ("data analyst", "Data Analyst"),
+    ("business analyst", "Business Analyst"),
+    ("devops engineer", "DevOps Engineer"),
+    ("cloud engineer", "Cloud Engineer"),
+    ("architect", "Architect"),
+    ("consultant", "Consultant"),
+    ("admin", "Administrator"),
+    ("mechanical engineer", "Mechanical Engineer"),
+]
+
+
+def _extract_candidate_role_heuristic(text: str) -> str | None:
+    """
+    Best-effort job-title extraction when the LLM omits candidate_role.
+    Looks at the top of the resume first, then scans for common title aliases.
+    """
+    if not text or not text.strip():
+        return None
+
+    head = "\n".join(text.splitlines()[:20]).lower()
+    for alias, canonical in _ROLE_ALIASES:
+        if alias in head:
+            return canonical
+
+    text_lower = text.lower()
+    for alias, canonical in _ROLE_ALIASES:
+        if alias in text_lower:
+            return canonical
+
+    return None
+
+
 async def extract_resume_full_profile(resume_text: str) -> dict:
     """
     Extract full candidate profile: name, email, phone, company, role, location,
@@ -696,12 +791,14 @@ async def extract_resume_full_profile(resume_text: str) -> dict:
         if not isinstance(exp, int):
             exp = None
 
+        candidate_role = (result.get("candidate_role") or "").strip() or _extract_candidate_role_heuristic(resume_text)
+
         return {
             "full_name":        (result.get("full_name") or "").strip() or None,
             "email":            (result.get("email") or "").strip().replace(" ", "") or regex_email,
             "phone":            (result.get("phone") or "").strip().replace(" ", "") or regex_phone,
             "current_company":  (result.get("current_company") or "").strip() or None,
-            "candidate_role":   (result.get("candidate_role") or "").strip() or None,
+            "candidate_role":   candidate_role,
             "location":         (result.get("location") or "").strip() or None,
             "tech_stack":       tech,
             "experience_years": exp,
@@ -712,8 +809,10 @@ async def extract_resume_full_profile(resume_text: str) -> dict:
         tech = _extract_tech_stack_keywords(resume_text)
         exp  = _estimate_experience_years(resume_text)
         name = _extract_name_heuristic(resume_text)
+        role = _extract_candidate_role_heuristic(resume_text)
         return {**fallback, "full_name": name, "tech_stack": tech,
-                "experience_years": exp, "email": regex_email, "phone": regex_phone}
+                "experience_years": exp, "email": regex_email, "phone": regex_phone,
+                "candidate_role": role}
 
 async def extract_resume_insights(resume_text: str) -> dict:
     """

@@ -34,12 +34,12 @@ from slowapi.errors import RateLimitExceeded
 
 # ── Google Drive helpers ──────────────────────────────────────
 try:
-    from google_drive import upload_resume, delete_resume, ALLOWED_MIME_TYPES, MAX_FILE_BYTES
+    from google_drive import upload_resume, delete_resume, download_resume, ALLOWED_MIME_TYPES, MAX_FILE_BYTES
     _GDRIVE_OK = True
 except Exception as _gdrive_err:
     import logging as _l
     _l.getLogger(__name__).warning(f"[google_drive] import failed — resume upload disabled: {_gdrive_err}")
-    upload_resume = delete_resume = None
+    upload_resume = delete_resume = download_resume = None
     _GDRIVE_OK = False
     ALLOWED_MIME_TYPES = {
         "application/pdf": "pdf",
@@ -2145,6 +2145,7 @@ async def _process_bulk_zip(job_id: str, zip_bytes: bytes, user: dict):
             result_entry["status"]    = "done"
             result_entry["full_name"] = row["full_name"]
             result_entry["email"]     = row["email"]
+            result_entry["candidate_role"] = row["candidate_role"]
             state["created"] += 1
 
         except Exception as exc:
@@ -2201,6 +2202,89 @@ async def bulk_upload_status(job_id: str, request: Request):
 # ─────────────────────────────────────────────────────────────
 # ATS RESUME UPLOAD SCORING  (free-tier safe: 1 LLM call/resume)
 # ─────────────────────────────────────────────────────────────
+
+class BackfillCandidateRoleRequest(BaseModel):
+    limit: Optional[int] = 100
+
+
+@api_router.post("/candidates/backfill-roles")
+async def backfill_candidate_roles(request: Request, body: BackfillCandidateRoleRequest = None):
+    """
+    Backfill missing candidate_role values from already stored Drive resumes.
+    Only updates rows where candidate_role is empty and resume_url is present.
+    """
+    user = await get_current_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Only admins can run role backfills.")
+
+    if download_resume is None:
+        raise HTTPException(503, "Google Drive download is not configured.")
+
+    limit = int(getattr(body, "limit", 100) or 100)
+    limit = max(1, min(limit, 500))
+
+    from llm_utils import extract_resume_full_profile
+
+    rows_res = await run(
+        lambda: sb("candidates")
+        .select("id,full_name,candidate_role,resume_url")
+        .execute()
+    )
+    rows = getattr(rows_res, "data", []) or []
+
+    updated = 0
+    scanned = 0
+    skipped = 0
+    errors = 0
+
+    for cand in rows:
+        if scanned >= limit:
+            break
+        if (cand.get("candidate_role") or "").strip():
+            continue
+        resume_url = (cand.get("resume_url") or "").strip()
+        if not resume_url:
+            continue
+
+        scanned += 1
+        try:
+            file_bytes = await run(lambda url=resume_url: download_resume(url))
+
+            resume_text = _extract_resume_text(file_bytes, "application/pdf")
+            if not resume_text.strip():
+                resume_text = _extract_resume_text(file_bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+            if not resume_text.strip():
+                resume_text = _extract_resume_text(file_bytes, "application/msword")
+
+            if not resume_text.strip():
+                skipped += 1
+                continue
+
+            profile = await extract_resume_full_profile(resume_text)
+            candidate_role = (profile.get("candidate_role") or "").strip()
+            if not candidate_role:
+                skipped += 1
+                continue
+
+            await run(
+                lambda cid=cand["id"], role=candidate_role: sb("candidates")
+                .update({"candidate_role": role})
+                .eq("id", cid)
+                .execute()
+            )
+            updated += 1
+        except Exception as exc:
+            errors += 1
+            logger.warning(f"[backfill-roles] failed for {cand.get('id')}: {exc}")
+
+    return {
+        "scanned": scanned,
+        "updated": updated,
+        "skipped": skipped,
+        "errors": errors,
+        "limit": limit,
+    }
+
 
 class ParseJDRequest(BaseModel):
     jd_text: str

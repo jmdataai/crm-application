@@ -177,6 +177,23 @@ def delete_resume(drive_url: str) -> bool:
         return False
 
 
+def download_resume(drive_url: str) -> bytes:
+    """
+    Download a Drive file given its preview_url or view_url.
+    Returns raw file bytes.
+    """
+    match = re.search(r"/file/d/([^/?#]+)", drive_url or "")
+    if not match:
+        raise ValueError("Could not parse Drive file id from URL")
+
+    file_id = match.group(1)
+    service = _get_service()
+    try:
+        return service.files().get_media(fileId=file_id, supportsAllDrives=True).execute()
+    except Exception as exc:
+        raise RuntimeError(f"Google Drive download failed for {file_id}: {exc}") from exc
+
+
 def _extract_drive_error(exc: Exception) -> str:
     content = getattr(exc, "content", b"") or b""
     if isinstance(content, bytes):
