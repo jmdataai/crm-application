@@ -271,6 +271,7 @@ const EditCompanyModal = ({ lead, onClose, onSave }) => {
 
 // ── Main Component ───────────────────────────────────────────
 export default function LeadDetail() {
+  const { isMobile } = useBreakpoint();
   const { id }     = useParams();
   const navigate   = useNavigate();
   const [lead, setLead]       = useState(null);
