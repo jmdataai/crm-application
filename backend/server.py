@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, File, UploadFile, Form
+from fastapi import FastAPI, APIRouter, BackgroundTasks, HTTPException, Request, Response, File, UploadFile, Form
 from starlette.middleware.cors import CORSMiddleware
 from supabase import create_client, Client
 import inspect
