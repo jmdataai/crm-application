@@ -2041,9 +2041,17 @@ _bulk_jobs: dict = {}
 
 async def _process_bulk_zip(job_id: str, zip_bytes: bytes, user: dict):
     """Background task: extract ZIP → parse each resume → upload Drive → insert candidate."""
-    from llm_utils import extract_resume_full_profile
-
-    state = _bulk_jobs[job_id]
+    state = _bulk_jobs.get(job_id)
+    if not state:
+        logging.getLogger(__name__).error(f"[bulk] job_id {job_id} not found in _bulk_jobs")
+        return
+    try:
+        from llm_utils import extract_resume_full_profile
+    except ImportError as ie:
+        state["status"] = "error"
+        state["error"]  = f"LLM import failed: {ie}"
+        logging.getLogger(__name__).error(f"[bulk] llm_utils import failed: {ie}")
+        return
 
     ALLOWED = {
         "application/pdf",
@@ -2097,7 +2105,8 @@ async def _process_bulk_zip(job_id: str, zip_bytes: bytes, user: dict):
             drive_url = None
             if upload_resume is not None:
                 try:
-                    drive_result = await asyncio.get_event_loop().run_in_executor(
+                    _loop = asyncio.get_running_loop()
+                    drive_result = await _loop.run_in_executor(
                         None, lambda b=file_bytes, fn=fname, m=mime: upload_resume(b, fn, m)
                     )
                     if isinstance(drive_result, dict):
@@ -2105,7 +2114,7 @@ async def _process_bulk_zip(job_id: str, zip_bytes: bytes, user: dict):
                     elif isinstance(drive_result, str):
                         drive_url = drive_result
                 except Exception as de:
-                    _l.getLogger(__name__).warning(f"[bulk] Drive upload failed for {fname}: {de}")
+                    logging.getLogger(__name__).warning(f"[bulk] Drive upload failed for {fname}: {de}")
 
             # 4. Insert candidate (upsert by email if available)
             row = {

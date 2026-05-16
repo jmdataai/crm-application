@@ -614,12 +614,25 @@ export default function CandidatesList() {
     if (!deleteConfirm?.ids?.length) return;
     setDeleting(true);
     try {
-      await Promise.all(deleteConfirm.ids.map(id => candidatesAPI.delete(id)));
-      setCandidates(cs => cs.filter(c => !deleteConfirm.ids.includes(c.id)));
+      // allSettled so a single 404 never aborts the whole batch
+      const results = await Promise.allSettled(
+        deleteConfirm.ids.map(id => candidatesAPI.delete(id))
+      );
+      const failed = results.filter(r => r.status === 'rejected').length;
+      const succeeded = results
+        .map((r, i) => r.status === 'fulfilled' ? deleteConfirm.ids[i] : null)
+        .filter(Boolean);
+      // Remove successfully deleted candidates from local state
+      if (succeeded.length > 0) {
+        setCandidates(cs => cs.filter(c => !succeeded.includes(c.id)));
+      }
       setSelected(new Set());
       setDeleteConfirm(null);
+      if (failed > 0) {
+        alert(`${succeeded.length} deleted. ${failed} could not be deleted — they may have already been removed.`);
+      }
     } catch (err) {
-      alert('Failed to delete some candidates. Please try again.');
+      alert('Delete failed. Please try again.');
     } finally {
       setDeleting(false);
     }
