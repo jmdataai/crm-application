@@ -1962,9 +1962,11 @@ async def _post_job_to_linkedin(job: dict, apply_url: str) -> dict:
       LINKEDIN_ORGANIZATION_ID — numeric ID from linkedin.com/company/<name>/admin/ URL
     """
     token  = os.environ.get("LINKEDIN_ACCESS_TOKEN", "").strip()
-    org_id = os.environ.get("LINKEDIN_ORGANIZATION_ID", "").strip()
+    # org_id = os.environ.get("LINKEDIN_ORGANIZATION_ID", "").strip()
+    member_id = os.environ.get("LINKEDIN_MEMBER_ID", "").strip()
 
-    if not token or not org_id:
+    # if not token or not org_id:
+    if not token or not member_id:
         return {"success": False, "error": "LinkedIn credentials not configured — set LINKEDIN_ACCESS_TOKEN and LINKEDIN_ORGANIZATION_ID in HuggingFace Spaces secrets."}
 
     # Build post text
@@ -1992,7 +1994,8 @@ async def _post_job_to_linkedin(job: dict, apply_url: str) -> dict:
 #Hiring #ITJobs #Dublin #Ireland #JMDataTalent #TechJobs #Recruitment"""
 
     payload = {
-        "author": f"urn:li:organization:{org_id}",
+        # "author": f"urn:li:organization:{org_id}",
+        "author": f"urn:li:person:{member_id}",
         "lifecycleState": "PUBLISHED",
         "specificContent": {
             "com.linkedin.ugc.ShareContent": {

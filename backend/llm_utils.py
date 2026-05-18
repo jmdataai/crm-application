@@ -9,8 +9,8 @@ ATS scoring itself is done in pure Python (tech_stack overlap) — zero per-cand
 LLM calls, so free-tier limits are never hit during a search.
 
 PROVIDER PRIORITY  (free-tier limits, highest first):
-  1. groq      — openai SDK + groq base_url  llama-3.3-70b-versatile  14,400 req/day FREE
-  2. gemini    — google-genai                gemini-2.5-flash-lite     1,000 req/day FREE
+  1. groq      — openai SDK + groq base_url  llama-3.1-8b-instant     14,400 req/day, 500K TPD FREE
+  2. gemini    — google-genai                gemini-2.5-flash          500 req/day FREE
   3. openai    — openai                      gpt-4o-mini               paid only
   4. anthropic — anthropic                   claude-haiku              paid only
 
@@ -25,8 +25,8 @@ ENV VARS (add to HuggingFace Spaces secrets):
   OPENAI_API_KEY        = sk-...       ← paid only
   ANTHROPIC_API_KEY     = sk-ant-...   ← paid only
 
-  LLM_MODEL_GROQ        = llama-3.3-70b-versatile      (optional override)
-  LLM_MODEL_GEMINI      = gemini-2.5-flash-lite         (optional override)
+  LLM_MODEL_GROQ        = llama-3.1-8b-instant         (optional override)
+  LLM_MODEL_GEMINI      = gemini-2.5-flash              (optional override)
   LLM_MODEL_OPENAI      = gpt-4o-mini                  (optional override)
   LLM_MODEL_ANTHROPIC   = claude-haiku-4-5-20251001    (optional override)
 """
@@ -41,13 +41,15 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ── Defaults ──────────────────────────────────────────────────
-DEFAULT_GROQ_MODEL      = "llama-3.3-70b-versatile"   # 14,400 req/day FREE
-DEFAULT_GEMINI_MODEL    = "gemini-2.5-flash-lite"     # 1,000 req/day FREE (2.0-flash DEPRECATED Jun 2026)
+DEFAULT_GROQ_MODEL      = "llama-3.1-8b-instant"      # 14,400 req/day, 500K TPD FREE
+DEFAULT_GEMINI_MODEL    = "gemini-2.5-flash"          # 500 req/day FREE
 DEFAULT_OPENAI_MODEL    = "gpt-4o-mini"               # paid only
 DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001" # paid only
 
 
 def _provider() -> str:
+    # Default: groq (500K TPD free). Override with LLM_PROVIDER env var.
+    # IMPORTANT: Remove LLM_PROVIDER=gemini from HuggingFace if set — use groq
     return os.environ.get("LLM_PROVIDER", "groq").lower().strip()
 
 
@@ -622,8 +624,8 @@ def _call_anthropic(full_prompt: str) -> str:
 def _call_llm(full_prompt: str) -> str:
     """
     Cascade through all providers in free-tier priority order:
-      1. Groq         — llama-3.3-70b-versatile   14,400 req/day FREE
-      2. Gemini       — gemini-2.5-flash-lite       1,000 req/day FREE
+      1. Groq         — llama-3.1-8b-instant      14,400 req/day, 500K TPD FREE
+      2. Gemini       — gemini-2.5-flash             500 req/day FREE
       3. OpenAI       — gpt-4o-mini                paid only
       4. Anthropic    — claude-haiku                paid only
 
@@ -890,7 +892,7 @@ async def extract_jd_keywords(jd_text: str) -> dict:
     Parse a job description into structured requirements. Called ONCE per ATS search.
 
     Strategy:
-      1. Try LLM cascade (Gemini → OpenAI → Anthropic, whichever has a key).
+      1. Try LLM cascade (Groq → Gemini → OpenAI → Anthropic, whichever has a key).
       2. If all LLMs fail OR return empty required_skills, fall back to keyword scan.
 
     Returns:
