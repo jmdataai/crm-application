@@ -1962,7 +1962,7 @@ async def _post_job_to_linkedin(job: dict, apply_url: str) -> dict:
       LINKEDIN_ORGANIZATION_ID — numeric ID from linkedin.com/company/<name>/admin/ URL
     """
     token  = os.environ.get("LINKEDIN_ACCESS_TOKEN", "").strip()
-    # org_id = os.environ.get("LINKEDIN_ORGANIZATION_ID", "").strip()
+    # org_id = os.environ.get("LINKEDIN_ORGANIZATION_ID", "").strip() # having issues 
     member_id = os.environ.get("LINKEDIN_MEMBER_ID", "").strip()
 
     # if not token or not org_id:
