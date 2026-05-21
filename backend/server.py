@@ -84,7 +84,7 @@ async def _graph_send_mail(from_email: str, to_emails: list, subject: str, html_
 
 # ── Google Drive helpers ──────────────────────────────────────
 try:
-    from google_drive import upload_resume, delete_resume, download_resume, ALLOWED_MIME_TYPES, MAX_FILE_BYTES
+    from google_drive import upload_resume, delete_resume, download_resume, get_file_metadata, ALLOWED_MIME_TYPES, MAX_FILE_BYTES
     _GDRIVE_OK = True
 except Exception as _gdrive_err:
     import logging as _l
@@ -1776,23 +1776,38 @@ async def download_masked_resume(candidate_id: str, request: Request):
     if download_resume is None:
         raise HTTPException(503, "Google Drive not configured")
 
+    metadata = await run(lambda: get_file_metadata(url))
+    mime_type = (metadata.get("mimeType") or "").strip().lower()
+    file_name = (metadata.get("name") or "").strip().lower()
     raw = await run(lambda: download_resume(url))
 
-    # Detect type from URL
-    if ".pdf" in url.lower() or "pdf" in url.lower():
+    # Detect type from Drive metadata, not from the preview URL.
+    if mime_type == "application/pdf" or file_name.endswith(".pdf"):
         try:
             masked = _mask_pdf_bytes(raw)
         except Exception:
             masked = raw   # return original if masking fails
         ctype = "application/pdf"
         ext   = "pdf"
-    else:
+    elif mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" or file_name.endswith(".docx"):
         try:
             masked = _mask_docx_bytes(raw)
         except Exception:
             masked = raw
         ctype = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         ext   = "docx"
+    elif mime_type == "application/msword" or file_name.endswith(".doc"):
+        # Legacy .doc files cannot be safely redacted with python-docx.
+        # Return the original binary with the correct MIME type so Word can open it.
+        masked = raw
+        ctype = "application/msword"
+        ext   = "doc"
+    else:
+        # Unknown Drive MIME type. Preserve the original bytes rather than
+        # rewriting them as DOCX, which would corrupt non-DOCX resumes.
+        masked = raw
+        ctype = mime_type or "application/octet-stream"
+        ext   = "bin"
 
     safe_name = (row.get("full_name") or "candidate").replace(" ", "_")
     return FResponse(

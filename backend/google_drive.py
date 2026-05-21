@@ -182,16 +182,29 @@ def download_resume(drive_url: str) -> bytes:
     Download a Drive file given its preview_url or view_url.
     Returns raw file bytes.
     """
-    match = re.search(r"/file/d/([^/?#]+)", drive_url or "")
-    if not match:
-        raise ValueError("Could not parse Drive file id from URL")
-
-    file_id = match.group(1)
+    file_id = _extract_file_id(drive_url)
     service = _get_service()
     try:
         return service.files().get_media(fileId=file_id, supportsAllDrives=True).execute()
     except Exception as exc:
         raise RuntimeError(f"Google Drive download failed for {file_id}: {exc}") from exc
+
+
+def get_file_metadata(drive_url: str) -> dict:
+    """
+    Return Drive metadata for a preview/view URL.
+    Includes the original file name and MIME type.
+    """
+    file_id = _extract_file_id(drive_url)
+    service = _get_service()
+    try:
+        return service.files().get(
+            fileId=file_id,
+            fields="id,name,mimeType",
+            supportsAllDrives=True,
+        ).execute()
+    except Exception as exc:
+        raise RuntimeError(f"Google Drive metadata lookup failed for {file_id}: {exc}") from exc
 
 
 def _extract_drive_error(exc: Exception) -> str:
@@ -214,3 +227,10 @@ def _extract_drive_error(exc: Exception) -> str:
 def _is_storage_quota_error(message: str) -> bool:
     normalized = (message or "").lower()
     return "storage quota" in normalized or "storagequotaexceeded" in normalized
+
+
+def _extract_file_id(drive_url: str) -> str:
+    match = re.search(r"/file/d/([^/?#]+)", drive_url or "")
+    if not match:
+      raise ValueError("Could not parse Drive file id from URL")
+    return match.group(1)

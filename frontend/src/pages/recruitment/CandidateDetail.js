@@ -89,7 +89,15 @@ const ResumeCard = ({ candidateId, candidateName, initialUrl, onSaved }) => {
       a.href     = url;
       const cd   = res.headers['content-disposition'] || '';
       const fnMatch = cd.match(/filename="?([^"]+)"?/);
-      a.download = fnMatch ? fnMatch[1] : `${candidateName?.replace(/\s+/g,'_') || 'candidate'}_masked.pdf`;
+      const contentType = (res.headers['content-type'] || '').toLowerCase();
+      const fallbackExt = contentType.includes('pdf')
+        ? 'pdf'
+        : contentType.includes('msword')
+          ? 'doc'
+          : contentType.includes('officedocument.wordprocessingml.document')
+            ? 'docx'
+            : 'bin';
+      a.download = fnMatch ? fnMatch[1] : `${candidateName?.replace(/\s+/g,'_') || 'candidate'}_masked.${fallbackExt}`;
       document.body.appendChild(a); a.click();
       document.body.removeChild(a); URL.revokeObjectURL(url);
     } catch (err) {
