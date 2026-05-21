@@ -21,6 +21,12 @@ const DEFAULT_BODY = `<p>Hi there,</p>
 JM Data Talent<br/>
 <a href="https://jmdatatalent.com">jmdatatalent.com</a></p>`;
 
+const parseEmailInput = (value) =>
+  value
+    .split(/[\s,;]+/)
+    .map(email => email.trim().toLowerCase())
+    .filter(email => email && email.includes('@'));
+
 export default function BulkEmail() {
   const [recipients, setRecipients]       = useState([]);
   const [loading, setLoading]             = useState(true);
@@ -28,9 +34,14 @@ export default function BulkEmail() {
   const [body, setBody]                   = useState(DEFAULT_BODY);
   const [extraInput, setExtraInput]       = useState('');
   const [extraEmails, setExtraEmails]     = useState([]);
+  const [testInput, setTestInput]         = useState('');
+  const [testEmails, setTestEmails]       = useState([]);
   const [sending, setSending]             = useState(false);
+  const [testSending, setTestSending]     = useState(false);
   const [result, setResult]               = useState(null);
+  const [testResult, setTestResult]       = useState(null);
   const [error, setError]                 = useState('');
+  const [testError, setTestError]         = useState('');
   const [filterSent, setFilterSent]       = useState('pending'); // 'all' | 'pending' | 'sent'
   const [search, setSearch]               = useState('');
   const [tab, setTab]                     = useState('compose'); // 'compose' | 'history'
@@ -61,10 +72,17 @@ export default function BulkEmail() {
   useEffect(() => { if (tab === 'history') loadHistory(); }, [tab, loadHistory]);
 
   const addExtraEmail = () => {
-    const emails = extraInput.split(/[\s,;]+/).map(e => e.trim().toLowerCase()).filter(e => e && e.includes('@'));
+    const emails = parseEmailInput(extraInput);
     const newOnes = emails.filter(e => !extraEmails.includes(e));
     if (newOnes.length) setExtraEmails(prev => [...prev, ...newOnes]);
     setExtraInput('');
+  };
+
+  const addTestEmail = () => {
+    const emails = parseEmailInput(testInput);
+    const newOnes = emails.filter(e => !testEmails.includes(e));
+    if (newOnes.length) setTestEmails(prev => [...prev, ...newOnes]);
+    setTestInput('');
   };
 
   const filtered = recipients.filter(r => {
@@ -94,6 +112,26 @@ export default function BulkEmail() {
     } finally { setSending(false); }
   };
 
+  const handleTestSend = async () => {
+    if (!subject.trim() || !body.trim()) {
+      setTestError('Subject and body are required.'); return;
+    }
+    if (testEmails.length === 0) {
+      setTestError('Add at least one test email address.'); return;
+    }
+    setTestSending(true);
+    setTestError('');
+    setTestResult(null);
+    try {
+      const res = await bulkEmailAPI.sendTest({ subject, html_body: body, test_emails: testEmails });
+      setTestResult(res.data);
+    } catch (e) {
+      setTestError(e?.response?.data?.detail || 'Test send failed. Check Microsoft Graph / Azure configuration.');
+    } finally {
+      setTestSending(false);
+    }
+  };
+
   return (
     <div className="fade-in">
       {/* Header */}
@@ -103,6 +141,79 @@ export default function BulkEmail() {
         <p style={{ fontSize:'0.875rem', color:'var(--on-surface-variant)', marginTop:'0.25rem' }}>
           Send welcome emails from your Outlook mailbox to all new lead contacts. Already-contacted addresses are automatically skipped.
         </p>
+      </div>
+
+      {/* Test send */}
+      <div className="card" style={{ marginBottom:'1.25rem', background:'linear-gradient(135deg, rgba(68,104,176,0.08), rgba(0,98,67,0.06))' }}>
+        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:'1rem', marginBottom:'0.75rem', flexWrap:'wrap' }}>
+          <div>
+            <h3 style={{ fontWeight:700, fontSize:'0.9375rem', marginBottom:'0.25rem' }}>
+              <Icon name="science" style={{ fontSize:'1rem', marginRight:'0.375rem', color:'var(--primary)' }} />
+              Send a test first
+            </h3>
+            <p style={{ margin:0, fontSize:'0.8125rem', color:'var(--on-surface-variant)' }}>
+              Uses the current subject and body draft below. Add one or more test addresses before sending to everyone.
+            </p>
+          </div>
+          <button
+            onClick={handleTestSend}
+            disabled={testSending || testEmails.length === 0}
+            className="btn-secondary"
+            style={{ whiteSpace:'nowrap' }}
+          >
+            <Icon name={testSending ? 'progress_activity' : 'send'} style={{ fontSize:'1rem' }} />
+            {testSending ? 'Sending test...' : `Send test to ${testEmails.length || 0}`}
+          </button>
+        </div>
+
+        <div style={{ marginBottom:'0.75rem' }}>
+          <label className="label">Test emails</label>
+          <div style={{ display:'flex', gap:'0.5rem' }}>
+            <input
+              className="input"
+              type="text"
+              value={testInput}
+              onChange={e => setTestInput(e.target.value)}
+              onKeyDown={e => (e.key === 'Enter' || e.key === ',') && addTestEmail()}
+              placeholder="tester@example.com, manager@example.com..."
+              style={{ flex:1 }}
+            />
+            <button onClick={addTestEmail} className="btn-secondary">Add</button>
+          </div>
+          {testEmails.length > 0 && (
+            <div style={{ display:'flex', flexWrap:'wrap', gap:'0.375rem', marginTop:'0.625rem' }}>
+              {testEmails.map(email => (
+                <span key={email} style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'0.2rem 0.625rem', borderRadius:9999, fontSize:'0.75rem', fontWeight:600, background:'rgba(68,104,176,0.1)', color:'var(--primary)' }}>
+                  {email}
+                  <button
+                    onClick={() => setTestEmails(prev => prev.filter(x => x !== email))}
+                    style={{ background:'none', border:'none', cursor:'pointer', color:'var(--primary)', fontWeight:700, fontSize:'0.875rem', padding:0, lineHeight:1 }}
+                  >
+                    x
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {testError && (
+          <div style={{ marginTop:'0.75rem', padding:'0.625rem 0.875rem', background:'var(--error-container)', borderRadius:'0.5rem', fontSize:'0.8125rem', color:'var(--error)' }}>
+            <Icon name="error" style={{ fontSize:'1rem', marginRight:'0.375rem' }} />{testError}
+          </div>
+        )}
+
+        {testResult && (
+          <div style={{ marginTop:'0.75rem', padding:'0.875rem', background:'rgba(0,98,67,0.08)', borderRadius:'0.625rem', border:'1px solid rgba(0,98,67,0.2)' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.25rem' }}>
+              <Icon name="check_circle" style={{ fontSize:'1.125rem', color:'var(--tertiary)' }} />
+              <strong style={{ color:'var(--tertiary)' }}>Test email sent</strong>
+            </div>
+            <p style={{ fontSize:'0.875rem', color:'var(--on-surface-variant)', margin:0 }}>
+              Sent to {testResult.sent_count} address{testResult.sent_count !== 1 ? 'es' : ''} from <strong>{testResult.sent_from}</strong>.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Stats bar */}

@@ -214,6 +214,7 @@ export const emailAPI = {
 export const bulkEmailAPI = {
   getRecipients: () => api.get('/bulk-email/recipients'),
   send:          (data) => api.post('/bulk-email/send', data),
+  sendTest:      (data) => api.post('/bulk-email/test-send', data),
   getSent:       () => api.get('/bulk-email/sent'),
 };
 

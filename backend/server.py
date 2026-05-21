@@ -1852,6 +1852,11 @@ class BulkEmailSendRequest(BaseModel):
     html_body:    str
     extra_emails: List[str] = []
 
+class BulkEmailTestSendRequest(BaseModel):
+    subject:     str
+    html_body:   str
+    test_emails: List[EmailStr] = []
+
 @api_router.get("/bulk-email/recipients")
 async def get_bulk_email_recipients(request: Request):
     """Return all lead contact emails annotated with whether welcome has been sent."""
@@ -1939,6 +1944,35 @@ async def send_bulk_email(body: BulkEmailSendRequest, request: Request):
         "failed_count":  len(failed),
         "failed":        failed[:20],
         "sent_from":     from_email,
+    }
+
+
+@api_router.post("/bulk-email/test-send")
+async def send_bulk_email_test(body: BulkEmailTestSendRequest, request: Request):
+    """Send a draft bulk-email preview to manually entered test addresses."""
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    from_email = user["email"]
+
+    test_emails = []
+    for addr in body.test_emails:
+        email = str(addr).strip().lower()
+        if email and email not in test_emails:
+            test_emails.append(email)
+
+    if not test_emails:
+        raise HTTPException(400, "Add at least one test email address.")
+
+    try:
+        await _graph_send_mail(from_email, test_emails, body.subject, body.html_body)
+    except Exception as exc:
+        raise HTTPException(503, f"Test email send failed: {exc}")
+
+    return {
+        "success": True,
+        "sent_count": len(test_emails),
+        "sent_from": from_email,
+        "sent_to": test_emails,
     }
 
 
