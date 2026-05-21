@@ -1,4 +1,9 @@
 from dotenv import load_dotenv
+from pathlib import Path
+
+# Load both the local backend .env and the default search path so the app works
+# whether it is started from the repo root or from the backend directory.
+load_dotenv(Path(__file__).with_name(".env"))
 load_dotenv()
 
 from fastapi import FastAPI, APIRouter, BackgroundTasks, HTTPException, Request, Response, File, UploadFile, Form
@@ -48,13 +53,46 @@ except ImportError:
     _msal    = None
     _MSAL_OK = False
 
-MS_TENANT_ID     = os.environ.get("MS_TENANT_ID", "")
-MS_CLIENT_ID_ENV = os.environ.get("MS_CLIENT_ID", "")
-MS_CLIENT_SECRET = os.environ.get("MS_CLIENT_SECRET", "")
+MS_TENANT_ID = os.environ.get("MS_TENANT_ID", "").strip()
+MS_CLIENT_ID_ENV = os.environ.get("MS_CLIENT_ID", "").strip()
+MS_CLIENT_SECRET = (
+    os.environ.get("MS_CLIENT_SECRET_VALUE", "").strip()
+    or os.environ.get("MS_CLIENT_SECRET", "").strip()
+)
+
+
+def _looks_like_uuid(value: str) -> bool:
+    return bool(_re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", value or ""))
+
+
+def _validate_graph_config() -> None:
+    missing = [
+        name
+        for name, value in {
+            "MS_TENANT_ID": MS_TENANT_ID,
+            "MS_CLIENT_ID": MS_CLIENT_ID_ENV,
+            "MS_CLIENT_SECRET_VALUE": MS_CLIENT_SECRET,
+        }.items()
+        if not value
+    ]
+    if missing:
+        raise RuntimeError(
+            "Microsoft Graph not configured. Set MS_TENANT_ID, MS_CLIENT_ID, and "
+            "MS_CLIENT_SECRET_VALUE in the environment. "
+            "Use the client secret VALUE from Azure App Registration -> Certificates & secrets, "
+            "not the secret ID."
+        )
+    if _looks_like_uuid(MS_CLIENT_SECRET):
+        raise RuntimeError(
+            "Microsoft Graph client secret looks like a Secret ID, not a secret VALUE. "
+            "Open Azure App Registration -> Certificates & secrets and copy the secret VALUE "
+            "into MS_CLIENT_SECRET_VALUE. This fixes both test email and real send."
+        )
 
 def _get_graph_token() -> str:
-    if not _MSAL_OK or not MS_TENANT_ID:
-        raise RuntimeError("Microsoft Graph not configured. Set MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET env vars.")
+    if not _MSAL_OK:
+        raise RuntimeError("Microsoft Graph not configured because the msal package is unavailable.")
+    _validate_graph_config()
     authority = f"https://login.microsoftonline.com/{MS_TENANT_ID}"
     app = _msal.ConfidentialClientApplication(
         MS_CLIENT_ID_ENV, authority=authority, client_credential=MS_CLIENT_SECRET,
