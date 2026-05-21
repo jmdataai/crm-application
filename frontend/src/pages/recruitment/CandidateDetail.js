@@ -1,6 +1,6 @@
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { candidatesAPI, activitiesAPI, interviewsAPI } from '../../services/api';
+import { candidatesAPI, activitiesAPI, interviewsAPI, emailAPI } from '../../services/api';
 import { useParams, useNavigate } from 'react-router-dom';
 
 const Icon = ({ name, style = {} }) => (
@@ -74,9 +74,28 @@ const ResumeCard = ({ candidateId, candidateName, initialUrl, onSaved }) => {
   const [deleting, setDeleting]         = useState(false);
   const [showViewer, setShowViewer]     = useState(false);
   const [error, setError]               = useState('');
+  const [sharing, setSharing]           = useState(false);
 
   // Keep in sync if parent re-fetches
   useEffect(() => { setResumeUrl(initialUrl || ''); }, [initialUrl]);
+
+  const handleShareMasked = async () => {
+    setSharing(true); setError('');
+    try {
+      const res = await candidatesAPI.downloadMaskedResume(candidateId);
+      const blob = new Blob([res.data], { type: res.headers['content-type'] || 'application/octet-stream' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      const cd   = res.headers['content-disposition'] || '';
+      const fnMatch = cd.match(/filename="?([^"]+)"?/);
+      a.download = fnMatch ? fnMatch[1] : `${candidateName?.replace(/\s+/g,'_') || 'candidate'}_masked.pdf`;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Masked download failed.');
+    } finally { setSharing(false); }
+  };
 
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
@@ -178,6 +197,16 @@ const ResumeCard = ({ candidateId, candidateName, initialUrl, onSaved }) => {
               {deleting ? 'Deleting…' : 'Delete'}
             </button>
           </div>
+          {/* Share Masked */}
+          <button
+            onClick={handleShareMasked}
+            disabled={sharing}
+            style={{ ...btnBase, justifyContent:'center', background:'rgba(68,104,176,0.08)', color:'var(--primary)', opacity: sharing ? 0.6 : 1 }}
+            title="Download resume with phone & email redacted"
+          >
+            <Icon name="shield_person" style={{ fontSize:'1rem' }} />
+            {sharing ? 'Preparing…' : 'Share (Masked — phone & email hidden)'}
+          </button>
         </div>
       )}
 
@@ -298,6 +327,12 @@ export default function CandidateDetail() {
   const [editing, setEditing]       = useState(false);
   const [editForm, setEditForm]     = useState({});
   const [note, setNote]             = useState('');
+  const [showEmailCompose, setShowEmailCompose] = useState(false);
+  const [emailTo, setEmailTo]         = useState('');
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailBody, setEmailBody]     = useState('');
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailError, setEmailError]   = useState('');
 
   const fetchCandidate = useCallback(async () => {
     setLoading(true);
@@ -310,13 +345,28 @@ export default function CandidateDetail() {
       const c = cRes.data;
       setCand(c);
       setEditForm({
-        full_name: c.full_name, email: c.email, phone: c.phone,
-        candidate_role: c.candidate_role, current_company: c.current_company,
-        experience_years: c.experience_years, source: c.source,
-        linkedin_url: c.linkedin_url, portfolio_url: c.portfolio_url,
-        notes: c.notes, skills: c.skills || [],
-        job_title: c.job_title || c.job?.title || '',
-        tech_stack: c.tech_stack || [],
+        full_name:          c.full_name,
+        email:              c.email,
+        phone:              c.phone,
+        current_company:    c.current_company,
+        candidate_role:     c.candidate_role,
+        experience_years:   c.experience_years,
+        total_experience:   c.total_experience,
+        relevant_experience:c.relevant_experience,
+        source:             c.source,
+        location:           c.location,
+        relocation:         c.relocation,
+        candidate_type:     c.candidate_type || 'domestic',
+        visa_status:        c.visa_status,
+        work_mode:          c.work_mode || [],
+        current_ctc:        c.current_ctc,
+        expected_ctc:       c.expected_ctc,
+        linkedin_url:       c.linkedin_url,
+        portfolio_url:      c.portfolio_url,
+        notes:              c.notes,
+        skills:             c.skills || [],
+        job_title:          c.job_title || c.job?.title || '',
+        tech_stack:         c.tech_stack || [],
       });
       const acts = Array.isArray(aRes.data) ? aRes.data : Array.isArray(aRes.data?.data) ? aRes.data.data : [];
       setActivities(acts.map(a => ({
@@ -370,6 +420,36 @@ export default function CandidateDetail() {
   };
 
   const addNote = () => { if (note.trim()) { logAct('note', note.trim()); setNote(''); } };
+
+  const openEmailCompose = () => {
+    const toEmail = candidate?.email || '';
+    setEmailTo(toEmail);
+    setEmailSubject(`Following up — ${candidate?.full_name || ''}`);
+    setEmailBody(`<p>Hi ${candidate?.full_name?.split(' ')[0] || ''},</p><p></p><p>Best regards</p>`);
+    setEmailError('');
+    setShowEmailCompose(true);
+  };
+
+  const sendEmail = async () => {
+    if (!emailTo.trim() || !emailSubject.trim() || !emailBody.trim()) {
+      setEmailError('To, Subject and Body are all required.'); return;
+    }
+    setEmailSending(true); setEmailError('');
+    try {
+      await emailAPI.compose({
+        to_email: emailTo, subject: emailSubject,
+        html_body: emailBody, candidate_id: id,
+      });
+      setShowEmailCompose(false);
+      setActivities(prev => [{
+        id: `a${Date.now()}`, type: 'email',
+        text: `Email sent to ${emailTo} — "${emailSubject}"`,
+        date: new Date().toLocaleString(), user: 'You',
+      }, ...prev]);
+    } catch (err) {
+      setEmailError(err?.response?.data?.detail || 'Send failed. Check Microsoft Graph configuration.');
+    } finally { setEmailSending(false); }
+  };
 
   const set = (k, v) => setEditForm(f => ({ ...f, [k]: v }));
   const saveEdit = async () => {
@@ -440,7 +520,7 @@ export default function CandidateDetail() {
             <div style={{ display:'flex', gap:'0.5rem', justifyContent:'center', marginTop:'1.25rem' }}>
               {[
                 { icon:'phone', label:'Call',     act:() => logAct('call','Logged a call') },
-                { icon:'mail',  label:'Email',    act:() => logAct('email','Sent an email') },
+                { icon:'mail',  label:'Email',    act: openEmailCompose },
                 { icon:'event', label:'Schedule', act:() => setSchedule(true) },
               ].map(a => (
                 <button key={a.label} className="btn-secondary" onClick={a.act} style={{ flexDirection:'column', gap:'0.25rem', padding:'0.625rem 1rem', fontSize:'0.75rem' }}>
@@ -654,74 +734,209 @@ export default function CandidateDetail() {
         </div>{/* end RIGHT */}
       </div>
 
-      {/* Edit Modal */}
+      {/* ── Edit Modal (all fields) ──────────────────────────── */}
       {editing && (
         <div className="modal-overlay scale-in" onClick={e => e.target === e.currentTarget && setEditing(false)}>
-          <div className="modal modal-lg">
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.5rem' }}>
+          <div className="modal modal-lg" style={{ maxHeight:'92vh', overflowY:'auto' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.5rem', position:'sticky', top:0, background:'var(--surface-container-lowest)', zIndex:2, paddingBottom:'0.75rem', borderBottom:'1px solid var(--outline-variant)' }}>
               <h2 style={{ fontSize:'1.125rem', fontWeight:700 }}>Edit Candidate</h2>
               <button className="btn-icon" onClick={() => setEditing(false)}><Icon name="close" /></button>
             </div>
-            <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'1rem' }}>
-              {[
-                { label:'Full Name *',  key:'full_name',      type:'text',  span:2 },
-                { label:'Email',        key:'email',          type:'email' },
-                { label:'Phone',        key:'phone',          type:'tel' },
-                { label:'Current Role', key:'candidate_role', type:'text' },
-                { label:'Applying For', key:'job_title',      type:'text' },
-                { label:'LinkedIn',     key:'linkedin_url',   type:'text' },
-                { label:'Portfolio',    key:'portfolio_url',  type:'text' },
-              ].map(f => (
-                <div key={f.key} style={{ gridColumn: f.span === 2 ? '1/-1' : undefined }}>
-                  <label className="label">{f.label}</label>
-                  <input className="input" type={f.type} value={editForm[f.key]||''} onChange={e => set(f.key, e.target.value)} />
-                </div>
-              ))}
+
+            {/* ── Section: Personal ── */}
+            <p style={{ fontSize:'0.7rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', color:'var(--on-surface-variant)', marginBottom:'0.75rem' }}>Personal Info</p>
+            <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'1rem', marginBottom:'1.25rem' }}>
               <div style={{ gridColumn:'1/-1' }}>
-                <label className="label">Notes</label>
-                <textarea className="textarea" rows={3} value={editForm.notes||''} onChange={e => set('notes', e.target.value)} />
+                <label className="label">Full Name *</label>
+                <input className="input" type="text" value={editForm.full_name||''} onChange={e => set('full_name', e.target.value)} />
               </div>
-              {/* Tech Stack tag editor — affects ATS scores */}
+              <div><label className="label">Email</label><input className="input" type="email" value={editForm.email||''} onChange={e => set('email', e.target.value)} /></div>
+              <div><label className="label">Phone</label><input className="input" type="tel" value={editForm.phone||''} onChange={e => set('phone', e.target.value)} /></div>
+              <div><label className="label">Current Company</label><input className="input" type="text" value={editForm.current_company||''} onChange={e => set('current_company', e.target.value)} /></div>
+              <div><label className="label">Current Role</label><input className="input" type="text" value={editForm.candidate_role||''} onChange={e => set('candidate_role', e.target.value)} /></div>
+              <div><label className="label">LinkedIn</label><input className="input" type="text" value={editForm.linkedin_url||''} onChange={e => set('linkedin_url', e.target.value)} /></div>
+              <div><label className="label">Portfolio / GitHub</label><input className="input" type="text" value={editForm.portfolio_url||''} onChange={e => set('portfolio_url', e.target.value)} /></div>
+            </div>
+
+            {/* ── Section: Experience ── */}
+            <div style={{ height:1, background:'var(--outline-variant)', margin:'0.25rem 0 1.25rem' }} />
+            <p style={{ fontSize:'0.7rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', color:'var(--on-surface-variant)', marginBottom:'0.75rem' }}>Experience</p>
+            <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'1rem', marginBottom:'1.25rem' }}>
+              <div>
+                <label className="label">Experience (years, numeric)</label>
+                <input className="input" type="number" min="0" max="50" step="0.5" value={editForm.experience_years||''} onChange={e => set('experience_years', e.target.value ? Number(e.target.value) : null)} />
+              </div>
+              <div>
+                <label className="label">Total Experience <span style={{fontWeight:400,color:'var(--on-surface-variant)'}}>(free text, e.g. "10+ Years")</span></label>
+                <input className="input" type="text" value={editForm.total_experience||''} onChange={e => set('total_experience', e.target.value)} />
+              </div>
               <div style={{ gridColumn:'1/-1' }}>
-                <label className="label">Tech Stack <span style={{fontWeight:400,color:'var(--on-surface-variant)'}}>(used for ATS matching)</span></label>
-                <div
-                  style={{ display:'flex', flexWrap:'wrap', gap:'0.375rem', padding:'0.5rem', border:'1px solid var(--outline-variant)', borderRadius:'0.5rem', minHeight:44, background:'var(--surface-container-low)', cursor:'text' }}
-                  onClick={e => e.currentTarget.querySelector('input')?.focus()}
-                >
-                  {(editForm.tech_stack || []).map(s => (
-                    <span key={s} style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'0.175rem 0.5rem', borderRadius:9999, fontSize:'0.75rem', fontWeight:600, background:'rgba(0,98,67,0.1)', color:'var(--tertiary)' }}>
-                      {s}
-                      <button
-                        onClick={() => set('tech_stack', (editForm.tech_stack||[]).filter(t => t !== s))}
-                        style={{ background:'none', border:'none', cursor:'pointer', padding:0, lineHeight:1, color:'var(--tertiary)', fontWeight:700, fontSize:'0.875rem' }}
-                      >×</button>
-                    </span>
-                  ))}
-                  <input
-                    placeholder={(editForm.tech_stack||[]).length === 0 ? 'Type skill and press Enter or comma…' : ''}
-                    style={{ border:'none', outline:'none', background:'transparent', fontSize:'0.875rem', color:'var(--on-surface)', minWidth:160, flex:1 }}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' || e.key === ',') {
-                        e.preventDefault();
-                        const val = e.target.value.trim().replace(/,$/, '');
-                        if (val && !(editForm.tech_stack||[]).includes(val)) {
-                          set('tech_stack', [...(editForm.tech_stack||[]), val]);
-                        }
-                        e.target.value = '';
-                      }
-                      if (e.key === 'Backspace' && !e.target.value && (editForm.tech_stack||[]).length > 0) {
-                        set('tech_stack', (editForm.tech_stack||[]).slice(0, -1));
-                      }
-                    }}
-                  />
-                </div>
-                <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', marginTop:'0.25rem' }}>Enter or comma to add · Backspace removes last</p>
+                <label className="label">Relevant Experience <span style={{fontWeight:400,color:'var(--on-surface-variant)'}}>(e.g. "5 yrs SAP FICO")</span></label>
+                <input className="input" type="text" value={editForm.relevant_experience||''} onChange={e => set('relevant_experience', e.target.value)} />
               </div>
             </div>
-            <div style={{ display:'flex', gap:'0.75rem', justifyContent:'flex-end', marginTop:'1.5rem' }}>
+
+            {/* ── Section: CTC ── */}
+            <div style={{ height:1, background:'var(--outline-variant)', margin:'0.25rem 0 1.25rem' }} />
+            <p style={{ fontSize:'0.7rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', color:'var(--on-surface-variant)', marginBottom:'0.75rem' }}>Compensation (LPA)</p>
+            <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'1rem', marginBottom:'1.25rem' }}>
+              <div>
+                <label className="label">Current CTC <span style={{fontWeight:400,color:'var(--on-surface-variant)'}}>(₹ LPA)</span></label>
+                <input className="input" type="number" min="0" step="0.5" placeholder="e.g. 12.5" value={editForm.current_ctc ?? ''} onChange={e => set('current_ctc', e.target.value ? Number(e.target.value) : null)} />
+              </div>
+              <div>
+                <label className="label">Expected CTC <span style={{fontWeight:400,color:'var(--on-surface-variant)'}}>(₹ LPA)</span></label>
+                <input className="input" type="number" min="0" step="0.5" placeholder="e.g. 18" value={editForm.expected_ctc ?? ''} onChange={e => set('expected_ctc', e.target.value ? Number(e.target.value) : null)} />
+              </div>
+            </div>
+
+            {/* ── Section: Location & Work Mode ── */}
+            <div style={{ height:1, background:'var(--outline-variant)', margin:'0.25rem 0 1.25rem' }} />
+            <p style={{ fontSize:'0.7rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', color:'var(--on-surface-variant)', marginBottom:'0.75rem' }}>Location & Work Preference</p>
+            <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'1rem', marginBottom:'1.25rem' }}>
+              <div>
+                <label className="label">Location (City / Country)</label>
+                <input className="input" type="text" placeholder="e.g. Hyderabad, India" value={editForm.location||''} onChange={e => set('location', e.target.value)} />
+              </div>
+              <div>
+                <label className="label">Relocation</label>
+                <input className="input" type="text" placeholder="e.g. Open to relocate, Local only" value={editForm.relocation||''} onChange={e => set('relocation', e.target.value)} />
+              </div>
+              <div style={{ gridColumn:'1/-1' }}>
+                <label className="label">Open For <span style={{fontWeight:400,color:'var(--on-surface-variant)'}}>(select all that apply)</span></label>
+                <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap', marginTop:'0.375rem' }}>
+                  {['Remote','Hybrid','Onsite','Contract','Full-time'].map(opt => {
+                    const active = (editForm.work_mode||[]).includes(opt);
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => {
+                          const cur = editForm.work_mode || [];
+                          set('work_mode', active ? cur.filter(m=>m!==opt) : [...cur, opt]);
+                        }}
+                        style={{
+                          padding:'0.375rem 0.875rem', borderRadius:9999, fontSize:'0.8125rem', fontWeight:600,
+                          border:`1px solid ${active ? 'var(--primary)' : 'var(--outline-variant)'}`,
+                          background: active ? 'rgba(68,104,176,0.1)' : 'transparent',
+                          color: active ? 'var(--primary)' : 'var(--on-surface-variant)',
+                          cursor:'pointer', transition:'all 0.15s',
+                        }}
+                      >{opt}</button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* ── Section: Classification ── */}
+            <div style={{ height:1, background:'var(--outline-variant)', margin:'0.25rem 0 1.25rem' }} />
+            <p style={{ fontSize:'0.7rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', color:'var(--on-surface-variant)', marginBottom:'0.75rem' }}>Classification</p>
+            <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'1rem', marginBottom:'1.25rem' }}>
+              <div>
+                <label className="label">Candidate Type</label>
+                <select className="select" value={editForm.candidate_type||'domestic'} onChange={e => set('candidate_type', e.target.value)}>
+                  <option value="domestic">🇮🇳 Domestic</option>
+                  <option value="international">🌍 International</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Source</label>
+                <select className="select" value={editForm.source||''} onChange={e => set('source', e.target.value)}>
+                  <option value="">— Select —</option>
+                  {['LinkedIn','Referral','AngelList','Resume','Campus','Portfolio','Import','Manual'].map(s=><option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              {(editForm.candidate_type === 'international') && (
+                <div>
+                  <label className="label">Visa Status</label>
+                  <input className="input" type="text" placeholder="e.g. H1B, GC, Work Permit" value={editForm.visa_status||''} onChange={e => set('visa_status', e.target.value)} />
+                </div>
+              )}
+              <div>
+                <label className="label">Applying For</label>
+                <input className="input" type="text" value={editForm.job_title||''} onChange={e => set('job_title', e.target.value)} />
+              </div>
+            </div>
+
+            {/* ── Section: Notes ── */}
+            <div style={{ height:1, background:'var(--outline-variant)', margin:'0.25rem 0 1.25rem' }} />
+            <div>
+              <label className="label">Notes</label>
+              <textarea className="textarea" rows={3} value={editForm.notes||''} onChange={e => set('notes', e.target.value)} />
+            </div>
+
+            {/* ── Section: Tech Stack ── */}
+            <div style={{ marginTop:'1rem' }}>
+              <label className="label">Tech Stack <span style={{fontWeight:400,color:'var(--on-surface-variant)'}}>(used for ATS matching)</span></label>
+              <div
+                style={{ display:'flex', flexWrap:'wrap', gap:'0.375rem', padding:'0.5rem', border:'1px solid var(--outline-variant)', borderRadius:'0.5rem', minHeight:44, background:'var(--surface-container-low)', cursor:'text' }}
+                onClick={e => e.currentTarget.querySelector('input')?.focus()}
+              >
+                {(editForm.tech_stack || []).map(s => (
+                  <span key={s} style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'0.175rem 0.5rem', borderRadius:9999, fontSize:'0.75rem', fontWeight:600, background:'rgba(0,98,67,0.1)', color:'var(--tertiary)' }}>
+                    {s}
+                    <button onClick={() => set('tech_stack', (editForm.tech_stack||[]).filter(t => t !== s))} style={{ background:'none', border:'none', cursor:'pointer', padding:0, lineHeight:1, color:'var(--tertiary)', fontWeight:700, fontSize:'0.875rem' }}>×</button>
+                  </span>
+                ))}
+                <input
+                  placeholder={(editForm.tech_stack||[]).length === 0 ? 'Type skill and press Enter or comma…' : ''}
+                  style={{ border:'none', outline:'none', background:'transparent', fontSize:'0.875rem', color:'var(--on-surface)', minWidth:160, flex:1 }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ',') {
+                      e.preventDefault();
+                      const val = e.target.value.trim().replace(/,$/, '');
+                      if (val && !(editForm.tech_stack||[]).includes(val)) set('tech_stack', [...(editForm.tech_stack||[]), val]);
+                      e.target.value = '';
+                    }
+                    if (e.key === 'Backspace' && !e.target.value && (editForm.tech_stack||[]).length > 0)
+                      set('tech_stack', (editForm.tech_stack||[]).slice(0,-1));
+                  }}
+                />
+              </div>
+              <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', marginTop:'0.25rem' }}>Enter or comma to add · Backspace removes last</p>
+            </div>
+
+            <div style={{ display:'flex', gap:'0.75rem', justifyContent:'flex-end', marginTop:'1.5rem', position:'sticky', bottom:0, background:'var(--surface-container-lowest)', paddingTop:'0.875rem', borderTop:'1px solid var(--outline-variant)' }}>
               <button className="btn-secondary" onClick={() => setEditing(false)}>Cancel</button>
               <button onClick={saveEdit} style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1.25rem', borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none', cursor:'pointer', background:'linear-gradient(135deg,var(--tertiary),#009966)' }}>
                 <Icon name="save" style={{ fontSize:'1rem', color:'#fff' }} /> Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Email Compose Panel ───────────────────────────────── */}
+      {showEmailCompose && (
+        <div className="modal-overlay scale-in" onClick={e => e.target === e.currentTarget && setShowEmailCompose(false)}>
+          <div className="modal modal-lg">
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.25rem' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:'0.625rem' }}>
+                <div style={{ width:36, height:36, borderRadius:'0.625rem', background:'rgba(0,98,67,0.1)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  <Icon name="mail" style={{ fontSize:'1.125rem', color:'var(--tertiary)' }} />
+                </div>
+                <div>
+                  <h2 style={{ fontSize:'1.0625rem', fontWeight:700 }}>Compose Email</h2>
+                  <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>Sent from your Outlook mailbox · Saved to Sent Items</p>
+                </div>
+              </div>
+              <button className="btn-icon" onClick={() => setShowEmailCompose(false)}><Icon name="close" /></button>
+            </div>
+            <div style={{ display:'flex', flexDirection:'column', gap:'0.875rem' }}>
+              <div><label className="label">To</label><input className="input" type="email" value={emailTo} onChange={e => setEmailTo(e.target.value)} placeholder="recipient@example.com" /></div>
+              <div><label className="label">Subject</label><input className="input" type="text" value={emailSubject} onChange={e => setEmailSubject(e.target.value)} placeholder="Email subject…" /></div>
+              <div>
+                <label className="label">Body <span style={{fontWeight:400,color:'var(--on-surface-variant)'}}>(HTML supported)</span></label>
+                <textarea className="textarea" rows={8} value={emailBody} onChange={e => setEmailBody(e.target.value)} placeholder="<p>Dear …</p>" style={{ fontFamily:'monospace', fontSize:'0.8125rem' }} />
+              </div>
+              {emailError && <div style={{ padding:'0.625rem 0.875rem', background:'var(--error-container)', borderRadius:'0.5rem', fontSize:'0.8125rem', color:'var(--error)' }}>{emailError}</div>}
+            </div>
+            <div style={{ display:'flex', gap:'0.75rem', justifyContent:'flex-end', marginTop:'1.25rem' }}>
+              <button className="btn-secondary" onClick={() => setShowEmailCompose(false)}>Cancel</button>
+              <button onClick={sendEmail} disabled={emailSending} style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1.25rem', borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none', cursor: emailSending ? 'not-allowed' : 'pointer', background:'linear-gradient(135deg,var(--tertiary),#009966)', opacity: emailSending ? 0.7 : 1 }}>
+                <Icon name={emailSending ? 'progress_activity' : 'send'} style={{ fontSize:'1rem', color:'#fff' }} />
+                {emailSending ? 'Sending…' : 'Send Email'}
               </button>
             </div>
           </div>

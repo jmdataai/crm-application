@@ -63,3 +63,9 @@ python-docx>=1.1.2
 
 # Rate limiting — protects public /apply endpoint from spam
 slowapi==0.1.9
+
+# Resume masking (phone/email redaction without AI)
+PyMuPDF>=1.24.0
+
+# Microsoft Graph API — send emails from user mailboxes / Outlook Sent Items
+msal>=1.29.0

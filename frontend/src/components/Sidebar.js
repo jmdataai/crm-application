@@ -11,6 +11,7 @@ const salesNavBase = [
   { path: '/sales',               icon: 'dashboard',    label: 'Dashboard',    exact: true, hideForViewer: true },
   { path: '/sales/tracker',       icon: 'analytics',    label: 'Sales Tracker',              showForAll: true },
   { path: '/sales/activity-log',  icon: 'edit_note',    label: 'Daily Log',                  hideForViewer: true },
+  { path: '/sales/bulk-email',    icon: 'forward_to_inbox', label: 'Bulk Email',               hideForViewer: true },
   { path: '/sales/leads',         icon: 'group',         label: 'Leads',                     hideForViewer: true },
   { path: '/sales/import',        icon: 'upload_file',   label: 'Import Leads', requiresPerm: 'canViewImport' },
   { path: '/sales/enrich',        icon: 'auto_fix_high', label: 'Enrich Leads', requiresPerm: 'canViewImport' },

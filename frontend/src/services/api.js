@@ -137,6 +137,10 @@ export const candidatesAPI = {
   // Resume — delete from Google Drive + clear in Supabase
   deleteResume: (candidateId) => api.delete(`/candidates/${candidateId}/resume`),
 
+  // Resume — download masked version (phone/email redacted)
+  downloadMaskedResume: (candidateId) =>
+    api.get(`/candidates/${candidateId}/resume/masked`, { responseType: 'blob' }),
+
   // ATS Match — score candidates against a job description (existing DB candidates)
   atsMatch: (jd_text, candidate_type = 'domestic') =>
     api.post('/candidates/ats-match', { jd_text, candidate_type }),
@@ -200,6 +204,18 @@ export const importsAPI = {
 };
 
 export default api;
+
+// Email Compose API (single email via Microsoft Graph)
+export const emailAPI = {
+  compose: (data) => api.post('/email/compose', data),
+};
+
+// Bulk Email API
+export const bulkEmailAPI = {
+  getRecipients: () => api.get('/bulk-email/recipients'),
+  send:          (data) => api.post('/bulk-email/send', data),
+  getSent:       () => api.get('/bulk-email/sent'),
+};
 
 // Candidate Submissions APIs
 export const submissionsAPI = {

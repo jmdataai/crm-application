@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { leadsAPI, activitiesAPI, submissionsAPI, candidatesAPI } from '../../services/api';
+import { leadsAPI, activitiesAPI, submissionsAPI, candidatesAPI, emailAPI } from '../../services/api';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 
@@ -285,6 +285,12 @@ export default function LeadDetail() {
   const [submissions, setSubmissions] = useState([]);
   const [selCand, setSelCand]         = useState('');
   const [subLoading, setSubLoading]   = useState(false);
+  const [showEmailCompose, setShowEmailCompose] = useState(false);
+  const [emailTo, setEmailTo]         = useState('');
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailBody, setEmailBody]     = useState('');
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailError, setEmailError]   = useState('');
 
   const fetchLead = useCallback(async () => {
     setLoading(true);
@@ -320,6 +326,31 @@ export default function LeadDetail() {
   };
 
   const addNote = () => { if (note.trim()) { logActivity('note', note); setNote(''); } };
+
+  const openEmailCompose = (toEmail) => {
+    setEmailTo(toEmail || lead?.email || '');
+    setEmailSubject(`Following up — ${lead?.company || ''}`);
+    setEmailBody(`<p>Hi ${lead?.full_name || ''},</p><p></p><p>Best regards</p>`);
+    setEmailError('');
+    setShowEmailCompose(true);
+  };
+
+  const sendEmail = async () => {
+    if (!emailTo.trim() || !emailSubject.trim() || !emailBody.trim()) {
+      setEmailError('To, Subject and Body are all required.'); return;
+    }
+    setEmailSending(true); setEmailError('');
+    try {
+      await emailAPI.compose({
+        to_email: emailTo, subject: emailSubject,
+        html_body: emailBody, lead_id: id,
+      });
+      setShowEmailCompose(false);
+      setActs(prev => [{ id:`a${Date.now()}`, type:'email', text:`Email sent to ${emailTo} — "${emailSubject}"`, date: new Date().toLocaleString(), user:'You' }, ...prev]);
+    } catch (err) {
+      setEmailError(err?.response?.data?.detail || 'Send failed. Check Microsoft Graph configuration.');
+    } finally { setEmailSending(false); }
+  };
 
   const changeStatus = async (newStatus) => {
     const prev = lead.status;
@@ -428,7 +459,7 @@ export default function LeadDetail() {
             <div style={{ display:'flex', gap:'0.5rem', justifyContent:'center', marginTop:'1.25rem' }}>
               {[
                 { icon:'phone',   label:'Call',    fn:() => logActivity('call','Logged a call with this company') },
-                { icon:'mail',    label:'Email',   fn:() => logActivity('email','Sent intro email to this company') },
+                { icon:'mail',    label:'Email',   fn:() => openEmailCompose(lead?.email) },
                 { icon:'event',   label:'Meeting', fn:() => logActivity('meeting','Scheduled a meeting with this company') },
               ].map(a => (
                 <button key={a.label} className="btn-secondary" onClick={a.fn} style={{ flexDirection:'column', gap:'0.25rem', padding:'0.625rem 1rem', fontSize:'0.75rem' }}>
@@ -670,6 +701,52 @@ export default function LeadDetail() {
 
       {editing && <EditCompanyModal lead={lead} onClose={() => setEditing(false)} onSave={updated => { setLead(updated); }} />}
       {showLog && <LogActivityModal onClose={() => setShowLog(false)} onLog={logActivity} />}
+
+      {/* ── Email Compose Panel ───────────────────────────────── */}
+      {showEmailCompose && (
+        <div className="modal-overlay scale-in" onClick={e => e.target === e.currentTarget && setShowEmailCompose(false)}>
+          <div className="modal modal-lg">
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.25rem' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:'0.625rem' }}>
+                <div style={{ width:36, height:36, borderRadius:'0.625rem', background:'rgba(0,98,67,0.1)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  <Icon name="mail" style={{ fontSize:'1.125rem', color:'var(--tertiary)' }} />
+                </div>
+                <div>
+                  <h2 style={{ fontSize:'1.0625rem', fontWeight:700 }}>Compose Email</h2>
+                  <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>Sent from your Outlook mailbox · Saved to Sent Items</p>
+                </div>
+              </div>
+              <button className="btn-icon" onClick={() => setShowEmailCompose(false)}><Icon name="close" /></button>
+            </div>
+            <div style={{ display:'flex', flexDirection:'column', gap:'0.875rem' }}>
+              <div>
+                <label className="label">To</label>
+                <input className="input" type="email" value={emailTo} onChange={e => setEmailTo(e.target.value)} placeholder="recipient@example.com" />
+              </div>
+              <div>
+                <label className="label">Subject</label>
+                <input className="input" type="text" value={emailSubject} onChange={e => setEmailSubject(e.target.value)} placeholder="Email subject…" />
+              </div>
+              <div>
+                <label className="label">Body <span style={{ fontWeight:400, color:'var(--on-surface-variant)' }}>(HTML supported)</span></label>
+                <textarea className="textarea" rows={8} value={emailBody} onChange={e => setEmailBody(e.target.value)} placeholder="<p>Dear …</p>" style={{ fontFamily:'monospace', fontSize:'0.8125rem' }} />
+              </div>
+              {emailError && (
+                <div style={{ padding:'0.625rem 0.875rem', background:'var(--error-container)', borderRadius:'0.5rem', fontSize:'0.8125rem', color:'var(--error)' }}>
+                  {emailError}
+                </div>
+              )}
+            </div>
+            <div style={{ display:'flex', gap:'0.75rem', justifyContent:'flex-end', marginTop:'1.25rem' }}>
+              <button className="btn-secondary" onClick={() => setShowEmailCompose(false)}>Cancel</button>
+              <button onClick={sendEmail} disabled={emailSending} style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1.25rem', borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none', cursor: emailSending ? 'not-allowed' : 'pointer', background:'linear-gradient(135deg,var(--tertiary),#009966)', opacity: emailSending ? 0.7 : 1 }}>
+                <Icon name={emailSending ? 'progress_activity' : 'send'} style={{ fontSize:'1rem', color:'#fff' }} />
+                {emailSending ? 'Sending…' : 'Send Email'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

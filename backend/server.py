@@ -32,6 +32,56 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+# ── PyMuPDF — resume masking ─────────────────────────────────
+try:
+    import fitz as _fitz
+    _FITZ_OK = True
+except ImportError:
+    _fitz    = None
+    _FITZ_OK = False
+
+# ── MSAL — Microsoft Graph email ─────────────────────────────
+try:
+    import msal as _msal
+    _MSAL_OK = True
+except ImportError:
+    _msal    = None
+    _MSAL_OK = False
+
+MS_TENANT_ID     = os.environ.get("MS_TENANT_ID", "")
+MS_CLIENT_ID_ENV = os.environ.get("MS_CLIENT_ID", "")
+MS_CLIENT_SECRET = os.environ.get("MS_CLIENT_SECRET", "")
+
+def _get_graph_token() -> str:
+    if not _MSAL_OK or not MS_TENANT_ID:
+        raise RuntimeError("Microsoft Graph not configured. Set MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET env vars.")
+    authority = f"https://login.microsoftonline.com/{MS_TENANT_ID}"
+    app = _msal.ConfidentialClientApplication(
+        MS_CLIENT_ID_ENV, authority=authority, client_credential=MS_CLIENT_SECRET,
+    )
+    result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
+    if "access_token" not in result:
+        raise RuntimeError(f"MSAL error: {result.get('error_description', str(result))}")
+    return result["access_token"]
+
+async def _graph_send_mail(from_email: str, to_emails: list, subject: str, html_body: str, save_to_sent: bool = True):
+    """Send email via Microsoft Graph, saving to Outlook Sent Items."""
+    token = await asyncio.get_event_loop().run_in_executor(None, _get_graph_token)
+    url   = f"https://graph.microsoft.com/v1.0/users/{from_email}/sendMail"
+    payload = {
+        "message": {
+            "subject": subject,
+            "body": {"contentType": "HTML", "content": html_body},
+            "toRecipients": [{"emailAddress": {"address": e}} for e in to_emails],
+        },
+        "saveToSentItems": save_to_sent,
+    }
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.post(url, json=payload,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+    if resp.status_code not in (200, 202):
+        raise RuntimeError(f"Graph sendMail failed {resp.status_code}: {resp.text[:400]}")
+
 # ── Google Drive helpers ──────────────────────────────────────
 try:
     from google_drive import upload_resume, delete_resume, download_resume, ALLOWED_MIME_TYPES, MAX_FILE_BYTES
@@ -368,6 +418,10 @@ class CandidateCreate(BaseModel):
     relevant_experience:  Optional[str]  = None
     location:             Optional[str]  = None
     relocation:           Optional[str]  = None
+    # v4 fields
+    work_mode:            List[str]      = []   # e.g. ["Remote","Hybrid"]
+    current_ctc:          Optional[float] = None  # in LPA / numeric
+    expected_ctc:         Optional[float] = None
     # LLM-extracted fields (populated on resume upload)
     tech_stack:           List[str]      = []
 
@@ -410,6 +464,10 @@ class CandidateUpdate(BaseModel):
     relevant_experience:  Optional[str]  = None
     location:             Optional[str]  = None
     relocation:           Optional[str]  = None
+    # v4 fields
+    work_mode:            Optional[List[str]]  = None
+    current_ctc:          Optional[float]      = None
+    expected_ctc:         Optional[float]      = None
     # LLM-extracted fields
     tech_stack:           Optional[List[str]] = None
 
@@ -1525,6 +1583,10 @@ async def create_candidate(candidate: CandidateCreate, request: Request):
         "relevant_experience":  candidate.relevant_experience,
         "location":             candidate.location,
         "relocation":           candidate.relocation,
+        # v4 fields
+        "work_mode":            candidate.work_mode or [],
+        "current_ctc":          candidate.current_ctc,
+        "expected_ctc":         candidate.expected_ctc,
         # LLM-extracted fields
         "tech_stack":           candidate.tech_stack or [],
     }
@@ -1627,6 +1689,11 @@ async def update_candidate(candidate_id: str, candidate: CandidateUpdate, reques
         raise HTTPException(404, "Candidate not found")
 
     patch = {k: v for k, v in candidate.model_dump().items() if v is not None}
+    # Explicitly allow empty lists for array fields (model_dump filters None but keeps [])
+    for arr_field in ("tech_stack", "work_mode", "skills"):
+        val = candidate.model_dump().get(arr_field)
+        if val is not None:   # includes []
+            patch[arr_field] = val
     if "status" in patch and isinstance(patch["status"], CandidateStatus):
         old_status = existing["status"]
         new_status = patch["status"].value
@@ -1644,6 +1711,230 @@ async def update_candidate(candidate_id: str, candidate: CandidateUpdate, reques
 
     await run(lambda: sb("candidates").update(patch).eq("id", candidate_id).execute())
     return {"message": "Candidate updated"}
+
+
+# ── Resume: Masked download ────────────────────────────────────────────────────
+_PHONE_RE = _re.compile(
+    r'(\+?(?:91[\s\-]?)?(?:[6-9]\d{9})'                   # Indian mobile
+    r'|\+?(?:1[\s\-]?)?(?:\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{4})'  # US
+    r'|\+\d{1,3}[\s\-]?\d{7,12})',                         # generic international
+    _re.VERBOSE,
+)
+_EMAIL_RE = _re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}')
+
+def _mask_text(text: str) -> str:
+    text = _EMAIL_RE.sub('[email hidden]', text)
+    text = _PHONE_RE.sub('[phone hidden]', text)
+    return text
+
+def _mask_pdf_bytes(pdf_bytes: bytes) -> bytes:
+    """Redact emails and phone numbers from a PDF using PyMuPDF."""
+    if not _FITZ_OK:
+        raise RuntimeError("PyMuPDF not installed — cannot mask PDF")
+    doc = _fitz.open(stream=pdf_bytes, filetype="pdf")
+    for page in doc:
+        for pattern in (_EMAIL_RE, _PHONE_RE):
+            for match in pattern.finditer(page.get_text()):
+                rects = page.search_for(match.group())
+                for r in rects:
+                    page.add_redact_annot(r, fill=(0, 0, 0))
+        page.apply_redactions()
+    return doc.tobytes()
+
+def _mask_docx_bytes(docx_bytes: bytes) -> bytes:
+    """Replace emails and phone numbers in a DOCX."""
+    from docx import Document
+    doc = Document(io.BytesIO(docx_bytes))
+    def _replace_in_para(para):
+        for run in para.runs:
+            run.text = _mask_text(run.text)
+    for para in doc.paragraphs:
+        _replace_in_para(para)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.paragraphs:
+                    _replace_in_para(para)
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+@api_router.get("/candidates/{candidate_id}/resume/masked")
+async def download_masked_resume(candidate_id: str, request: Request):
+    """Download the candidate's resume with phone and email redacted (no AI)."""
+    from fastapi.responses import Response as FResponse
+    user = await get_current_user(request)
+    _require_module(user, "recruitment")
+    row = await safe_single(lambda: sb("candidates")
+        .select("id,full_name,resume_url").eq("id", candidate_id).single().execute())
+    if not row:
+        raise HTTPException(404, "Candidate not found")
+    url = (row.get("resume_url") or "").strip()
+    if not url:
+        raise HTTPException(400, "This candidate has no resume on file")
+    if download_resume is None:
+        raise HTTPException(503, "Google Drive not configured")
+
+    raw = await run(lambda: download_resume(url))
+
+    # Detect type from URL
+    if ".pdf" in url.lower() or "pdf" in url.lower():
+        try:
+            masked = _mask_pdf_bytes(raw)
+        except Exception:
+            masked = raw   # return original if masking fails
+        ctype = "application/pdf"
+        ext   = "pdf"
+    else:
+        try:
+            masked = _mask_docx_bytes(raw)
+        except Exception:
+            masked = raw
+        ctype = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ext   = "docx"
+
+    safe_name = (row.get("full_name") or "candidate").replace(" ", "_")
+    return FResponse(
+        content=masked,
+        media_type=ctype,
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}_masked.{ext}"'},
+    )
+
+
+# ── Single email compose (Sales & Recruit) ────────────────────────────────────
+class ComposeEmailRequest(BaseModel):
+    to_email:   str
+    to_name:    Optional[str] = None
+    subject:    str
+    html_body:  str
+    lead_id:    Optional[str] = None
+    candidate_id: Optional[str] = None
+
+@api_router.post("/email/compose")
+async def compose_and_send_email(body: ComposeEmailRequest, request: Request):
+    """Send a single email from the logged-in user's Outlook mailbox."""
+    user = await get_current_user(request)
+    from_email = user["email"]
+    try:
+        await _graph_send_mail(from_email, [body.to_email], body.subject, body.html_body)
+    except Exception as exc:
+        raise HTTPException(503, f"Email send failed: {exc}")
+
+    # Log activity on lead/candidate
+    if body.lead_id:
+        await _log_activity(lead_id=body.lead_id, user=user, atype="email",
+                            desc=f"Email sent to {body.to_email} — \"{body.subject}\"")
+    if body.candidate_id:
+        await _log_activity(candidate_id=body.candidate_id, user=user, atype="email",
+                            desc=f"Email sent to {body.to_email} — \"{body.subject}\"")
+    return {"success": True, "sent_from": from_email, "sent_to": body.to_email}
+
+
+# ── Bulk Welcome Email ────────────────────────────────────────────────────────
+class BulkEmailSendRequest(BaseModel):
+    subject:      str
+    html_body:    str
+    extra_emails: List[str] = []
+
+@api_router.get("/bulk-email/recipients")
+async def get_bulk_email_recipients(request: Request):
+    """Return all lead contact emails annotated with whether welcome has been sent."""
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+
+    leads_res = await run(lambda: sb("leads").select(
+        "id,company,full_name,email,"
+        "contact_person_2_name,contact_person_2_email,"
+        "contact_person_3_name,contact_person_3_email"
+    ).execute())
+    leads = leads_res.data or []
+
+    # Collect all unique non-empty addresses
+    recipients: dict = {}  # email -> {name, company, lead_id}
+    for l in leads:
+        def _add(email, name, company, lead_id):
+            if email and email.strip() and "@" in email:
+                e = email.strip().lower()
+                if e not in recipients:
+                    recipients[e] = {"email": e, "name": name or "", "company": company or "", "lead_id": lead_id}
+        _add(l.get("email"), l.get("full_name"), l.get("company"), l["id"])
+        _add(l.get("contact_person_2_email"), l.get("contact_person_2_name"), l.get("company"), l["id"])
+        _add(l.get("contact_person_3_email"), l.get("contact_person_3_name"), l.get("company"), l["id"])
+
+    # Check which have already received a welcome email
+    sent_res = await run(lambda: sb("email_sends").select("sent_to").eq("email_type", "welcome").execute())
+    sent_set = {r["sent_to"].lower() for r in (sent_res.data or [])}
+
+    result = []
+    for e, meta in recipients.items():
+        result.append({**meta, "already_sent": e in sent_set})
+    result.sort(key=lambda x: (x["already_sent"], x["company"]))
+    return {"recipients": result, "total": len(result), "pending": sum(1 for r in result if not r["already_sent"])}
+
+
+@api_router.post("/bulk-email/send")
+async def send_bulk_email(body: BulkEmailSendRequest, request: Request):
+    """Send welcome emails via Microsoft Graph from logged-in user's mailbox."""
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    from_email = user["email"]
+
+    # Build recipient list from leads + extra
+    recip_resp = await get_bulk_email_recipients(request)
+    all_recips  = recip_resp["recipients"]
+
+    # Collect addresses to send to (not already sent + extra)
+    to_send: list[str] = [r["email"] for r in all_recips if not r["already_sent"]]
+    for e in body.extra_emails:
+        e = e.strip().lower()
+        if e and "@" in e and e not in to_send:
+            # check if already sent
+            exists = await run(lambda: sb("email_sends").select("sent_to")
+                .eq("sent_to", e).eq("email_type", "welcome").execute())
+            if not (exists.data):
+                to_send.append(e)
+
+    if not to_send:
+        return {"success": True, "sent_count": 0, "skipped_count": 0, "message": "No new recipients."}
+
+    sent_ok: list[str] = []
+    failed:  list[str] = []
+    for addr in to_send:
+        try:
+            await _graph_send_mail(from_email, [addr], body.subject, body.html_body)
+            sent_ok.append(addr)
+        except Exception as exc:
+            logger.warning(f"[bulk-email] failed {addr}: {exc}")
+            failed.append(addr)
+
+    # Record successful sends in DB
+    if sent_ok:
+        rows = [{"sent_to": a, "sent_by_id": user["id"], "sent_by_email": from_email,
+                 "sent_by_name": user["name"], "email_type": "welcome", "subject": body.subject}
+                for a in sent_ok]
+        try:
+            await run(lambda: sb("email_sends").upsert(rows, on_conflict="sent_to,email_type").execute())
+        except Exception as exc:
+            logger.warning(f"[bulk-email] upsert failed: {exc}")
+
+    return {
+        "success":       True,
+        "sent_count":    len(sent_ok),
+        "failed_count":  len(failed),
+        "failed":        failed[:20],
+        "sent_from":     from_email,
+    }
+
+
+@api_router.get("/bulk-email/sent")
+async def get_sent_bulk_emails(request: Request):
+    """Return history of welcome emails sent."""
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    res = await run(lambda: sb("email_sends")
+        .select("*").eq("email_type", "welcome").order("sent_at", desc=True).limit(500).execute())
+    return {"sent": res.data or []}
 
 
 @api_router.delete("/candidates/{candidate_id}")
@@ -2641,39 +2932,37 @@ async def get_sales_tracker_dashboard(request: Request):
 async def submit_sales_log(body: SalesActivityLogCreate, request: Request):
     user = await get_current_user(request)
     _require_module(user, "sales")
-    from datetime import datetime as dt
+    from datetime import datetime as dt, date as _date
     try:
         d = dt.strptime(body.log_date, "%d-%b-%Y").date()
     except Exception:
         try:
-            from datetime import date
-            d = date.fromisoformat(body.log_date)
+            d = _date.fromisoformat(body.log_date)
         except Exception:
-            raise HTTPException(400, "Invalid date format. Use DD-MMM-YYYY.")
+            raise HTTPException(400, "Invalid date format. Expected YYYY-MM-DD.")
     day_name = d.strftime("%A")
-    prob = STAGE_PROBABILITY_MAP.get("Cold Outreach", 10)
+    now_ts   = datetime.now(timezone.utc).isoformat()
     row = {
-        "logged_by":       user.get("id"),
-        "logged_by_name":  user.get("name", ""),
-        "log_date":        d.isoformat(),
-        "day_of_week":     day_name,
-        "emails_sent":     body.emails_sent,
-        "linkedin_sent":   body.linkedin_sent,
-        "calls_made":      body.calls_made,
-        "replies_received":body.replies_received,
-        "meetings_booked": body.meetings_booked,
-        "meetings_done":   body.meetings_done,
-        "proposals_sent":  body.proposals_sent,
-        "followups_done":  body.followups_done,
-        "new_leads_added": body.new_leads_added,
-        "hours_worked":    body.hours_worked,
-        "mood":            body.mood,
-        "biggest_win":     body.biggest_win,
-        "biggest_blocker": body.biggest_blocker,
-        "updated_at":      "now()",
+        "logged_by":        user.get("id"),
+        "logged_by_name":   user.get("name", ""),
+        "log_date":         d.isoformat(),
+        "day_of_week":      day_name,
+        "emails_sent":      body.emails_sent,
+        "linkedin_sent":    body.linkedin_sent,
+        "calls_made":       body.calls_made,
+        "replies_received": body.replies_received,
+        "meetings_booked":  body.meetings_booked,
+        "meetings_done":    body.meetings_done,
+        "proposals_sent":   body.proposals_sent,
+        "followups_done":   body.followups_done,
+        "new_leads_added":  body.new_leads_added,
+        "hours_worked":     body.hours_worked,
+        "mood":             body.mood,
+        "biggest_win":      body.biggest_win,
+        "biggest_blocker":  body.biggest_blocker,
+        "updated_at":       now_ts,
     }
-    sb = get_supabase()
-    res = sb.table("sales_activity_log").upsert(row, on_conflict="log_date,logged_by").execute()
+    res = await run(lambda: sb("sales_activity_log").upsert(row, on_conflict="log_date,logged_by").execute())
     return {"success": True, "data": (res.data or [{}])[0]}
 
 
@@ -2686,11 +2975,15 @@ async def get_sales_logs(
 ):
     user = await get_current_user(request)
     _require_module(user, "sales")
-    sb = get_supabase()
-    q = sb.table("sales_activity_log").select("*").order("log_date", desc=True).limit(limit)
+    q_fn = lambda: (
+        sb("sales_activity_log").select("*")
+        .order("log_date", desc=True)
+        .limit(limit)
+    )
+    q = q_fn()
     if from_date: q = q.gte("log_date", from_date)
     if to_date:   q = q.lte("log_date", to_date)
-    res = q.execute()
+    res  = await run(lambda qq=q: qq.execute())
     rows = res.data or []
     for r in rows:
         pass  # days_in_stage not needed here

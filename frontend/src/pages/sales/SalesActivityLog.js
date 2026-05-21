@@ -127,12 +127,15 @@ export default function SalesActivityLog() {
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const handleSubmit = async () => {
-    if (!form.emails_sent && !form.calls_made && !form.linkedin_sent) {
-      setError('Please fill in at least one activity field.');
+    const anyFilled = Object.entries(form).some(([k, v]) =>
+      k !== 'mood' && k !== 'biggest_win' && k !== 'biggest_blocker' && v !== '' && v !== null && Number(v) > 0
+    ) || form.biggest_win?.trim() || form.biggest_blocker?.trim() || form.mood !== null;
+    if (!anyFilled) {
+      setError('Please fill in at least one field before saving.');
       return;
     }
-      setError('');
-      setSubmitting(true);
+    setError('');
+    setSubmitting(true);
     try {
       await salesTrackerAPI.submitLog({
         log_date:          selectedDateISO,

@@ -54,6 +54,30 @@ const SegmentBadge = ({ segment }) => {
 // ── Add Company Modal ────────────────────────────────────────
 const CONTACT_INIT = { name:'', designation:'', email:'', phone:'', linkedin:'' };
 
+// IMPORTANT: Defined OUTSIDE AddCompanyModal so React doesn't remount it on every keystroke
+const ContactPersonSection = ({ label, values, setter, isMobile }) => {
+  const setCp = (k, v) => setter(c => ({ ...c, [k]: v }));
+  return (
+    <div style={{ marginTop:'0.5rem' }}>
+      <p style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.625rem' }}>{label}</p>
+      <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'0.75rem' }}>
+        {[
+          { l:'Name',        k:'name',        t:'text' },
+          { l:'Designation', k:'designation', t:'text' },
+          { l:'Email',       k:'email',       t:'email' },
+          { l:'Phone',       k:'phone',       t:'tel' },
+          { l:'LinkedIn URL',k:'linkedin',    t:'url', span:2 },
+        ].map(f => (
+          <div key={f.k} style={{ gridColumn: f.span===2 ? '1/-1' : undefined }}>
+            <label className="label">{f.l}</label>
+            <input className="input" type={f.t} value={values[f.k]} onChange={e => setCp(f.k, e.target.value)} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const AddCompanyModal = ({ onClose, onAdd }) => {
   const { isMobile } = useBreakpoint();
   const [form, setForm] = useState({
@@ -67,7 +91,6 @@ const AddCompanyModal = ({ onClose, onAdd }) => {
   const [saving, setSaving] = useState(false);
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const setCp = (setter, k, v) => setter(c => ({ ...c, [k]: v }));
 
   const submit = async () => {
     if (!form.company.trim()) { alert('Company name is required'); return; }
@@ -114,26 +137,6 @@ const AddCompanyModal = ({ onClose, onAdd }) => {
       setSaving(false);
     }
   };
-
-  const ContactPersonSection = ({ label, values, setter }) => (
-    <div style={{ marginTop:'0.5rem' }}>
-      <p style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.625rem' }}>{label}</p>
-      <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'0.75rem' }}>
-        {[
-          { l:'Name',        k:'name',        t:'text' },
-          { l:'Designation', k:'designation', t:'text' },
-          { l:'Email',       k:'email',       t:'email' },
-          { l:'Phone',       k:'phone',       t:'tel' },
-          { l:'LinkedIn URL',k:'linkedin',    t:'url', span:2 },
-        ].map(f => (
-          <div key={f.k} style={{ gridColumn: f.span===2 ? '1/-1' : undefined }}>
-            <label className="label">{f.l}</label>
-            <input className="input" type={f.t} value={values[f.k]} onChange={e => setCp(setter, f.k, e.target.value)} />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 
   return (
     <div className="modal-overlay scale-in" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -216,11 +219,11 @@ const AddCompanyModal = ({ onClose, onAdd }) => {
         <div style={{ margin:'1.25rem 0', height:1, background:'var(--outline-variant)' }} />
 
         {/* Contact Persons */}
-        <ContactPersonSection label="Contact Person 1" values={cp1} setter={setCp1} />
+        <ContactPersonSection label="Contact Person 1" values={cp1} setter={setCp1} isMobile={isMobile} />
         <div style={{ margin:'1rem 0', height:1, background:'var(--surface-container)' }} />
-        <ContactPersonSection label="Contact Person 2" values={cp2} setter={setCp2} />
+        <ContactPersonSection label="Contact Person 2" values={cp2} setter={setCp2} isMobile={isMobile} />
         <div style={{ margin:'1rem 0', height:1, background:'var(--surface-container)' }} />
-        <ContactPersonSection label="Contact Person 3" values={cp3} setter={setCp3} />
+        <ContactPersonSection label="Contact Person 3" values={cp3} setter={setCp3} isMobile={isMobile} />
 
         <div style={{ display:'flex', gap:'0.75rem', justifyContent:'flex-end', marginTop:'1.75rem' }}>
           <button className="btn-secondary" onClick={onClose}>Cancel</button>

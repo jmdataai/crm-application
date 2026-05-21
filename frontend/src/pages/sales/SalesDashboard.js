@@ -295,6 +295,7 @@ export default function SalesDashboard() {
   const greet = greetHour < 12 ? 'Good morning' : greetHour < 17 ? 'Good afternoon' : 'Good evening';
 
   return (
+    <>
     <div className="fade-in">
       {/* ── Header ───────────────────────────────────── */}
       <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.5rem' }}>
@@ -559,5 +560,12 @@ export default function SalesDashboard() {
         )}
       </div>
     </div>
+    {showAdd && (
+      <AddLeadModal
+        onClose={() => setShowAdd(false)}
+        onAdd={(lead) => setLeads(prev => [lead, ...prev])}
+      />
+    )}
+    </>
   );
 }

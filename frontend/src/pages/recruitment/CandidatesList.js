@@ -3,6 +3,55 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { candidatesAPI, jobsAPI } from '../../services/api';
 import { useNavigate, useLocation } from 'react-router-dom';
 import NexusTutorial from '../../components/NexusTutorial';
+import * as XLSX from 'xlsx';
+
+// ── Export helpers ─────────────────────────────────────────────────────────────
+const exportCandidates = (rows, format = 'csv') => {
+  const cols = [
+    'name','email','phone','current_company','candidate_role','experience_years',
+    'total_experience','relevant_experience','location','relocation','work_mode',
+    'current_ctc','expected_ctc','visa_status','candidate_type','source','status',
+    'job_title','tech_stack','applied',
+  ];
+  const data = rows.map(r => ({
+    Name:                r.name                          || '',
+    Email:               r.email                         || '',
+    Phone:               r.phone                         || '',
+    'Current Company':   r.current_company               || '',
+    Role:                r.candidate_role                || '',
+    'Exp (yrs)':         r.experience_years ?? '',
+    'Total Exp':         r.total_experience              || '',
+    'Relevant Exp':      r.relevant_experience           || '',
+    Location:            r.location                      || '',
+    Relocation:          r.relocation                    || '',
+    'Work Mode':         (r.work_mode || []).join(', ')  || '',
+    'Current CTC (LPA)': r.current_ctc  ?? '',
+    'Expected CTC (LPA)':r.expected_ctc ?? '',
+    'Visa Status':       r.visa_status                   || '',
+    'Candidate Type':    r.candidate_type                || '',
+    Source:              r.source                        || '',
+    Stage:               r.status                        || '',
+    'Applied Job':       r.job_title                     || '',
+    'Tech Stack':        (r.tech_stack  || []).join(', ')|| '',
+    'Date Added':        r.applied                       || '',
+  }));
+  if (format === 'csv') {
+    const header = Object.keys(data[0] || {}).join(',');
+    const rows2  = data.map(row =>
+      Object.values(row).map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')
+    );
+  const csv  = [header, ...rows2].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a'); a.href = url; a.download = 'candidates.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  } else {
+    const ws  = XLSX.utils.json_to_sheet(data);
+    const wb  = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Candidates');
+    XLSX.writeFile(wb, 'candidates.xlsx');
+  }
+};
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
@@ -345,7 +394,7 @@ const normalise = (c) => ({
   id: c.id, name: c.full_name, email: c.email, phone: c.phone,
   candidate_role: c.candidate_role, current_company: c.current_company,
   job_id: c.job_id || null,
-  job_title: c.job_title || c.job?.title || '',   // direct column first, join fallback
+  job_title: c.job_title || c.job?.title || '',
   job: c.job_title || c.job?.title || '',
   dept: c.job?.department || '',
   experience_years: c.experience_years != null ? Number(c.experience_years) : null,
@@ -355,6 +404,10 @@ const normalise = (c) => ({
   applied: c.created_at?.slice(0, 10), notes: c.notes,
   resume_url: c.resume_url || null,
   tech_stack: Array.isArray(c.tech_stack) ? c.tech_stack : [],
+  // v4 fields
+  work_mode:    Array.isArray(c.work_mode) ? c.work_mode : [],
+  current_ctc:  c.current_ctc  != null ? Number(c.current_ctc)  : null,
+  expected_ctc: c.expected_ctc != null ? Number(c.expected_ctc) : null,
 });
 
 /* ── Tech stack multi-select dropdown ───────────────────── */
@@ -603,6 +656,18 @@ export default function CandidatesList() {
   const paged = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
   const toggleSort = (col) => { if (sortBy === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy(col); setSortDir('asc'); } setPage(1); };
   const SortIcon = ({ col }) => sortBy === col ? <Icon name={sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward'} style={{ fontSize:'0.75rem', color:'var(--tertiary)' }} /> : <Icon name="unfold_more" style={{ fontSize:'0.75rem', opacity:0.3 }} />;
+  useEffect(() => {
+    const handler = (e) => {
+      const menu = document.getElementById('export-menu');
+      const btn  = document.getElementById('export-btn');
+      if (menu && !menu.contains(e.target) && !btn?.contains(e.target)) {
+        menu.style.display = 'none';
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
   const tabCounts = { domestic: candidates.filter(c => c.candidate_type === 'domestic').length, international: candidates.filter(c => c.candidate_type === 'international').length };
   const isIntl = activeTab === 'international';
   const hasColSearch = Object.values(colSearch).some(v => v) || expFilter.years !== '' || hasResumeOnly || techSelected.size > 0;
@@ -689,6 +754,30 @@ export default function CandidatesList() {
         <div style={{display:'flex',gap:'0.625rem'}}>
           <a href="/recruitment/import-candidates" className="btn-secondary"><Icon name="upload_file" style={{fontSize:'1rem'}}/> Import</a>
           <a data-tour="candidates-pipeline" href="/recruitment/pipeline" className="btn-secondary"><Icon name="account_tree" style={{fontSize:'1rem'}}/> Pipeline</a>
+          {/* Export dropdown */}
+          <div style={{ position:'relative' }}>
+            <button
+              id="export-btn"
+              onClick={() => document.getElementById('export-menu').style.display === 'none'
+                ? (document.getElementById('export-menu').style.display = 'block')
+                : (document.getElementById('export-menu').style.display = 'none')}
+              className="btn-secondary"
+              style={{ display:'inline-flex', alignItems:'center', gap:'0.375rem' }}
+            >
+              <Icon name="download" style={{fontSize:'1rem'}}/> Export <Icon name="arrow_drop_down" style={{fontSize:'1rem'}}/>
+            </button>
+            <div id="export-menu" style={{ display:'none', position:'absolute', right:0, top:'calc(100% + 4px)', background:'var(--surface-container-lowest)', border:'1px solid var(--outline-variant)', borderRadius:'0.5rem', minWidth:160, zIndex:200, boxShadow:'0 4px 16px rgba(0,0,0,0.12)' }}>
+              <button onClick={() => { exportCandidates(filtered,'csv');  document.getElementById('export-menu').style.display='none'; }} style={{ display:'block', width:'100%', padding:'0.625rem 1rem', textAlign:'left', background:'none', border:'none', cursor:'pointer', fontSize:'0.875rem', color:'var(--on-surface)', fontFamily:'var(--font-display)' }}>
+                <Icon name="description" style={{fontSize:'1rem',marginRight:'0.375rem'}}/> Download CSV
+              </button>
+              <button onClick={() => { exportCandidates(filtered,'xlsx'); document.getElementById('export-menu').style.display='none'; }} style={{ display:'block', width:'100%', padding:'0.625rem 1rem', textAlign:'left', background:'none', border:'none', cursor:'pointer', fontSize:'0.875rem', color:'var(--on-surface)', fontFamily:'var(--font-display)' }}>
+                <Icon name="table_chart" style={{fontSize:'1rem',marginRight:'0.375rem'}}/> Download Excel
+              </button>
+              <div style={{ padding:'0.375rem 1rem', borderTop:'1px solid var(--outline-variant)', fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>
+                {filtered.length} candidates (current filters)
+              </div>
+            </div>
+          </div>
           <button data-tour="candidates-add" onClick={()=>setShowAdd(true)} style={{display:'inline-flex',alignItems:'center',gap:'0.5rem',padding:'0.5rem 1.25rem',borderRadius:'0.5rem',fontSize:'0.875rem',fontWeight:600,color:'#fff',border:'none',cursor:'pointer',background:'linear-gradient(135deg,var(--tertiary),#009966)',boxShadow:'0 2px 8px rgba(0,98,67,0.25)'}}>
             <Icon name="person_add" style={{fontSize:'1rem',color:'#fff'}}/> Add Candidate
           </button>

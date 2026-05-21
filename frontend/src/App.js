@@ -16,6 +16,7 @@ import EnrichLeads     from './pages/sales/EnrichLeads';
 import SalesTasks      from './pages/sales/SalesTasks';
 import SalesReminders  from './pages/sales/SalesReminders';
 import SalesActivityLog    from './pages/sales/SalesActivityLog';
+import BulkEmail           from './pages/sales/BulkEmail';
 import SalesTrackerDashboard from './pages/sales/SalesTrackerDashboard';
 
 // Recruitment
@@ -86,6 +87,7 @@ function AppRoutes() {
       <Route path="/sales/tasks"        element={<Page module="sales"><SalesTasks /></Page>} />
       <Route path="/sales/reminders"    element={<Page module="sales"><SalesReminders /></Page>} />
       <Route path="/sales/activity-log"  element={<Page module="sales"><SalesActivityLog /></Page>} />
+      <Route path="/sales/bulk-email"    element={<Page module="sales"><BulkEmail /></Page>} />
       <Route path="/sales/tracker"        element={<Page module="sales"><SalesTrackerDashboard /></Page>} />
 
       {/* ── Recruitment — admin, sales, viewer only ── */}
