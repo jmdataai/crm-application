@@ -414,13 +414,23 @@ const normalise = (c) => ({
 const TechMultiSelect = ({ allTech, selected, onChange }) => {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState('any'); // 'any' | 'all'
+  const [search, setSearch] = useState('');
   const ref = useRef(null);
+  const searchRef = useRef(null);
 
   useEffect(() => {
     const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  // Auto-focus search box when dropdown opens
+  useEffect(() => {
+    if (open && searchRef.current) {
+      setTimeout(() => searchRef.current?.focus(), 50);
+    }
+    if (!open) setSearch('');
+  }, [open]);
 
   const toggle = (tech) => {
     const next = new Set(selected);
@@ -429,6 +439,15 @@ const TechMultiSelect = ({ allTech, selected, onChange }) => {
   };
   const clearAll = () => onChange(new Set(), mode);
   const switchMode = (m) => { setMode(m); onChange(selected, m); };
+
+  const filtered = search.trim()
+    ? allTech.filter(t => t.toLowerCase().includes(search.trim().toLowerCase()))
+    : allTech;
+
+  // Selected skills always pinned to top (only in unfiltered view)
+  const visibleList = search.trim()
+    ? filtered
+    : [...allTech.filter(t => selected.has(t)), ...allTech.filter(t => !selected.has(t))];
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
@@ -453,7 +472,7 @@ const TechMultiSelect = ({ allTech, selected, onChange }) => {
           position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 200,
           background: 'var(--surface-container-lowest)', border: '1px solid var(--outline-variant)',
           borderRadius: '0.625rem', boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-          width: 260, padding: '0.625rem',
+          width: 280, padding: '0.625rem',
         }}>
           {/* Mode toggle */}
           <div style={{ display: 'flex', gap: 4, marginBottom: '0.5rem', background: 'var(--surface-container-high)', padding: 3, borderRadius: '0.5rem' }}>
@@ -466,13 +485,44 @@ const TechMultiSelect = ({ allTech, selected, onChange }) => {
               }}>{m.label}</button>
             ))}
           </div>
+          {/* Search box */}
+          <div style={{ position: 'relative', marginBottom: '0.375rem' }}>
+            <span className="material-symbols-outlined" style={{ position: 'absolute', left: '0.5rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.875rem', color: 'var(--on-surface-variant)', pointerEvents: 'none' }}>search</span>
+            <input
+              ref={searchRef}
+              type="text"
+              placeholder={`Search ${allTech.length} skills…`}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Escape') { setSearch(''); setOpen(false); }
+                if (e.key === 'Enter' && filtered.length === 1) toggle(filtered[0]);
+              }}
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                padding: '0.35rem 0.5rem 0.35rem 1.875rem',
+                border: '1px solid var(--outline-variant)', borderRadius: '0.375rem',
+                background: 'var(--surface)', color: 'var(--on-surface)',
+                fontFamily: 'var(--font-display)', fontSize: '0.8125rem', outline: 'none',
+              }}
+            />
+            {search && (
+              <button onClick={() => setSearch('')} style={{ position: 'absolute', right: '0.375rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', padding: 0 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '0.875rem' }}>close</span>
+              </button>
+            )}
+          </div>
           {/* List */}
-          <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
             {allTech.length === 0 && <p style={{ fontSize: '0.75rem', color: 'var(--on-surface-variant)', padding: '0.5rem' }}>No tech data yet</p>}
-            {allTech.map(tech => (
+            {allTech.length > 0 && visibleList.length === 0 && (
+              <p style={{ fontSize: '0.75rem', color: 'var(--on-surface-variant)', padding: '0.5rem', textAlign: 'center' }}>No skills match "{search}"</p>
+            )}
+            {visibleList.map(tech => (
               <label key={tech} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0.375rem', borderRadius: '0.375rem', cursor: 'pointer', background: selected.has(tech) ? 'rgba(0,98,67,0.07)' : 'transparent' }}>
                 <input type="checkbox" checked={selected.has(tech)} onChange={() => toggle(tech)} style={{ accentColor: 'var(--tertiary)', width: 14, height: 14, flexShrink: 0 }} />
-                <span style={{ fontSize: '0.8125rem', fontWeight: selected.has(tech) ? 600 : 400, color: selected.has(tech) ? 'var(--tertiary)' : 'var(--on-surface)' }}>{tech}</span>
+                <span style={{ fontSize: '0.8125rem', fontWeight: selected.has(tech) ? 600 : 400, color: selected.has(tech) ? 'var(--tertiary)' : 'var(--on-surface)', flex: 1 }}>{tech}</span>
+                {selected.has(tech) && <span className="material-symbols-outlined" style={{ fontSize: '0.75rem', color: 'var(--tertiary)', flexShrink: 0 }}>check</span>}
               </label>
             ))}
           </div>
