@@ -904,14 +904,25 @@ export default function CandidatesList() {
                 <th style={{padding:'0 1rem 0.5rem'}}/>
                 {cols.map(col=>(
                   <th key={col.key} style={{padding:'0 0.5rem 0.5rem'}}>
-                    {col.key==='resume_url'||col.key==='applied'||col.key==='tech_stack'||col.key==='experience_years'?<div style={{height:26}}/>:col.key==='status'?(
-                      <select style={{width:'100%',fontSize:'0.75rem',padding:'0.2rem 0.4rem',borderRadius:4,border:'1px solid var(--outline-variant)',background:'var(--surface)',color:'var(--on-surface)',fontFamily:'var(--font-display)'}} value={colSearch[col.key]||''} onChange={e=>setCS(col.key,e.target.value)}>
-                        <option value="">All</option>{STAGES.map(s=><option key={s} value={s}>{STAGE_META[s].label}</option>)}
-                      </select>
-                    ):colSearch[col.key]!==undefined?(
-                      <input placeholder="Search…" value={colSearch[col.key]||''} onChange={e=>setCS(col.key,e.target.value)}
-                        style={{width:'100%',fontSize:'0.75rem',padding:'0.2rem 0.4rem',borderRadius:4,border:'1px solid var(--outline-variant)',background:'var(--surface)',color:'var(--on-surface)',fontFamily:'var(--font-display)',boxSizing:'border-box'}}/>
-                    ):<div style={{height:26}}/>}
+                    {col.key==='resume_url'||col.key==='applied'
+                      ? <div style={{height:26}}/>
+                      : col.key==='tech_stack'
+                      ? <div style={{paddingTop:2}}><TechMultiSelect allTech={allTechOptions} selected={techSelected} onChange={(sel,mode)=>{setTechSelected(new Set(sel));setTechMode(mode);setPage(1);}}/></div>
+                      : col.key==='experience_years'
+                      ? <div style={{paddingTop:2}}><ExpFilter value={expFilter} onChange={v=>{setExpFilter(v);setPage(1);}}/></div>
+                      : col.key==='status'
+                      ? (
+                        <select style={{width:'100%',fontSize:'0.75rem',padding:'0.2rem 0.4rem',borderRadius:4,border:'1px solid var(--outline-variant)',background:'var(--surface)',color:'var(--on-surface)',fontFamily:'var(--font-display)'}} value={colSearch[col.key]||''} onChange={e=>setCS(col.key,e.target.value)}>
+                          <option value="">All</option>{STAGES.map(s=><option key={s} value={s}>{STAGE_META[s].label}</option>)}
+                        </select>
+                      )
+                      : colSearch[col.key]!==undefined
+                      ? (
+                        <input placeholder="Search…" value={colSearch[col.key]||''} onChange={e=>setCS(col.key,e.target.value)}
+                          style={{width:'100%',fontSize:'0.75rem',padding:'0.2rem 0.4rem',borderRadius:4,border:'1px solid var(--outline-variant)',background:'var(--surface)',color:'var(--on-surface)',fontFamily:'var(--font-display)',boxSizing:'border-box'}}/>
+                      )
+                      : <div style={{height:26}}/>
+                    }
                   </th>
                 ))}
                 <th style={{padding:'0 1rem 0.5rem'}}/>

@@ -39,6 +39,15 @@ function isInMonth(dateStr, monthDate) {
   const d = new Date(dateStr + 'T00:00:00');
   return d.getMonth() === monthDate.getMonth() && d.getFullYear() === monthDate.getFullYear();
 }
+function getMonthKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+function isInAnySelectedMonth(dateStr, monthSet) {
+  if (!dateStr) return false;
+  if (!monthSet || monthSet.size === 0) return true;
+  const d = new Date(dateStr + 'T00:00:00');
+  return monthSet.has(getMonthKey(d));
+}
 function getUser(ts) {
   return ts['users!timesheets_user_id_fkey'] || ts.users || {};
 }
@@ -113,6 +122,55 @@ function MultiSelect({ options, selected, onChange }) {
               </label>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Multi-select month dropdown ───────────────────────────────
+function MonthMultiSelect({ availableMonths, selected, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  const label = selected.size === 0 ? 'All Months'
+    : selected.size === 1
+      ? (() => { const k = [...selected][0]; const [y,m] = k.split('-'); return `${MONTH_NAMES[parseInt(m)-1]} ${y}`; })()
+      : `${selected.size} months selected`;
+
+  const toggleMonth = (key) => {
+    const next = new Set(selected);
+    if (next.has(key)) {
+      if (next.size === 1) return; // prevent empty state
+      next.delete(key);
+    } else {
+      next.add(key);
+    }
+    onChange(next);
+  };
+
+  return (
+    <div ref={ref} style={{ position:'relative' }}>
+      <button onClick={() => setOpen(o => !o)} style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 12px', borderRadius:8, border:`1px solid ${selected.size > 1 ? 'rgba(68,104,176,0.5)' : 'var(--surface-container-high)'}`, background: selected.size > 1 ? 'rgba(68,104,176,0.06)' : 'var(--surface)', color: selected.size > 1 ? 'var(--primary)' : 'var(--on-surface)', fontSize:'0.875rem', cursor:'pointer', minWidth:170, justifyContent:'space-between' }}>
+        <span style={{ fontWeight: selected.size > 1 ? 700 : 400 }}>{label}</span>
+        <Icon name={open ? 'expand_less' : 'expand_more'} style={{ fontSize:'1.1rem', color:'var(--on-surface-variant)' }} />
+      </button>
+      {open && (
+        <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, zIndex:200, background:'var(--surface)', borderRadius:12, border:'1px solid var(--outline-variant)', boxShadow:'0 8px 30px rgba(0,0,0,0.12)', minWidth:210, maxHeight:340, overflowY:'auto', padding:'6px 0' }}>
+          <div style={{ padding:'6px 12px 8px', borderBottom:'1px solid var(--surface-container-high)', fontSize:'0.68rem', textTransform:'uppercase', letterSpacing:'0.06em', color:'var(--on-surface-variant)', fontWeight:700 }}>
+            Select months (multi-select)
+          </div>
+          {availableMonths.map(m => (
+            <label key={m.key} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 14px', cursor:'pointer', background: selected.has(m.key) ? 'rgba(68,104,176,0.05)' : 'transparent' }}>
+              <input type="checkbox" checked={selected.has(m.key)} onChange={() => toggleMonth(m.key)} style={{ accentColor:'var(--primary)', width:14, height:14 }} />
+              <span style={{ fontSize:'0.875rem', color:'var(--on-surface)', fontWeight: selected.has(m.key) ? 700 : 400 }}>{m.label}</span>
+            </label>
+          ))}
         </div>
       )}
     </div>
@@ -318,7 +376,7 @@ const MonthlyBarChart = ({ data, monthLabel }) => {
 };
 
 // ── Detail modal ─────────────────────────────────────────────
-const DetailModal = ({ ts, onClose, onReviewed, monthDate }) => {
+const DetailModal = ({ ts, onClose, onReviewed, selectedMonths: modalMonths }) => {
   const { isMobile } = useBreakpoint();
   const [note, setNote]     = useState('');
   const [acting, setActing] = useState(false);
@@ -326,10 +384,14 @@ const DetailModal = ({ ts, onClose, onReviewed, monthDate }) => {
   if (!ts) return null;
   const emp = getUser(ts);
   const weekDaysAll = Array.from({length:7},(_,i)=>toISODate(addDays(new Date(ts.week_start+'T00:00:00'),i)));
-  const weekDays = monthDate ? weekDaysAll.filter(d=>isInMonth(d,monthDate)) : weekDaysAll;
+  const weekDays = (modalMonths && modalMonths.size > 0) ? weekDaysAll.filter(d=>isInAnySelectedMonth(d,modalMonths)) : weekDaysAll;
   const entriesMap = {};
   (ts.entries||[]).forEach(e=>{entriesMap[e.entry_date]=e;});
-  const totalH = monthDate ? weekDays.reduce((s,d)=>s+parseFloat(entriesMap[d]?.hours||0),0) : parseFloat(ts.total_hours||0);
+  const totalH = (modalMonths && modalMonths.size > 0) ? weekDays.reduce((s,d)=>s+parseFloat(entriesMap[d]?.hours||0),0) : parseFloat(ts.total_hours||0);
+  const modalMonthsLabel = !modalMonths || modalMonths.size === 0 ? ''
+    : modalMonths.size === 1
+      ? (() => { const k=[...modalMonths][0]; const [y,m]=k.split('-'); return `${MONTH_NAMES[parseInt(m)-1]} ${y}`; })()
+      : `${modalMonths.size} months`;
   const initials = (emp.name||'U').split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
   const doReview = async (action) => {
     setActing(true); setErr(null);
@@ -367,7 +429,7 @@ const DetailModal = ({ ts, onClose, onReviewed, monthDate }) => {
           </div>}
         </div>
         <div style={{padding:'16px 20px'}}>
-          <p style={{margin:'0 0 10px',fontWeight:700,fontSize:'0.875rem',color:'var(--on-surface)'}}>Daily Breakdown{monthDate?` (${MONTH_NAMES[monthDate.getMonth()]} ${monthDate.getFullYear()})`:''}</p>
+          <p style={{margin:'0 0 10px',fontWeight:700,fontSize:'0.875rem',color:'var(--on-surface)'}}>Daily Breakdown{modalMonthsLabel ? ` (${modalMonthsLabel})` : ''}</p>
           {weekDays.map(date=>{
             const e=entriesMap[date]; const hrs=parseFloat(e?.hours||0);
             return(
@@ -417,15 +479,44 @@ const TimesheetApprovals = () => {
   const [filterStatus, setFilterStatus]     = useState('');
   const [filterUser, setFilterUser]         = useState('');
   const [filterEmployee, setFilterEmployee] = useState('');
-  const [monthDate, setMonthDate]   = useState(new Date());
+  const [selectedMonths, setSelectedMonths] = useState(() => new Set([getMonthKey(new Date())]));
+  const availableMonths = React.useMemo(() => {
+    const months = [];
+    const now = new Date();
+    for (let i = 0; i < 24; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push({ key: getMonthKey(d), label: `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}` });
+    }
+    return months;
+  }, []);
   const [weekStart, setWeekStart]   = useState(toISODate(getFridayOf(new Date())));
   const [pendingCount, setPendingCount] = useState(0); // always accurate, independent of current view
   const [chartYear, setChartYear]       = useState(new Date().getFullYear());
   const [selectedEmps, setSelectedEmps] = useState(new Set());
-  const [listEmpFilter, setListEmpFilter] = useState('');
+  const [listEmpSelected, setListEmpSelected] = useState(new Set());
 
   const YEAR_OPTIONS = useMemo(()=>Array.from(new Set(timesheets.map(ts=>new Date(ts.week_start+'T00:00:00').getFullYear()))).sort((a,b)=>b-a),[timesheets]);
   const EMP_OPTIONS  = useMemo(()=>Array.from(new Map(timesheets.map(ts=>{const u=getUser(ts);return[u.id||u.email||u.name,u];})).values()).filter(u=>u&&(u.id||u.email||u.name)),[timesheets]);
+
+  const monthsLabel = React.useMemo(() => {
+    if (selectedMonths.size === 0) return 'All';
+    if (selectedMonths.size === 1) {
+      const k = [...selectedMonths][0]; const [y,m] = k.split('-');
+      return `${MONTH_NAMES[parseInt(m)-1]} ${y}`;
+    }
+    const sorted = [...selectedMonths].sort();
+    if (selectedMonths.size <= 3) return sorted.map(k=>{const [y,m]=k.split('-');return `${MONTH_SHORT[parseInt(m)-1]} ${y}`;}).join(', ');
+    const [fy,fm]=sorted[0].split('-'); const [ly,lm]=sorted[sorted.length-1].split('-');
+    return `${selectedMonths.size} months (${MONTH_SHORT[parseInt(fm)-1]} ${fy}–${MONTH_SHORT[parseInt(lm)-1]} ${ly})`;
+  }, [selectedMonths]);
+
+  const listEmpOptions = React.useMemo(() => EMP_OPTIONS.map(u => {
+    const uid = u.id || u.email || u.name;
+    const totalHours = timesheets
+      .filter(ts => ts.status === 'approved' && (getUser(ts).id || getUser(ts).email || getUser(ts).name) === uid)
+      .reduce((s, ts) => s + (ts.entries||[]).filter(e=>isInAnySelectedMonth(e.entry_date,selectedMonths)).reduce((sh,e)=>sh+parseFloat(e.hours||0),0), 0);
+    return { id: uid, name: u.name || u.email || 'Unknown', totalHours };
+  }).filter(o => o.id), [EMP_OPTIONS, timesheets, selectedMonths]);
 
   const currentWeekStart = toISODate(getFridayOf(new Date()));
   const isCurrentWeek    = weekStart === currentWeekStart;
@@ -523,15 +614,15 @@ const TimesheetApprovals = () => {
     timesheets
       .filter(ts => ts.status === 'approved')
       .filter(ts => {
-        if (!listEmpFilter) return true;
+        if (listEmpSelected.size === 0) return true;
         const key = getUser(ts).id || getUser(ts).email || getUser(ts).name;
-        return key === listEmpFilter;
+        return listEmpSelected.has(key);
       })
       .forEach(ts => {
         const u = getUser(ts);
         const name = u.name || u.email || 'Unknown';
         const mh = (ts.entries||[])
-          .filter(e => isInMonth(e.entry_date, monthDate))
+          .filter(e => isInAnySelectedMonth(e.entry_date, selectedMonths))
           .reduce((s,e) => s + parseFloat(e.hours||0), 0);
         if (!mh) return;
         empMap.set(name, (empMap.get(name)||0) + mh);
@@ -540,31 +631,31 @@ const TimesheetApprovals = () => {
       .map(([name, hours]) => ({ name, hours }))
       .filter(d => d.hours > 0)
       .sort((a,b) => b.hours - a.hours);
-  }, [timesheets, view, monthDate, listEmpFilter]);
+  }, [timesheets, view, selectedMonths, listEmpSelected]);
 
   const filtered = useMemo(()=>timesheets.filter(ts=>{
     const emp=getUser(ts);
     if(filterUser&&!emp.name?.toLowerCase().includes(filterUser.toLowerCase())&&!emp.email?.toLowerCase().includes(filterUser.toLowerCase())) return false;
     if(filterEmployee){const key=emp.id||emp.email||emp.name;if(key!==filterEmployee)return false;}
-    // monthly view: use its own list employee filter
-    if(view==='monthly'&&listEmpFilter){const key=emp.id||emp.email||emp.name;if(key!==listEmpFilter)return false;}
+    // monthly view: use its own list employee multi-filter
+    if(view==='monthly'&&listEmpSelected.size>0){const key=emp.id||emp.email||emp.name;if(!listEmpSelected.has(key))return false;}
     if(filterStatus&&ts.status!==filterStatus) return false;
     if(view==='monthly'&&!['submitted','approved'].includes(ts.status)) return false;
-    if(view==='monthly') return (ts.entries||[]).some(e=>isInMonth(e.entry_date,monthDate));
+    if(view==='monthly') return (ts.entries||[]).some(e=>isInAnySelectedMonth(e.entry_date,selectedMonths));
     return true;
-  }),[timesheets,filterUser,filterEmployee,listEmpFilter,filterStatus,view,monthDate]);
+  }),[timesheets,filterUser,filterEmployee,listEmpSelected,filterStatus,view,selectedMonths]);
 
   const stats = useMemo(()=>{
     if (view === 'monthly') {
-      // In monthly view: only count timesheets that have entries in the selected month,
-      // and sum hours per-entry so cross-month weeks are split correctly.
+      // In monthly view: count timesheets with entries in selected months,
+      // sum hours per-entry so cross-month weeks are split correctly.
       const monthTs = timesheets.filter(ts => {
         if (!['submitted','approved','rejected'].includes(ts.status)) return false;
-        if (listEmpFilter) {
+        if (listEmpSelected.size > 0) {
           const key = getUser(ts).id || getUser(ts).email || getUser(ts).name;
-          if (key !== listEmpFilter) return false;
+          if (!listEmpSelected.has(key)) return false;
         }
-        return (ts.entries||[]).some(e => isInMonth(e.entry_date, monthDate));
+        return (ts.entries||[]).some(e => isInAnySelectedMonth(e.entry_date, selectedMonths));
       });
       return {
         submitted:  monthTs.filter(t=>t.status==='submitted').length,
@@ -574,7 +665,7 @@ const TimesheetApprovals = () => {
           .filter(t=>t.status==='approved')
           .reduce((s,t)=>{
             const mh = (t.entries||[])
-              .filter(e=>isInMonth(e.entry_date, monthDate))
+              .filter(e=>isInAnySelectedMonth(e.entry_date, selectedMonths))
               .reduce((sh,e)=>sh+parseFloat(e.hours||0),0);
             return s + mh;
           }, 0),
@@ -590,7 +681,7 @@ const TimesheetApprovals = () => {
       rejected:   base.filter(t=>t.status==='rejected').length,
       totalHours: base.filter(t=>t.status==='approved').reduce((s,t)=>s+parseFloat(t.total_hours||0),0),
     };
-  },[timesheets,view,monthDate,listEmpFilter,filterEmployee]);
+  },[timesheets,view,selectedMonths,listEmpSelected,filterEmployee]);
 
   // pendingCount is now a separate state fetched independently — see loadPendingCount()
   const navBtn = {display:'flex',alignItems:'center',justifyContent:'center',width:32,height:32,borderRadius:8,border:'1px solid var(--surface-container-high)',background:'var(--surface-container-lowest)',color:'var(--on-surface)',cursor:'pointer'};
@@ -648,20 +739,27 @@ const TimesheetApprovals = () => {
         </div>
       )}
 
-      {/* Monthly view — list controls only (employee dropdown + month nav) */}
+      {/* Monthly view — multi-employee + multi-month selectors */}
       {view==='monthly'&&(
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:16,flexWrap:'wrap'}}>
-          <select
-            value={listEmpFilter}
-            onChange={e=>setListEmpFilter(e.target.value)}
-            style={{padding:'7px 12px',borderRadius:8,border:'1px solid var(--surface-container-high)',fontSize:'0.875rem',background:'var(--surface)',color:'var(--on-surface)',outline:'none',minWidth:200}}
-          >
-            <option value="">All Employees</option>
-            {EMP_OPTIONS.map(u=>{const k=u.id||u.email||u.name;return<option key={k} value={k}>{u.name||u.email}</option>;})}
-          </select>
-          <button onClick={()=>setMonthDate(d=>new Date(d.getFullYear(),d.getMonth()-1,1))} style={navBtn}><Icon name="chevron_left"/></button>
-          <span style={{fontWeight:700,fontSize:'0.9rem',color:'var(--on-surface)',minWidth:130,textAlign:'center'}}>{MONTH_NAMES[monthDate.getMonth()]} {monthDate.getFullYear()}</span>
-          <button onClick={()=>setMonthDate(d=>new Date(d.getFullYear(),d.getMonth()+1,1))} style={navBtn}><Icon name="chevron_right"/></button>
+          <MultiSelect
+            options={listEmpOptions}
+            selected={listEmpSelected}
+            onChange={setListEmpSelected}
+          />
+          <MonthMultiSelect
+            availableMonths={availableMonths}
+            selected={selectedMonths}
+            onChange={setSelectedMonths}
+          />
+          {(listEmpSelected.size > 0 || selectedMonths.size > 1) && (
+            <button
+              onClick={() => { setListEmpSelected(new Set()); setSelectedMonths(new Set([getMonthKey(new Date())])); }}
+              style={{ padding:'6px 12px', borderRadius:8, border:'1px solid var(--outline-variant)', background:'transparent', fontSize:'0.8rem', fontWeight:600, color:'#ea580c', cursor:'pointer' }}
+            >
+              Reset filters
+            </button>
+          )}
         </div>
       )}
 
@@ -680,7 +778,7 @@ const TimesheetApprovals = () => {
           {filtered.map(ts=>{
             const emp=getUser(ts);
             const initials=(emp.name||'U').split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
-            const monthEntries=view==='monthly'?(ts.entries||[]).filter(e=>isInMonth(e.entry_date,monthDate)):(ts.entries||[]);
+            const monthEntries=view==='monthly'?(ts.entries||[]).filter(e=>isInAnySelectedMonth(e.entry_date,selectedMonths)):(ts.entries||[]);
             const totalH=view==='monthly'?monthEntries.reduce((s,e)=>s+parseFloat(e.hours||0),0):parseFloat(ts.total_hours||0);
             const isPending=ts.status==='submitted';
             return(
@@ -706,17 +804,17 @@ const TimesheetApprovals = () => {
         </div>
       )}
 
-      {selected&&<DetailModal ts={selected} monthDate={view==='monthly'?monthDate:null} onClose={()=>setSelected(null)} onReviewed={()=>load()}/>}
+      {selected&&<DetailModal ts={selected} selectedMonths={view==='monthly'?selectedMonths:null} onClose={()=>setSelected(null)} onReviewed={()=>load()}/>}
 
       {/* ── Monthly hours chart — CEO/viewer, monthly tab only ── */}
       {view==='monthly'&&isCEO&&(
         <div style={{marginTop:28,background:'var(--surface-container-lowest)',border:'1px solid var(--surface-container-high)',borderRadius:16,padding:'20px 20px 12px'}}>
           <div style={{marginBottom:16}}>
             <h3 style={{margin:0,fontWeight:800,fontSize:'1rem',color:'var(--on-surface)'}}>
-              Hours Overview — {MONTH_NAMES[monthDate.getMonth()]} {monthDate.getFullYear()}
+              Hours Overview — {monthsLabel}
             </h3>
             <p style={{margin:'3px 0 0',fontSize:'0.8rem',color:'var(--on-surface-variant)'}}>
-              Approved hours only · {listEmpFilter ? 'filtered employee' : 'all employees'}
+              Approved hours only · {listEmpSelected.size > 0 ? `${listEmpSelected.size} employee${listEmpSelected.size>1?'s':''}` : 'all employees'}
               {' · use the filters above to change employee or month'}
             </p>
           </div>
@@ -724,12 +822,12 @@ const TimesheetApprovals = () => {
           {monthlyChartData.length===0?(
             <div style={{textAlign:'center',padding:'40px 0',color:'var(--on-surface-variant)'}}>
               <Icon name="bar_chart" style={{fontSize:'2.5rem',marginBottom:8}}/>
-              <p style={{margin:0,fontWeight:600}}>No approved hours for {MONTH_NAMES[monthDate.getMonth()]} {monthDate.getFullYear()}</p>
+              <p style={{margin:0,fontWeight:600}}>No approved hours for {monthsLabel}</p>
             </div>
           ):(
             <MonthlyBarChart
               data={monthlyChartData}
-              monthLabel={`${MONTH_NAMES[monthDate.getMonth()]} ${monthDate.getFullYear()}`}
+              monthLabel={monthsLabel}
             />
           )}
         </div>
