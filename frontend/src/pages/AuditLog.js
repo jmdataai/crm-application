@@ -1,13 +1,32 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { auditLogsAPI } from '../services/api';
+import { auditLogsAPI, usersAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize:'1.25rem', verticalAlign:'middle', ...style }}>{name}</span>
 );
 
-const ACTION_COLOR = { login:'#10b981', login_failed:'#ef4444', logout:'#6b7280', view:'#3b82f6', create:'#8b5cf6', update:'#f59e0b', delete:'#ef4444', export:'#f97316' };
-const ACTION_ICON  = { login:'login', login_failed:'block', logout:'logout', view:'visibility', create:'add_circle', update:'edit', delete:'delete', export:'download' };
+const ACTION_COLOR = {
+  login:'#10b981', login_failed:'#ef4444', logout:'#6b7280',
+  view:'#3b82f6', create:'#8b5cf6', update:'#f59e0b', delete:'#ef4444',
+  export:'#f97316', import:'#0891b2', email_sent:'#db2777', bulk_email_sent:'#9333ea', resume_download:'#0891b2',
+  timesheet_saved:'#6b7280', timesheet_submitted:'#3b82f6',
+  timesheet_approved:'#10b981', timesheet_rejected:'#ef4444',
+};
+const ACTION_ICON = {
+  login:'login', login_failed:'block', logout:'logout',
+  view:'visibility', create:'add_circle', update:'edit', delete:'delete',
+  export:'download', import:'upload_file', email_sent:'mail', bulk_email_sent:'mark_email_read', resume_download:'picture_as_pdf',
+  timesheet_saved:'save', timesheet_submitted:'send', timesheet_approved:'check_circle', timesheet_rejected:'cancel',
+};
+const ALL_ACTIONS = [
+  'login','login_failed','logout',
+  'create','update','delete','view',
+  'import','export',
+  'email_sent','bulk_email_sent',
+  'timesheet_saved','timesheet_submitted','timesheet_approved','timesheet_rejected',
+];
+const ALL_ENTITY_TYPES = ['lead','candidate','job','user','email','bulk_email','timesheet','interview','submission','deal','expense'];
 
 export default function AuditLog() {
   const { user } = useAuth();
@@ -18,20 +37,33 @@ export default function AuditLog() {
   const [expanded, setExpanded] = useState(null);
   const PER = 50;
 
-  // All filters
+  // Users list for dropdown
+  const [users,    setUsers]    = useState([]);
+  const [usersLoading, setUsersLoading] = useState(true);
+
+  // Filters
   const [action,     setAction]     = useState('');
   const [entity,     setEntity]     = useState('');
-  const [userName,   setUserName]   = useState('');
+  const [userId,     setUserId]     = useState('');   // UUID from dropdown
   const [entityName, setEntityName] = useState('');
   const [dateFrom,   setDateFrom]   = useState('');
   const [dateTo,     setDateTo]     = useState('');
 
-  const hasFilters = action || entity || userName || entityName || dateFrom || dateTo;
+  const selectedUser = users.find(u => u.id === userId);
+  const hasFilters = action || entity || userId || entityName || dateFrom || dateTo;
 
   const clearAll = () => {
-    setAction(''); setEntity(''); setUserName(''); setEntityName('');
+    setAction(''); setEntity(''); setUserId(''); setEntityName('');
     setDateFrom(''); setDateTo(''); setPage(0);
   };
+
+  // Fetch users list once on mount
+  useEffect(() => {
+    usersAPI.getAll()
+      .then(r => setUsers(Array.isArray(r.data) ? r.data : []))
+      .catch(() => {})
+      .finally(() => setUsersLoading(false));
+  }, []);
 
   const fetchLogs = useCallback(async () => {
     setLoading(true);
@@ -41,7 +73,7 @@ export default function AuditLog() {
         skip:        page * PER,
         action:      action      || undefined,
         entity_type: entity      || undefined,
-        user_name:   userName    || undefined,
+        user_id:     userId      || undefined,   // exact match via UUID
         entity_name: entityName  || undefined,
         date_from:   dateFrom    || undefined,
         date_to:     dateTo      || undefined,
@@ -50,7 +82,7 @@ export default function AuditLog() {
       setTotal(res.data?.total || 0);
     } catch { /* show empty */ }
     finally { setLoading(false); }
-  }, [page, action, entity, userName, entityName, dateFrom, dateTo]);
+  }, [page, action, entity, userId, entityName, dateFrom, dateTo]);
 
   useEffect(() => { fetchLogs(); }, [fetchLogs]);
 
@@ -75,7 +107,7 @@ export default function AuditLog() {
           <p className="label-sm" style={{ marginBottom:'0.25rem' }}>Admin · Read-Only</p>
           <h1 className="headline-sm">Audit & Access Log</h1>
           <p style={{ fontSize:'0.875rem', color:'var(--on-surface-variant)', marginTop:'0.125rem' }}>
-            Tamper-proof record of every login, access, edit and export. {total.toLocaleString()} total entries.
+            Tamper-proof record of every login, access, edit, email and export. {total.toLocaleString()} total entries.
           </p>
         </div>
         <button onClick={fetchLogs} className="btn-secondary" style={{ display:'inline-flex', alignItems:'center', gap:'0.375rem' }}>
@@ -99,31 +131,48 @@ export default function AuditLog() {
             <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(0); }} style={inputStyle}/>
           </div>
 
-          {/* User Name */}
+          {/* User dropdown */}
           <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem' }}>
-            <label style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--on-surface-variant)' }}>User Name</label>
-            <input type="text" placeholder="Search user…" value={userName} onChange={e => { setUserName(e.target.value); setPage(0); }} style={{ ...inputStyle, minWidth:150 }}/>
+            <label style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--on-surface-variant)' }}>User</label>
+            <select
+              value={userId}
+              onChange={e => { setUserId(e.target.value); setPage(0); }}
+              style={{ ...inputStyle, minWidth:180 }}
+              disabled={usersLoading}
+            >
+              <option value="">All users</option>
+              {users.map(u => (
+                <option key={u.id} value={u.id}>{u.name || u.email}{u.role ? ` (${u.role})` : ''}</option>
+              ))}
+            </select>
           </div>
 
           {/* Action */}
           <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem' }}>
             <label style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--on-surface-variant)' }}>Action</label>
-            <select value={action} onChange={e => { setAction(e.target.value); setPage(0); }} style={{ ...inputStyle, minWidth:140 }}>
+            <select value={action} onChange={e => { setAction(e.target.value); setPage(0); }} style={{ ...inputStyle, minWidth:170 }}>
               <option value="">All actions</option>
-              {['login','login_failed','logout','view','create','update','delete','export'].map(a => (
-                <option key={a} value={a}>{a}</option>
-              ))}
+              <optgroup label="Auth">
+                {['login','login_failed','logout'].map(a => <option key={a} value={a}>{a}</option>)}
+              </optgroup>
+              <optgroup label="Data">
+                {['create','update','delete','view','import','export','resume_download','resume_upload','resume_delete'].map(a => <option key={a} value={a}>{a}</option>)}
+              </optgroup>
+              <optgroup label="Email">
+                {['email_sent','bulk_email_sent'].map(a => <option key={a} value={a}>{a}</option>)}
+              </optgroup>
+              <optgroup label="Timesheet">
+                {['timesheet_saved','timesheet_submitted','timesheet_approved','timesheet_rejected'].map(a => <option key={a} value={a}>{a}</option>)}
+              </optgroup>
             </select>
           </div>
 
           {/* Record Type */}
           <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem' }}>
             <label style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--on-surface-variant)' }}>Record Type</label>
-            <select value={entity} onChange={e => { setEntity(e.target.value); setPage(0); }} style={{ ...inputStyle, minWidth:130 }}>
+            <select value={entity} onChange={e => { setEntity(e.target.value); setPage(0); }} style={{ ...inputStyle, minWidth:140 }}>
               <option value="">All types</option>
-              {['lead','candidate','job','user','settings'].map(e => (
-                <option key={e} value={e}>{e}</option>
-              ))}
+              {ALL_ENTITY_TYPES.map(e => <option key={e} value={e}>{e}</option>)}
             </select>
           </div>
 
@@ -151,7 +200,7 @@ export default function AuditLog() {
             <span style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', alignSelf:'center' }}>Active filters:</span>
             {dateFrom && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:'rgba(68,104,176,0.1)', color:'var(--primary)' }}>From: {dateFrom}</span>}
             {dateTo   && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:'rgba(68,104,176,0.1)', color:'var(--primary)' }}>To: {dateTo}</span>}
-            {userName && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:'rgba(124,58,237,0.1)', color:'#7c3aed' }}>User: {userName}</span>}
+            {userId   && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:'rgba(124,58,237,0.1)', color:'#7c3aed' }}>User: {selectedUser?.name || selectedUser?.email || userId}</span>}
             {action   && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:`${ACTION_COLOR[action]||'#6b7280'}18`, color:ACTION_COLOR[action]||'#6b7280' }}>{action}</span>}
             {entity   && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:'var(--surface-container)', color:'var(--on-surface-variant)' }}>{entity}</span>}
             {entityName && <span style={{ fontSize:'0.75rem', fontWeight:600, padding:'0.15rem 0.5rem', borderRadius:9999, background:'var(--surface-container)', color:'var(--on-surface-variant)' }}>Record: {entityName}</span>}
@@ -189,13 +238,14 @@ export default function AuditLog() {
                 {logs.map(log => {
                   const hasChanges = log.old_value || log.new_value;
                   const isExpanded = expanded === log.id;
+                  const actionColor = ACTION_COLOR[log.action] || '#6b7280';
                   return (
                     <React.Fragment key={log.id}>
                       <tr style={{ borderBottom:'1px solid var(--surface-container)', background: isExpanded?'var(--surface-container-low)':'transparent' }}
                           onMouseEnter={e=>e.currentTarget.style.background='var(--surface-container-low)'}
                           onMouseLeave={e=>e.currentTarget.style.background=isExpanded?'var(--surface-container-low)':'transparent'}>
                         <td style={{ padding:'0.625rem 1rem', whiteSpace:'nowrap' }}>
-                          <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:'0.75rem', fontWeight:700, padding:'0.15rem 0.55rem', borderRadius:9999, color:ACTION_COLOR[log.action]||'#6b7280', background:`${ACTION_COLOR[log.action]||'#6b7280'}14` }}>
+                          <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:'0.75rem', fontWeight:700, padding:'0.15rem 0.55rem', borderRadius:9999, color:actionColor, background:`${actionColor}14` }}>
                             <Icon name={ACTION_ICON[log.action]||'info'} style={{ fontSize:'0.875rem' }} />
                             {log.action}
                           </span>

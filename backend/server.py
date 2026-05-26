@@ -8,6 +8,7 @@ load_dotenv()
 
 from fastapi import FastAPI, APIRouter, BackgroundTasks, HTTPException, Request, Response, File, UploadFile, Form
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from supabase import create_client, Client
 import inspect
 try:
@@ -745,7 +746,13 @@ async def login(data: UserLogin, response: Response, request: Request):
 
 
 @api_router.post("/auth/logout")
-async def logout(response: Response):
+async def logout(request: Request, response: Response):
+    try:
+        user = await get_current_user(request)
+        asyncio.create_task(_audit("logout", user=user,
+                                    ip=_get_ip(request), ua=request.headers.get("user-agent","")))
+    except Exception:
+        pass
     response.delete_cookie("access_token",  path="/")
     response.delete_cookie("refresh_token", path="/")
     return {"message": "Logged out"}
@@ -781,7 +788,14 @@ async def update_user_role(user_id: str, body: dict, request: Request):
     role = body.get("role")
     if role not in allowed_roles:
         raise HTTPException(400, f"Role must be one of: {', '.join(allowed_roles)}")
+    target = await run(lambda: sb("users").select("name,email,role").eq("id", user_id).execute())
+    old_role = (target.data or [{}])[0].get("role")
+    target_name = (target.data or [{}])[0].get("name") or user_id
     await run(lambda: sb("users").update({"role": role}).eq("id", user_id).execute())
+    asyncio.create_task(_audit("update", user=caller, entity_type="user", entity_id=user_id,
+                                entity_name=target_name,
+                                old_value={"role": old_role}, new_value={"role": role},
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return {"id": user_id, "role": role}
 
 
@@ -792,7 +806,12 @@ async def delete_user(user_id: str, request: Request):
         raise HTTPException(403, "Only admins can delete users")
     if caller["id"] == user_id:
         raise HTTPException(400, "You cannot delete your own account")
+    target = await run(lambda: sb("users").select("name,email").eq("id", user_id).execute())
+    target_name = (target.data or [{}])[0].get("name") or user_id
     await run(lambda: sb("users").delete().eq("id", user_id).execute())
+    asyncio.create_task(_audit("delete", user=caller, entity_type="user", entity_id=user_id,
+                                entity_name=target_name,
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return {"message": "User deleted"}
 
 
@@ -876,6 +895,10 @@ async def create_lead(lead: LeadCreate, request: Request):
 
     lead_id = res.data[0]["id"]
     await _log_activity(lead_id=lead_id, user=user, atype="note", desc=f"Lead created by {user['name']}")
+    asyncio.create_task(_audit("create", user=user, entity_type="lead", entity_id=lead_id,
+                                entity_name=res.data[0].get("full_name") or res.data[0].get("company"),
+                                new_value={"company": res.data[0].get("company"), "status": res.data[0].get("status")},
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return res.data[0]
 
 
@@ -1303,6 +1326,10 @@ async def import_leads(file: UploadFile, request: Request):
         "errors":     errors[:50],
     }).execute())
 
+    asyncio.create_task(_audit("import", user=user, entity_type="lead",
+                                entity_name=file.filename,
+                                new_value={"total_rows": len(df), "successful": successful, "failed": len(errors)},
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return {
         "import_id":  import_id,
         "total_rows": len(df),
@@ -1515,6 +1542,10 @@ async def create_job(job: JobCreate, request: Request):
         apply_url = f"{frontend_origin}/apply?key={apply_key}"
         linkedin_result = await _post_job_to_linkedin(created_job, apply_url)
 
+    asyncio.create_task(_audit("create", user=user, entity_type="job", entity_id=created_job.get("id"),
+                                entity_name=created_job.get("title"),
+                                new_value={"title": created_job.get("title"), "department": created_job.get("department")},
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return {**created_job, "linkedin_post": linkedin_result}
 
 
@@ -1552,7 +1583,12 @@ async def update_job(job_id: str, job: JobUpdate, request: Request):
     user = await get_current_user(request)
     _require_module(user, "recruitment")
     patch = {k: v for k, v in job.model_dump().items() if v is not None}
+    old_job = await run(lambda: sb("jobs").select("title").eq("id", job_id).execute())
+    job_name = (old_job.data or [{}])[0].get("title") or job_id
     await run(lambda: sb("jobs").update(patch).eq("id", job_id).execute())
+    asyncio.create_task(_audit("update", user=user, entity_type="job", entity_id=job_id,
+                                entity_name=job_name, new_value=patch,
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return {"message": "Job updated"}
 
 
@@ -1560,7 +1596,12 @@ async def update_job(job_id: str, job: JobUpdate, request: Request):
 async def delete_job(job_id: str, request: Request):
     user = await get_current_user(request)
     _require_module(user, "recruitment")
+    old_job = await run(lambda: sb("jobs").select("title").eq("id", job_id).execute())
+    job_name = (old_job.data or [{}])[0].get("title") or job_id
     await run(lambda: sb("jobs").delete().eq("id", job_id).execute())
+    asyncio.create_task(_audit("delete", user=user, entity_type="job", entity_id=job_id,
+                                entity_name=job_name,
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return {"message": "Job deleted"}
 
 
@@ -1650,6 +1691,10 @@ async def create_candidate(candidate: CandidateCreate, request: Request):
     candidate_id = res.data[0]["id"]
     await _log_activity(candidate_id=candidate_id, user=user, atype="note",
                         desc=f"Candidate added by {user['name']}")
+    asyncio.create_task(_audit("create", user=user, entity_type="candidate", entity_id=candidate_id,
+                                entity_name=res.data[0].get("full_name"),
+                                new_value={"role": res.data[0].get("candidate_role"), "source": res.data[0].get("source"), "status": res.data[0].get("status")},
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return res.data[0]
 
 
@@ -1747,7 +1792,12 @@ async def update_candidate(candidate_id: str, candidate: CandidateUpdate, reques
             await _log_activity(candidate_id=candidate_id, user=user, atype="status_change",
                                  desc=f"Stage moved from {old_status} to {new_status}")
 
+    old_cand = await run(lambda: sb("candidates").select("full_name").eq("id", candidate_id).execute())
+    cand_name = (old_cand.data or [{}])[0].get("full_name") or candidate_id
     await run(lambda: sb("candidates").update(patch).eq("id", candidate_id).execute())
+    asyncio.create_task(_audit("update", user=user, entity_type="candidate", entity_id=candidate_id,
+                                entity_name=cand_name, new_value=patch,
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return {"message": "Candidate updated"}
 
 
@@ -1848,6 +1898,13 @@ async def download_masked_resume(candidate_id: str, request: Request):
         ext   = "bin"
 
     safe_name = (row.get("full_name") or "candidate").replace(" ", "_")
+    asyncio.create_task(_audit(
+        "resume_download", user=user,
+        entity_type="candidate", entity_id=candidate_id,
+        entity_name=row.get("full_name"),
+        new_value={"type": "masked_resume", "format": ext},
+        ip=_get_ip(request), ua=request.headers.get("user-agent", ""),
+    ))
     return FResponse(
         content=masked,
         media_type=ctype,
@@ -1881,6 +1938,10 @@ async def compose_and_send_email(body: ComposeEmailRequest, request: Request):
     if body.candidate_id:
         await _log_activity(candidate_id=body.candidate_id, user=user, atype="email",
                             desc=f"Email sent to {body.to_email} — \"{body.subject}\"")
+    asyncio.create_task(_audit("email_sent", user=user, entity_type="email",
+                                entity_name=body.to_email,
+                                new_value={"subject": body.subject, "to": body.to_email, "lead_id": body.lead_id, "candidate_id": body.candidate_id},
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return {"success": True, "sent_from": from_email, "sent_to": body.to_email}
 
 
@@ -1976,6 +2037,10 @@ async def send_bulk_email(body: BulkEmailSendRequest, request: Request):
         except Exception as exc:
             logger.warning(f"[bulk-email] upsert failed: {exc}")
 
+    asyncio.create_task(_audit("bulk_email_sent", user=user, entity_type="bulk_email",
+                                entity_name=body.subject,
+                                new_value={"sent_count": len(sent_ok), "failed_count": len(failed), "subject": body.subject},
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return {
         "success":       True,
         "sent_count":    len(sent_ok),
@@ -2031,7 +2096,7 @@ async def delete_candidate(candidate_id: str, request: Request):
 
     # Fetch resume_url before deleting so we can clean up Drive
     row = await safe_single(
-        lambda: sb("candidates").select("id,resume_url").eq("id", candidate_id).single().execute()
+        lambda: sb("candidates").select("id,full_name,resume_url").eq("id", candidate_id).single().execute()
     )
     if not row:
         raise HTTPException(404, "Candidate not found.")
@@ -2051,7 +2116,7 @@ async def delete_candidate(candidate_id: str, request: Request):
     asyncio.create_task(_audit(
         action="delete", user=user,
         entity_type="candidate", entity_id=candidate_id,
-        entity_name=candidate_id,
+        entity_name=row.get("full_name") or candidate_id,
     ))
 
     return {"success": True, "message": "Candidate and resume deleted."}
@@ -2159,6 +2224,12 @@ async def upload_candidate_resume(
               + (f" | {len(tech_stack_extracted)} skills extracted" if tech_stack_extracted else ""),
     )
 
+    asyncio.create_task(_audit("resume_upload", user=user, entity_type="candidate",
+                                entity_id=candidate_id, entity_name=filename,
+                                new_value={"filename": filename,
+                                           "skills_extracted": len(tech_stack_extracted or []),
+                                           "experience_years": experience_extracted},
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return {
         "resume_url":        preview_url,
         "view_url":          result["view_url"],
@@ -2206,6 +2277,9 @@ async def delete_candidate_resume(candidate_id: str, request: Request):
         desc="Resume removed",
     )
  
+    asyncio.create_task(_audit("resume_delete", user=user, entity_type="candidate",
+                                entity_id=candidate_id,
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return {"message": "Resume deleted successfully"}
 
 
@@ -2577,6 +2651,10 @@ async def bulk_upload_zip(
     }
 
     background_tasks.add_task(_process_bulk_zip, job_id, raw, user)
+    asyncio.create_task(_audit("import", user=user, entity_type="candidate",
+                                entity_name=zip_file.filename,
+                                new_value={"filename": zip_file.filename, "job_id": job_id, "type": "bulk_zip"},
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return {"job_id": job_id}
 
 
@@ -3163,6 +3241,9 @@ async def update_pipeline_deal(deal_id: str, body: SalesPipelineDealUpdate, requ
     res = sb.table("sales_pipeline").update(updates).eq("id", deal_id).execute()
     deal = (res.data or [{}])[0]
     deal["daysInStage"] = _days_in_stage(deal.get("stage_updated_date"))
+    asyncio.create_task(_audit("update", user=user, entity_type="deal",
+                                entity_id=deal_id, new_value=updates,
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return {"success": True, "deal": deal}
 
 
@@ -3172,6 +3253,9 @@ async def delete_pipeline_deal(deal_id: str, request: Request):
     _require_module(user, "sales")
     sb = get_supabase()
     sb.table("sales_pipeline").update({"is_active": False}).eq("id", deal_id).execute()
+    asyncio.create_task(_audit("delete", user=user, entity_type="deal",
+                                entity_id=deal_id,
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return {"success": True}
 
 
@@ -3266,6 +3350,12 @@ async def create_interview(interview: InterviewCreate, request: Request):
     await run(lambda: sb("candidates").update({"status": "interview_scheduled"}).eq("id", interview.candidate_id).execute())
     await _log_activity(candidate_id=interview.candidate_id, user=user, atype="interview",
                         desc=f"{interview.interview_type} scheduled for {interview.scheduled_at}")
+    asyncio.create_task(_audit("create", user=user, entity_type="interview",
+                                entity_id=res.data[0].get("id"),
+                                entity_name=f"{interview.interview_type} — {interview.scheduled_at[:10]}",
+                                new_value={"type": interview.interview_type, "scheduled_at": interview.scheduled_at,
+                                           "candidate_id": interview.candidate_id},
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return res.data[0]
 
 
@@ -3306,6 +3396,9 @@ async def update_interview(interview_id: str, interview: InterviewUpdate, reques
             await run(lambda: sb("candidates").update({"status": "interviewed"}).eq("id", cand_id).execute())
             await _log_activity(candidate_id=cand_id, user=user, atype="interview",
                                  desc="Interview completed")
+    asyncio.create_task(_audit("update", user=user, entity_type="interview",
+                                entity_id=interview_id, new_value=patch,
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return {"message": "Interview updated"}
 
 
@@ -3318,21 +3411,26 @@ async def sales_dashboard(request: Request):
     _require_module(user, "sales")
     today = datetime.now(timezone.utc).date().isoformat()
 
-    lead_stats = {}
-    for s in LeadStatus:
-        r = await run(lambda st=s: sb("leads").select("id", count="exact").eq("status", st.value).execute())
-        lead_stats[s.value] = r.count or 0
-
-    total_res    = await run(lambda: sb("leads").select("id", count="exact").execute())
-    tasks_today  = await run(lambda: sb("tasks").select("*").eq("assigned_to", user["id"]).eq("due_date", today).eq("completed", False).execute())
-    overdue_tasks= await run(lambda: sb("tasks").select("*").eq("assigned_to", user["id"]).lt("due_date", today).eq("completed", False).execute())
-    followups    = await run(lambda: sb("leads").select("*").eq("next_follow_up", today).execute())
-    recent_leads = await run(lambda: sb("leads").select("*").order("created_at", desc=True).limit(10).execute())
-    reminders    = await run(lambda: sb("reminders").select("*").eq("user_id", user["id"]).gte("due_date", today).eq("dismissed", False).order("due_date").limit(10).execute())
-
-    # Pipeline value
-    leads_res   = await run(lambda: sb("leads").select("id,status,deal_value,next_follow_up,full_name,company").execute())
-    all_leads   = leads_res.data or []
+    # Fetch all leads once — derive stats + pipeline in Python (1 query instead of N+2)
+    # Fire all independent queries in parallel
+    leads_all_res, tasks_today, overdue_tasks, followups, recent_leads, reminders, await_feedback, subs_pending = await asyncio.gather(
+        run(lambda: sb("leads").select("id,status,deal_value,next_follow_up,full_name,company,created_at").execute()),
+        run(lambda uid=user["id"]: sb("tasks").select("*").eq("assigned_to", uid).eq("due_date", today).eq("completed", False).execute()),
+        run(lambda uid=user["id"]: sb("tasks").select("*").eq("assigned_to", uid).lt("due_date", today).eq("completed", False).execute()),
+        run(lambda: sb("leads").select("*").eq("next_follow_up", today).execute()),
+        run(lambda: sb("leads").select("*").order("created_at", desc=True).limit(10).execute()),
+        run(lambda uid=user["id"]: sb("reminders").select("*").eq("user_id", uid).gte("due_date", today).eq("dismissed", False).order("due_date").limit(10).execute()),
+        run(lambda: sb("interviews").select("id,interview_type,scheduled_at,candidate:candidate_id(full_name),job:job_id(title)").eq("completed", True).is_("rating", "null").order("scheduled_at", desc=True).limit(10).execute()),
+        run(lambda: sb("candidate_submissions").select("*, candidate:candidate_id(full_name), lead:lead_id(full_name,company)").eq("status", "submitted").order("created_at", desc=True).limit(10).execute()),
+    )
+    all_leads = leads_all_res.data or []
+    # Build lead_stats from the already-fetched data (no extra queries)
+    lead_stats = {s.value: 0 for s in LeadStatus}
+    for l in all_leads:
+        st = l.get("status")
+        if st in lead_stats:
+            lead_stats[st] += 1
+    total_res_count = len(all_leads)
     closed_s    = ["closed","completed","rejected","lost"]
     pipeline_v  = sum(float(l.get("deal_value") or 0) for l in all_leads if l.get("status") not in closed_s)
 
@@ -3341,19 +3439,9 @@ async def sales_dashboard(request: Request):
               and l.get("status") not in closed_s]
     urgent.sort(key=lambda l: l["next_follow_up"])
 
-    # Candidates awaiting feedback (interview completed, no result yet)
-    await_feedback = await run(lambda: sb("interviews").select(
-        "id,interview_type,scheduled_at,candidate:candidate_id(full_name),job:job_id(title)"
-    ).eq("completed", True).is_("rating", "null").order("scheduled_at", desc=True).limit(10).execute())
-
-    # Submissions pending response
-    subs_pending = await run(lambda: sb("candidate_submissions").select(
-        "*, candidate:candidate_id(full_name), lead:lead_id(full_name,company)"
-    ).eq("status", "submitted").order("created_at", desc=True).limit(10).execute())
-
     return {
         "lead_stats":       lead_stats,
-        "total_leads":      total_res.count or 0,
+        "total_leads":      total_res_count,
         "pipeline_value":   pipeline_v,
         "today_tasks":      tasks_today.data or [],
         "overdue_tasks":    overdue_tasks.data or [],
@@ -3372,20 +3460,25 @@ async def recruitment_dashboard(request: Request):
     _require_module(user, "recruitment")
     today = datetime.now(timezone.utc).date().isoformat()
 
-    cand_stats = {}
-    for s in CandidateStatus:
-        r = await run(lambda st=s: sb("candidates").select("id", count="exact").eq("status", st.value).execute())
-        cand_stats[s.value] = r.count or 0
-
-    total_cands    = await run(lambda: sb("candidates").select("id", count="exact").execute())
-    active_jobs    = await run(lambda: sb("jobs").select("id", count="exact").eq("is_active", True).execute())
-    upcoming_ivs   = await run(lambda: sb("interviews").select("*, candidate:candidate_id(full_name), job:job_id(title)").gte("scheduled_at", today).eq("completed", False).order("scheduled_at").limit(10).execute())
-    tasks_today    = await run(lambda: sb("tasks").select("*").eq("assigned_to", user["id"]).eq("due_date", today).eq("completed", False).execute())
-    recent_cands   = await run(lambda: sb("candidates").select("*").order("created_at", desc=True).limit(10).execute())
+    # Fire all independent queries in parallel
+    cands_all_res, active_jobs, upcoming_ivs, tasks_today, recent_cands = await asyncio.gather(
+        run(lambda: sb("candidates").select("id,status").execute()),
+        run(lambda: sb("jobs").select("id", count="exact").eq("is_active", True).execute()),
+        run(lambda: sb("interviews").select("*, candidate:candidate_id(full_name), job:job_id(title)").gte("scheduled_at", today).eq("completed", False).order("scheduled_at").limit(10).execute()),
+        run(lambda uid=user["id"]: sb("tasks").select("*").eq("assigned_to", uid).eq("due_date", today).eq("completed", False).execute()),
+        run(lambda: sb("candidates").select("*").order("created_at", desc=True).limit(10).execute()),
+    )
+    # Build cand_stats from already-fetched data (no extra queries)
+    cand_stats = {s.value: 0 for s in CandidateStatus}
+    for c in (cands_all_res.data or []):
+        st = c.get("status")
+        if st in cand_stats:
+            cand_stats[st] += 1
+    total_cands_count = len(cands_all_res.data or [])
 
     return {
         "candidate_stats":    cand_stats,
-        "total_candidates":   total_cands.count or 0,
+        "total_candidates":   total_cands_count,
         "active_jobs":        active_jobs.count or 0,
         "upcoming_interviews":upcoming_ivs.data or [],
         "today_tasks":        tasks_today.data or [],
@@ -3663,7 +3756,13 @@ async def create_submission(body: SubmissionCreate, request: Request):
     res = await run(lambda: sb("candidate_submissions").upsert(doc, on_conflict="lead_id,candidate_id").execute())
     await _log_activity(lead_id=body.lead_id, user=user, atype="note",
                         desc=f"Candidate submission created/updated")
-    return res.data[0] if res.data else {}
+    row = res.data[0] if res.data else {}
+    asyncio.create_task(_audit("create", user=user, entity_type="submission",
+                                entity_id=row.get("id"),
+                                entity_name=f"Submission — lead:{body.lead_id}",
+                                new_value={"lead_id": body.lead_id, "candidate_id": body.candidate_id, "status": body.status},
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
+    return row
 
 @api_router.get("/submissions")
 async def get_submissions(request: Request, lead_id: Optional[str] = None, candidate_id: Optional[str] = None):
@@ -3683,6 +3782,9 @@ async def update_submission(submission_id: str, body: SubmissionUpdate, request:
     _require_module(user, "sales")
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
     await run(lambda: sb("candidate_submissions").update(patch).eq("id", submission_id).execute())
+    asyncio.create_task(_audit("update", user=user, entity_type="submission",
+                                entity_id=submission_id, new_value=patch,
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return {"message": "Updated"}
 
 @api_router.delete("/submissions/{submission_id}")
@@ -3690,6 +3792,9 @@ async def delete_submission(submission_id: str, request: Request):
     user = await get_current_user(request)
     _require_module(user, "sales")
     await run(lambda: sb("candidate_submissions").delete().eq("id", submission_id).execute())
+    asyncio.create_task(_audit("delete", user=user, entity_type="submission",
+                                entity_id=submission_id,
+                                ip=_get_ip(request), ua=request.headers.get("user-agent","")))
     return {"message": "Deleted"}
 
 
@@ -3754,9 +3859,15 @@ async def ceo_dashboard(request: Request):
     month_ago = (datetime.now(timezone.utc).date() - timedelta(days=30)).isoformat()
     stale_cutoff = (datetime.now(timezone.utc).date() - timedelta(days=5)).isoformat()
 
-    # Pipeline value (non-closed leads)
+    # Pipeline value (non-closed leads) — fire independent queries in parallel
     closed_statuses = ["closed", "completed", "rejected", "lost"]
-    active_leads_res = await run(lambda: sb("leads").select("id,full_name,company,status,deal_value,next_follow_up,created_at").execute())
+    active_leads_res, total_cands, submissions_res, acts_res, recent_audit = await asyncio.gather(
+        run(lambda: sb("leads").select("id,full_name,company,status,deal_value,next_follow_up,created_at").execute()),
+        run(lambda: sb("candidates").select("id", count="exact").execute()),
+        run(lambda: sb("candidate_submissions").select("id,status,created_at").gte("created_at", month_ago + "T00:00:00Z").execute()),
+        run(lambda: sb("activities").select("lead_id,created_at").order("created_at", desc=True).execute()),
+        run(lambda: sb("audit_logs").select("*").order("created_at", desc=True).limit(20).execute()),
+    )
     all_leads = active_leads_res.data or []
     pipeline_leads = [l for l in all_leads if l.get("status") not in closed_statuses]
     closed_leads   = [l for l in all_leads if l.get("status") in ["closed", "completed"]]
@@ -3769,16 +3880,7 @@ async def ceo_dashboard(request: Request):
         s = l.get("status", "new")
         stage_counts[s] = stage_counts.get(s, 0) + 1
 
-    # Candidates
-    total_cands = await run(lambda: sb("candidates").select("id", count="exact").execute())
-
-    # Submissions this month
-    submissions_res = await run(lambda: sb("candidate_submissions").select("id,status,created_at").gte("created_at", month_ago + "T00:00:00Z").execute())
     submissions = submissions_res.data or []
-
-    # Stale leads (no activity in 5+ days, not closed)
-    # Get max activity date per lead
-    acts_res = await run(lambda: sb("activities").select("lead_id,created_at").order("created_at", desc=True).execute())
     acts = acts_res.data or []
     last_act = {}
     for a in acts:
@@ -3798,9 +3900,6 @@ async def ceo_dashboard(request: Request):
             stale_leads.append({**l, "days_stale": days_stale, "last_activity": last})
 
     stale_leads.sort(key=lambda x: x["days_stale"], reverse=True)
-
-    # Recent audit log
-    recent_audit = await run(lambda: sb("audit_logs").select("*").order("created_at", desc=True).limit(20).execute())
 
     # This week's activity
     leads_this_week = [l for l in all_leads if l.get("created_at","")[:10] >= week_ago]
@@ -3854,6 +3953,28 @@ async def get_audit_logs(
 
     res = await run(lambda: q.execute())
     return {"logs": res.data or [], "total": res.count or 0}
+
+
+# ============================================================
+# AUDIT LOG — frontend event endpoint
+# ============================================================
+class FrontendAuditRequest(BaseModel):
+    action:      str
+    entity_type: Optional[str] = None
+    entity_name: Optional[str] = None
+    new_value:   Optional[dict] = None
+
+@api_router.post("/audit/log")
+async def log_frontend_audit(body: FrontendAuditRequest, request: Request):
+    """Accept audit events triggered client-side (e.g. data exports)."""
+    user = await get_current_user(request)
+    await _audit(
+        action=body.action, user=user,
+        entity_type=body.entity_type, entity_name=body.entity_name,
+        new_value=body.new_value,
+        ip=_get_ip(request), ua=request.headers.get("user-agent", ""),
+    )
+    return {"ok": True}
 
 
 # ============================================================
@@ -5166,6 +5287,7 @@ async def root_health():
     return {"status": "ok", "service": "Nexus CRM + ATS", "version": "2.0.0"}
 
 app.include_router(api_router)
+app.add_middleware(GZipMiddleware, minimum_size=512)  # compress JSON > 512 bytes
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
