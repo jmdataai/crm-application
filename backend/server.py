@@ -1967,7 +1967,6 @@ async def get_bulk_email_recipients(request: Request):
 
     leads_res = await run(lambda: sb("leads").select(
         "id,company,full_name,email,hq_location,"
-        "contact_person_1_name,contact_person_1_email,"
         "contact_person_2_name,contact_person_2_email,"
         "contact_person_3_name,contact_person_3_email"
     ).execute())
@@ -1982,7 +1981,7 @@ async def get_bulk_email_recipients(request: Request):
                 e = email.strip().lower()
                 if e not in recipients:
                     recipients[e] = {"email": e, "name": name or "", "company": company or "", "lead_id": lead_id, "hq_location": location}
-        _add(l.get("contact_person_1_email") or l.get("email"), l.get("contact_person_1_name") or l.get("full_name"), l.get("company"), l["id"])
+        _add(l.get("email"), l.get("full_name"), l.get("company"), l["id"])
         _add(l.get("contact_person_2_email"), l.get("contact_person_2_name"), l.get("company"), l["id"])
         _add(l.get("contact_person_3_email"), l.get("contact_person_3_name"), l.get("company"), l["id"])
 
