@@ -7,6 +7,10 @@ const Icon = ({ name, style = {} }) => (
 
 const DEFAULT_SUBJECT = 'Introduction – JM Data Talent | IT Staffing & Consulting';
 
+// ── Send confirmation PIN ──────────────────────────────────────
+// Change this value to update the PIN. No redeploy of backend needed.
+const SEND_PIN = '1234';
+
 const DEFAULT_BODY = `<p>Hi [Client Name],</p>
 
 <p>I hope you are doing well.</p>
@@ -56,6 +60,11 @@ export default function BulkEmail() {
   const [testResult, setTestResult]       = useState(null);
   const [error, setError]                 = useState('');
   const [testError, setTestError]         = useState('');
+
+  // PIN confirmation modal
+  const [showPinModal, setShowPinModal]   = useState(false);
+  const [pinInput, setPinInput]           = useState('');
+  const [pinError, setPinError]           = useState('');
   const [filterSent, setFilterSent]       = useState('pending');
   const [search, setSearch]               = useState('');
   const [tab, setTab]                     = useState('compose');
@@ -152,12 +161,26 @@ export default function BulkEmail() {
 
   const totalToSend = activePending.length + extraEmails.filter(e => !excluded.has(e)).length;
 
-  const handleSend = async () => {
+  // Step 1: validate inputs, open PIN modal
+  const requestSend = () => {
     if (!subject.trim() || !body.trim()) { setError('Subject and body are required.'); return; }
     if (totalToSend === 0) { setError('No recipients to send to.'); return; }
+    setError('');
+    setPinInput('');
+    setPinError('');
+    setShowPinModal(true);
+  };
+
+  // Step 2: verify PIN then actually send
+  const handleSend = async () => {
+    if (pinInput !== SEND_PIN) {
+      setPinError('Incorrect PIN. Please try again.');
+      setPinInput('');
+      return;
+    }
+    setShowPinModal(false);
     setSending(true); setError(''); setResult(null);
     try {
-      // Build target list = active pending (location/search filtered, not excluded) + extra
       const targetEmails = [
         ...activePending.map(r => r.email),
         ...extraEmails.filter(e => !excluded.has(e)),
@@ -165,12 +188,12 @@ export default function BulkEmail() {
       const res = await bulkEmailAPI.send({
         subject,
         html_body: body,
-        extra_emails: [],        // already included in target_emails
+        extra_emails: [],
         target_emails: targetEmails,
         excluded_emails: [...excluded],
       });
       setResult(res.data);
-      setExcluded(new Set());   // reset exclusions after send
+      setExcluded(new Set());
       await loadRecipients();
     } catch (e) {
       setError(e?.response?.data?.detail || 'Send failed. Check Microsoft Graph / Azure configuration.');
@@ -361,7 +384,7 @@ export default function BulkEmail() {
                 </div>
               )}
 
-              <button onClick={handleSend} disabled={sending || totalToSend === 0} style={{
+              <button onClick={requestSend} disabled={sending || totalToSend === 0} style={{
                 marginTop:'1rem', width:'100%', padding:'0.75rem', borderRadius:'0.625rem', border:'none',
                 fontFamily:'var(--font-display)', fontWeight:700, fontSize:'0.9375rem', color:'#fff',
                 background: (sending || totalToSend === 0) ? 'var(--outline-variant)' : 'linear-gradient(135deg,var(--tertiary),#009966)',
@@ -546,6 +569,62 @@ export default function BulkEmail() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── PIN confirmation modal ── */}
+      {showPinModal && (
+        <div style={{ position:'fixed', inset:0, zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,0.45)', backdropFilter:'blur(3px)' }}
+          onClick={e => { if (e.target === e.currentTarget) { setShowPinModal(false); setPinError(''); } }}>
+          <div style={{ background:'var(--surface)', borderRadius:'1rem', padding:'2rem', width:340, boxShadow:'0 20px 60px rgba(0,0,0,0.25)', border:'1px solid var(--outline-variant)' }}>
+            <div style={{ textAlign:'center', marginBottom:'1.5rem' }}>
+              <div style={{ width:56, height:56, borderRadius:'50%', background:'rgba(68,104,176,0.12)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 1rem' }}>
+                <Icon name="lock" style={{ fontSize:'1.75rem', color:'var(--primary)' }} />
+              </div>
+              <h2 style={{ fontWeight:800, fontSize:'1.125rem', color:'var(--on-surface)', margin:'0 0 0.375rem' }}>Confirm Send</h2>
+              <p style={{ fontSize:'0.875rem', color:'var(--on-surface-variant)', margin:0 }}>
+                Enter the 4-digit PIN to send to <strong>{totalToSend}</strong> recipient{totalToSend !== 1 ? 's' : ''}.
+                {locationFilter.size > 0 && <span style={{ display:'block', marginTop:'0.25rem', fontSize:'0.8125rem', color:'var(--primary)' }}>Location: {[...locationFilter].join(', ')}</span>}
+              </p>
+            </div>
+
+            <input
+              type="password"
+              maxLength={4}
+              value={pinInput}
+              onChange={e => { setPinInput(e.target.value.replace(/\D/g,'')); setPinError(''); }}
+              onKeyDown={e => e.key === 'Enter' && pinInput.length === 4 && handleSend()}
+              placeholder="• • • •"
+              autoFocus
+              style={{
+                width:'100%', textAlign:'center', fontSize:'2rem', letterSpacing:'0.5rem',
+                padding:'0.75rem', borderRadius:'0.625rem', boxSizing:'border-box',
+                border: `2px solid ${pinError ? 'var(--error)' : 'var(--outline-variant)'}`,
+                background:'var(--surface-container-low)', color:'var(--on-surface)',
+                outline:'none', fontFamily:'monospace', marginBottom:'0.625rem',
+              }}
+            />
+
+            {pinError && (
+              <p style={{ textAlign:'center', color:'var(--error)', fontSize:'0.8125rem', margin:'0 0 0.75rem', fontWeight:600 }}>
+                <Icon name="error" style={{ fontSize:'0.875rem', marginRight:'0.25rem' }} />{pinError}
+              </p>
+            )}
+
+            <div style={{ display:'flex', gap:'0.75rem', marginTop:'0.25rem' }}>
+              <button onClick={() => { setShowPinModal(false); setPinError(''); setPinInput(''); }}
+                style={{ flex:1, padding:'0.625rem', borderRadius:'0.5rem', border:'1px solid var(--outline-variant)', background:'transparent', color:'var(--on-surface-variant)', cursor:'pointer', fontFamily:'var(--font-display)', fontWeight:600, fontSize:'0.875rem' }}>
+                Cancel
+              </button>
+              <button onClick={handleSend} disabled={pinInput.length !== 4}
+                style={{ flex:1, padding:'0.625rem', borderRadius:'0.5rem', border:'none',
+                  background: pinInput.length === 4 ? 'linear-gradient(135deg,var(--tertiary),#009966)' : 'var(--outline-variant)',
+                  color:'#fff', cursor: pinInput.length === 4 ? 'pointer' : 'not-allowed',
+                  fontFamily:'var(--font-display)', fontWeight:700, fontSize:'0.875rem' }}>
+                Confirm Send
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
