@@ -69,25 +69,24 @@ function MultiSelect({ options, selected, onChange }) {
   const ref = useRef(null);
 
   useEffect(() => {
-    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
   const label = selected.size === 0 ? 'All Employees'
-    : selected.size === options.length ? 'All Employees'
     : `${selected.size} employee${selected.size > 1 ? 's' : ''} selected`;
 
   const toggle = (id) => {
     let next;
     if (selected.size === 0) {
-      // Currently "all shown" — clicking one deselects it, keeps everyone else
-      next = new Set(options.map(o => o.id).filter(oid => oid !== id));
+      // Currently "All" — clicking one employee SELECTS only that person
+      next = new Set([id]);
     } else {
       next = new Set(selected);
       if (next.has(id)) next.delete(id); else next.add(id);
     }
-    // If empty or full → reset to "all" state (empty set)
+    // If all employees selected, reset to empty (= show all, no filter active)
     if (next.size === 0 || next.size === options.length) onChange(new Set());
     else onChange(next);
   };
@@ -95,7 +94,7 @@ function MultiSelect({ options, selected, onChange }) {
   return (
     <div ref={ref} style={{ position:'relative' }}>
       <button onClick={() => setOpen(o => !o)} style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 12px', borderRadius:8, border:'1px solid var(--surface-container-high)', background:'var(--surface)', color:'var(--on-surface)', fontSize:'0.875rem', cursor:'pointer', minWidth:220, justifyContent:'space-between' }}>
-        <span style={{ fontWeight: selected.size > 0 && selected.size < options.length ? 600 : 400 }}>{label}</span>
+        <span style={{ fontWeight: selected.size > 0 ? 600 : 400 }}>{label}</span>
         <Icon name={open ? 'expand_less' : 'expand_more'} style={{ fontSize:'1.1rem', color:'var(--on-surface-variant)' }} />
       </button>
 
@@ -103,18 +102,19 @@ function MultiSelect({ options, selected, onChange }) {
         <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, zIndex:200, background:'var(--surface)', borderRadius:12, border:'1px solid var(--outline-variant)', boxShadow:'0 8px 30px rgba(0,0,0,0.12)', minWidth:260, maxHeight:340, overflowY:'auto', padding:'6px 0' }}>
           <div style={{ display:'flex', gap:8, padding:'6px 12px', borderBottom:'1px solid var(--surface-container-high)' }}>
             <button onClick={() => onChange(new Set())} style={{ flex:1, padding:4, borderRadius:6, border:'none', background: selected.size === 0 ? 'var(--surface-container)' : 'transparent', color:'var(--primary)', fontSize:'0.75rem', fontWeight:700, cursor:'pointer' }}>All</button>
-            <button onClick={() => onChange(new Set(options.map(o => o.id)))} style={{ flex:1, padding:4, borderRadius:6, border:'none', background:'transparent', color:'var(--on-surface-variant)', fontSize:'0.75rem', fontWeight:600, cursor:'pointer' }}>Clear</button>
+            {/* Clear = reset to empty Set (= All Employees, no active filter) — same as All button */}
+            <button onClick={() => { onChange(new Set()); setOpen(false); }} style={{ flex:1, padding:4, borderRadius:6, border:'none', background: 'transparent', color:'var(--error)', fontSize:'0.75rem', fontWeight:600, cursor:'pointer' }}>Clear</button>
           </div>
           {options.map((opt, i) => {
             const isChecked = selected.size === 0 || selected.has(opt.id);
             return (
-              <label key={opt.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 14px', cursor:'pointer', background: isChecked ? 'rgba(68,104,176,0.04)' : 'transparent' }}>
+              <label key={opt.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 14px', cursor:'pointer', background: selected.size > 0 && selected.has(opt.id) ? 'rgba(68,104,176,0.08)' : 'transparent' }}>
                 <input type="checkbox" checked={isChecked} onChange={() => toggle(opt.id)} style={{ accentColor:'var(--primary)', width:15, height:15 }} />
                 <div style={{ display:'flex', alignItems:'center', gap:8, flex:1 }}>
                   <div style={{ width:28, height:28, borderRadius:'50%', flexShrink:0, background:BAR_COLORS[i % BAR_COLORS.length], display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontWeight:700, fontSize:'0.6875rem' }}>
                     {(opt.name||'?').split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)}
                   </div>
-                  <span style={{ fontSize:'0.875rem', color:'var(--on-surface)', fontWeight: isChecked ? 600 : 400 }}>{opt.name}</span>
+                  <span style={{ fontSize:'0.875rem', color:'var(--on-surface)', fontWeight: selected.size > 0 && selected.has(opt.id) ? 600 : 400 }}>{opt.name}</span>
                 </div>
                 <span style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', fontWeight:600 }}>
                   {opt.totalHours != null ? `${opt.totalHours.toFixed(0)}h` : ''}

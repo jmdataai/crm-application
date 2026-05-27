@@ -173,7 +173,8 @@ export const candidatesAPI = {
 
 // ── Sales Tracker API ──────────────────────────────────────────
 export const salesTrackerAPI = {
-  getDashboard:       ()           => api.get('/sales/tracker/dashboard'),
+  getDashboard:       (params)     => api.get('/sales/tracker/dashboard', { params }),
+  getTrackerUsers:    ()           => api.get('/sales/tracker/users'),
   getLogs:            (params)     => api.get('/sales/tracker/log', { params }),
   submitLog:          (data)       => api.post('/sales/tracker/log', data),
   getPipeline:        ()           => api.get('/sales/tracker/pipeline'),

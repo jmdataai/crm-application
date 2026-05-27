@@ -69,6 +69,7 @@ const EMPTY_DEAL = { client_name:'', industry:'', stage:'Cold Outreach', deal_va
 export default function SalesTrackerDashboard() {
   const { user, isSales, isViewer, isAdmin } = useAuth();
   const { isMobile } = useBreakpoint();
+  const isPrivileged = isViewer || isAdmin;  // CEO (viewer) or admin can see all users
 
   const [activeTab, setActiveTab] = useState('overview');
   const [activeDay, setActiveDay] = useState(() => {
@@ -88,17 +89,31 @@ export default function SalesTrackerDashboard() {
   const [dealError, setDealError]       = useState('');
   const [monthlyRollups, setMonthlyRollups] = useState([]);
 
+  // User picker (admin/viewer only)
+  const [trackerUsers, setTrackerUsers]   = useState([]);
+  const [selectedUserId, setSelectedUserId] = useState('');  // '' = all users
+
   const canEditPipeline = isSales || isAdmin;
+
+  // Load available users for the picker (admin/viewer only)
+  useEffect(() => {
+    if (!isPrivileged) return;
+    salesTrackerAPI.getTrackerUsers()
+      .then(res => setTrackerUsers(res.data || []))
+      .catch(() => {});
+  }, [isPrivileged]);
 
   const loadDashboard = useCallback(async (showRefreshing = false) => {
     if (showRefreshing) setRefreshing(true);
     else setLoading(true);
     try {
-      const res = await salesTrackerAPI.getDashboard();
+      const params = { week_offset: weekOffset };
+      if (isPrivileged && selectedUserId) params.user_id = selectedUserId;
+      const res = await salesTrackerAPI.getDashboard(params);
       setData(res.data);
     } catch (_) {}
     finally { setLoading(false); setRefreshing(false); }
-  }, []);
+  }, [weekOffset, selectedUserId, isPrivileged]);
 
   const loadPipeline = useCallback(async () => {
     setPipelineLoading(true);
@@ -253,6 +268,9 @@ export default function SalesTrackerDashboard() {
   const lw = data?.lastWeek || {};
   const ps = data?.pipelineStats || {};
   const monthly = data?.monthlyRollup;
+  const viewingUserName = selectedUserId
+    ? (trackerUsers.find(u => u.id === selectedUserId)?.name || 'Selected User')
+    : (isPrivileged ? 'All Users' : user?.name || 'My');
 
   return (
     <div className="fade-in">
@@ -260,21 +278,61 @@ export default function SalesTrackerDashboard() {
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div>
           <p className="label-sm" style={{ color: 'var(--tertiary)', marginBottom: '0.25rem' }}>Sales Tracker</p>
-          <h1 className="headline-sm">Kajal's Dashboard</h1>
+          <h1 className="headline-sm">{viewingUserName}'s Dashboard</h1>
           <p style={{ fontSize: '0.875rem', color: 'var(--on-surface-variant)', marginTop: '0.25rem' }}>
             Week {tw.weekNumber} · {tw.dateRange}
           </p>
         </div>
-        <button onClick={() => loadDashboard(true)} disabled={refreshing} style={{
-          display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
-          padding: '0.5rem 1rem', borderRadius: '0.5rem', border: '1px solid var(--outline-variant)',
-          background: 'transparent', color: 'var(--on-surface-variant)', cursor: refreshing ? 'not-allowed' : 'pointer',
-          fontSize: '0.875rem', fontWeight: 600, fontFamily: 'var(--font-display)',
-        }}>
-          <Icon name="refresh" style={{ fontSize: '1.125rem', animation: refreshing ? 'spin 1s linear infinite' : 'none' }} />
-          {refreshing ? 'Refreshing…' : 'Refresh'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flexWrap: 'wrap' }}>
+          {/* User picker — admin/viewer only */}
+          {isPrivileged && trackerUsers.length > 0 && (
+            <select
+              value={selectedUserId}
+              onChange={e => setSelectedUserId(e.target.value)}
+              style={{
+                padding: '0.45rem 0.75rem', borderRadius: '0.5rem', fontSize: '0.875rem',
+                border: '1px solid var(--outline-variant)', background: 'var(--surface-container-low)',
+                color: 'var(--on-surface)', fontFamily: 'var(--font-display)', fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              <option value="">All Users</option>
+              {trackerUsers.map(u => (
+                <option key={u.id} value={u.id}>{u.name}</option>
+              ))}
+            </select>
+          )}
+          <button onClick={() => loadDashboard(true)} disabled={refreshing} style={{
+            display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
+            padding: '0.5rem 1rem', borderRadius: '0.5rem', border: '1px solid var(--outline-variant)',
+            background: 'transparent', color: 'var(--on-surface-variant)', cursor: refreshing ? 'not-allowed' : 'pointer',
+            fontSize: '0.875rem', fontWeight: 600, fontFamily: 'var(--font-display)',
+          }}>
+            <Icon name="refresh" style={{ fontSize: '1.125rem', animation: refreshing ? 'spin 1s linear infinite' : 'none' }} />
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
       </div>
+
+      {/* Per-user breakdown banner (admin/viewer, all users view) */}
+      {isPrivileged && !selectedUserId && data?.perUserBreakdown?.length > 1 && (
+        <div style={{ marginBottom: '1.25rem', padding: '0.875rem 1rem', borderRadius: '0.75rem', background: 'var(--surface-container-low)', border: '1px solid var(--outline-variant)', display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--on-surface-variant)', alignSelf: 'center', textTransform: 'uppercase', letterSpacing: '0.04em' }}>This Week</span>
+          {data.perUserBreakdown.map(u => (
+            <div key={u.userId} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(68,104,176,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary)', flexShrink: 0 }}>
+                {(u.userName || '?')[0].toUpperCase()}
+              </div>
+              <div>
+                <p style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--on-surface)', lineHeight: 1 }}>{u.userName}</p>
+                <p style={{ fontSize: '0.6875rem', color: 'var(--on-surface-variant)', marginTop: 2 }}>
+                  {u.emails}e · {u.calls}c · {u.linkedin}li · {u.daysLogged}d logged
+                </p>
+              </div>
+              <button onClick={() => setSelectedUserId(u.userId)} style={{ fontSize: '0.6875rem', padding: '0.1rem 0.5rem', borderRadius: 9999, border: '1px solid var(--primary)', color: 'var(--primary)', background: 'transparent', cursor: 'pointer', fontFamily: 'var(--font-display)', fontWeight: 600 }}>View</button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Tab bar */}
       <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid var(--outline-variant)', marginBottom: '1.5rem', overflowX: 'auto' }}>

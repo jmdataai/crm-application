@@ -307,7 +307,10 @@ export default function LeadsList() {
     next_follow_up:'', source_file:'', source:'',
   });
   const setCS = (k, v) => { setColS(s => ({ ...s, [k]: v })); setPage(1); };
-  const hasCS = Object.values(cs).some(v => v);
+  // Location multi-select (separate from text search)
+  const [locationFilter, setLocationFilter] = useState(new Set()); // Set of location strings
+  const [locationDropOpen, setLocationDropOpen] = useState(false);
+  const hasCS = Object.values(cs).some(v => v) || locationFilter.size > 0;
 
   useEffect(() => {
     const p = new URLSearchParams(location.search);
@@ -328,19 +331,44 @@ export default function LeadsList() {
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
 
+  // Close location dropdown on outside click
+  useEffect(() => {
+    if (!locationDropOpen) return;
+    const handler = (e) => {
+      if (!e.target.closest('[data-loc-drop]')) setLocationDropOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [locationDropOpen]);
+
   const sourceFiles = useMemo(() =>
     [...new Set(leads.map(l => l.source_file).filter(Boolean))].sort()
   , [leads]);
+
+  // All unique locations for the multi-select
+  const allLocations = useMemo(() =>
+    [...new Set(leads.map(l => l.hq_location).filter(Boolean))].sort()
+  , [leads]);
+
+  const toggleLocation = (loc) => {
+    setLocationFilter(prev => {
+      const n = new Set(prev);
+      n.has(loc) ? n.delete(loc) : n.add(loc);
+      return n;
+    });
+    setPage(1);
+  };
 
   const filtered = useMemo(() => {
     let out = leads.filter(l => {
       if (fileFilter !== 'all' && l.source_file !== fileFilter) return false;
       if (statusView !== 'all' && l.status !== statusView) return false;
       if (segmentView !== 'all' && l.segment !== segmentView) return false;
-      const q = (field) => !field || true; // helper
+      // Location multi-select filter (takes priority over text search for location)
+      if (locationFilter.size > 0 && !locationFilter.has(l.hq_location)) return false;
       if (cs.company      && !l.company?.toLowerCase().includes(cs.company.toLowerCase())) return false;
       if (cs.company_type && !l.company_type?.toLowerCase().includes(cs.company_type.toLowerCase())) return false;
-      if (cs.hq_location  && !l.hq_location?.toLowerCase().includes(cs.hq_location.toLowerCase())) return false;
+      if (locationFilter.size === 0 && cs.hq_location && !l.hq_location?.toLowerCase().includes(cs.hq_location.toLowerCase())) return false;
       if (cs.domain_focus && !l.domain_focus?.toLowerCase().includes(cs.domain_focus.toLowerCase())) return false;
       if (cs.cp1_name     && !l.cp1_name?.toLowerCase().includes(cs.cp1_name.toLowerCase())) return false;
       if (cs.cp1_email    && !l.cp1_email?.toLowerCase().includes(cs.cp1_email.toLowerCase())) return false;
@@ -358,7 +386,7 @@ export default function LeadsList() {
       return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
     });
     return out;
-  }, [leads, statusView, segmentView, fileFilter, cs, sortBy, sortDir]);
+  }, [leads, statusView, segmentView, fileFilter, cs, locationFilter, sortBy, sortDir]);
 
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
   const paged = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
@@ -403,14 +431,14 @@ export default function LeadsList() {
     </th>
   );
 
-  const SearchInput = ({ col, placeholder, width = 100 }) => (
-    <input
-      value={cs[col] || ''}
-      onChange={e => setCS(col, e.target.value)}
-      placeholder={placeholder || '🔍'}
-      style={{ width, padding:'0.2rem 0.4rem', fontSize:'0.6875rem', border:'1px solid var(--outline-variant)', borderRadius:'0.25rem', background:'var(--surface-container-lowest)', color:'var(--on-surface)', outline:'none' }}
-    />
-  );
+  // Returns props for inline search inputs — avoids defining a component inside render
+  // (component-inside-render causes remount on every keystroke, killing focus)
+  const siProps = (col, width = 100) => ({
+    value: cs[col] || '',
+    onChange: e => setCS(col, e.target.value),
+    placeholder: '🔍',
+    style: { width, padding:'0.2rem 0.4rem', fontSize:'0.6875rem', border:'1px solid var(--outline-variant)', borderRadius:'0.25rem', background:'var(--surface-container-lowest)', color:'var(--on-surface)', outline:'none' },
+  });
 
   if (error) return (
     <div className="card" style={{ textAlign:'center', padding:'3rem', color:'var(--error)' }}>
@@ -438,7 +466,7 @@ export default function LeadsList() {
             </button>
           )}
           {hasCS && (
-            <button onClick={() => { setColS(Object.fromEntries(Object.keys(cs).map(k=>[k,'']))); setStatusView('all'); setSegmentView('all'); setFileFilter('all'); }} className="btn-ghost" style={{ fontSize:'0.8125rem' }}>
+            <button onClick={() => { setColS(Object.fromEntries(Object.keys(cs).map(k=>[k,'']))); setStatusView('all'); setSegmentView('all'); setFileFilter('all'); setLocationFilter(new Set()); setPage(1); }} className="btn-ghost" style={{ fontSize:'0.8125rem' }}>
               <Icon name="filter_alt_off" style={{ fontSize:'1rem' }} /> Clear Filters
             </button>
           )}
@@ -539,15 +567,44 @@ export default function LeadsList() {
                 {/* Per-column search row */}
                 <tr style={{ background:'var(--surface-container-lowest)', borderBottom:'1px solid var(--outline-variant)' }}>
                   <td />
-                  <td style={{ padding:'0.25rem 0.75rem' }}><SearchInput col="company" width={140} /></td>
-                  <td style={{ padding:'0.25rem 0.5rem' }}><SearchInput col="company_type" width={80} /></td>
-                  <td style={{ padding:'0.25rem 0.5rem' }}><SearchInput col="hq_location" width={80} /></td>
-                  <td style={{ padding:'0.25rem 0.5rem' }}><SearchInput col="domain_focus" width={100} /></td>
-                  <td style={{ padding:'0.25rem 0.5rem' }}><SearchInput col="cp1_name" width={100} /></td>
-                  <td style={{ padding:'0.25rem 0.5rem' }}><SearchInput col="cp1_email" width={120} /></td>
-                  <td style={{ padding:'0.25rem 0.5rem' }}><SearchInput col="cp2_name" width={90} /></td>
-                  <td style={{ padding:'0.25rem 0.5rem' }}><SearchInput col="status" width={80} /></td>
-                  <td style={{ padding:'0.25rem 0.5rem' }}><SearchInput col="next_follow_up" width={80} /></td>
+                  <td style={{ padding:'0.25rem 0.75rem' }}><input {...siProps('company', 140)} /></td>
+                  <td style={{ padding:'0.25rem 0.5rem' }}><input {...siProps('company_type', 80)} /></td>
+                  <td style={{ padding:'0.25rem 0.5rem' }}>
+                    {/* Location: show multi-select button if locations exist, else text search */}
+                    {allLocations.length > 0 ? (
+                      <div data-loc-drop style={{ position:'relative' }}>
+                        <button onClick={() => setLocationDropOpen(o => !o)} style={{
+                          width:80, padding:'0.2rem 0.4rem', fontSize:'0.6875rem',
+                          border:`1px solid ${locationFilter.size > 0 ? 'var(--primary)' : 'var(--outline-variant)'}`,
+                          borderRadius:'0.25rem', background: locationFilter.size > 0 ? 'rgba(68,104,176,0.1)' : 'var(--surface-container-lowest)',
+                          color: locationFilter.size > 0 ? 'var(--primary)' : 'var(--on-surface-variant)', cursor:'pointer', textAlign:'left',
+                          whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis',
+                        }}>
+                          {locationFilter.size > 0 ? `${locationFilter.size} loc` : '🔍 All'}
+                        </button>
+                        {locationDropOpen && (
+                          <div style={{ position:'absolute', top:'100%', left:0, zIndex:200, minWidth:180, maxHeight:220, overflowY:'auto', background:'var(--surface-container-lowest)', border:'1px solid var(--outline-variant)', borderRadius:'0.5rem', boxShadow:'0 4px 16px rgba(0,0,0,0.12)', padding:'0.375rem 0' }}>
+                            <div style={{ padding:'0.25rem 0.75rem', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                              <span style={{ fontSize:'0.6875rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase' }}>Locations</span>
+                              {locationFilter.size > 0 && <button onClick={() => { setLocationFilter(new Set()); setPage(1); }} style={{ fontSize:'0.6875rem', background:'none', border:'none', color:'var(--primary)', cursor:'pointer', fontWeight:600 }}>Clear</button>}
+                            </div>
+                            {allLocations.map(loc => (
+                              <label key={loc} style={{ display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.3rem 0.75rem', cursor:'pointer', fontSize:'0.8125rem', color:'var(--on-surface)', background: locationFilter.has(loc) ? 'rgba(68,104,176,0.08)' : 'transparent' }}>
+                                <input type="checkbox" checked={locationFilter.has(loc)} onChange={() => toggleLocation(loc)} style={{ accentColor:'var(--primary)' }} />
+                                {loc}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : <input {...siProps('hq_location', 80)} />}
+                  </td>
+                  <td style={{ padding:'0.25rem 0.5rem' }}><input {...siProps('domain_focus', 100)} /></td>
+                  <td style={{ padding:'0.25rem 0.5rem' }}><input {...siProps('cp1_name', 100)} /></td>
+                  <td style={{ padding:'0.25rem 0.5rem' }}><input {...siProps('cp1_email', 120)} /></td>
+                  <td style={{ padding:'0.25rem 0.5rem' }}><input {...siProps('cp2_name', 90)} /></td>
+                  <td style={{ padding:'0.25rem 0.5rem' }}><input {...siProps('status', 80)} /></td>
+                  <td style={{ padding:'0.25rem 0.5rem' }}><input {...siProps('next_follow_up', 80)} /></td>
                   <td colSpan={2} />
                 </tr>
               </thead>

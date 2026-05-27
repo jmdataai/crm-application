@@ -1947,9 +1947,11 @@ async def compose_and_send_email(body: ComposeEmailRequest, request: Request):
 
 # ── Bulk Welcome Email ────────────────────────────────────────────────────────
 class BulkEmailSendRequest(BaseModel):
-    subject:      str
-    html_body:    str
-    extra_emails: List[str] = []
+    subject:        str
+    html_body:      str
+    extra_emails:   List[str] = []
+    excluded_emails: List[str] = []   # emails to skip this send
+    target_emails:  Optional[List[str]] = None  # if set, send ONLY to these (subset send)
 
 class BulkEmailTestSendRequest(BaseModel):
     subject:     str
@@ -1963,21 +1965,23 @@ async def get_bulk_email_recipients(request: Request):
     _require_module(user, "sales")
 
     leads_res = await run(lambda: sb("leads").select(
-        "id,company,full_name,email,"
+        "id,company,full_name,email,hq_location,"
+        "contact_person_1_name,contact_person_1_email,"
         "contact_person_2_name,contact_person_2_email,"
         "contact_person_3_name,contact_person_3_email"
     ).execute())
     leads = leads_res.data or []
 
-    # Collect all unique non-empty addresses
-    recipients: dict = {}  # email -> {name, company, lead_id}
+    # Collect all unique non-empty addresses, including hq_location
+    recipients: dict = {}  # email -> {name, company, lead_id, hq_location}
     for l in leads:
-        def _add(email, name, company, lead_id):
+        loc = l.get("hq_location") or ""
+        def _add(email, name, company, lead_id, location=loc):
             if email and email.strip() and "@" in email:
                 e = email.strip().lower()
                 if e not in recipients:
-                    recipients[e] = {"email": e, "name": name or "", "company": company or "", "lead_id": lead_id}
-        _add(l.get("email"), l.get("full_name"), l.get("company"), l["id"])
+                    recipients[e] = {"email": e, "name": name or "", "company": company or "", "lead_id": lead_id, "hq_location": location}
+        _add(l.get("contact_person_1_email") or l.get("email"), l.get("contact_person_1_name") or l.get("full_name"), l.get("company"), l["id"])
         _add(l.get("contact_person_2_email"), l.get("contact_person_2_name"), l.get("company"), l["id"])
         _add(l.get("contact_person_3_email"), l.get("contact_person_3_name"), l.get("company"), l["id"])
 
@@ -2003,25 +2007,44 @@ async def send_bulk_email(body: BulkEmailSendRequest, request: Request):
     recip_resp = await get_bulk_email_recipients(request)
     all_recips  = recip_resp["recipients"]
 
-    # Collect addresses to send to (not already sent + extra)
-    to_send: list[str] = [r["email"] for r in all_recips if not r["already_sent"]]
-    for e in body.extra_emails:
-        e = e.strip().lower()
-        if e and "@" in e and e not in to_send:
-            # check if already sent
-            exists = await run(lambda: sb("email_sends").select("sent_to")
-                .eq("sent_to", e).eq("email_type", "welcome").execute())
-            if not (exists.data):
-                to_send.append(e)
+    # Build email -> metadata map for personalization
+    email_meta: dict = {r["email"]: r for r in all_recips}
+
+    # Normalize exclusion sets
+    excluded = {e.strip().lower() for e in body.excluded_emails if e.strip()}
+
+    # Determine base candidate list
+    if body.target_emails is not None:
+        # Explicit subset send — send only to target_emails (minus excluded)
+        candidates = [e.strip().lower() for e in body.target_emails if e.strip() and "@" in e]
+    else:
+        # Default: all pending (not already sent)
+        candidates = [r["email"] for r in all_recips if not r["already_sent"]]
+        # Merge extra emails
+        for e in body.extra_emails:
+            e = e.strip().lower()
+            if e and "@" in e and e not in candidates:
+                exists = await run(lambda ee=e: sb("email_sends").select("sent_to")
+                    .eq("sent_to", ee).eq("email_type", "welcome").execute())
+                if not (exists.data):
+                    candidates.append(e)
+
+    # Apply exclusions
+    to_send = [e for e in candidates if e not in excluded]
 
     if not to_send:
-        return {"success": True, "sent_count": 0, "skipped_count": 0, "message": "No new recipients."}
+        return {"success": True, "sent_count": 0, "skipped_count": len(excluded), "message": "No recipients after exclusions."}
 
     sent_ok: list[str] = []
     failed:  list[str] = []
     for addr in to_send:
         try:
-            await _graph_send_mail(from_email, [addr], body.subject, body.html_body)
+            # Personalize [Client Name] with company name if available
+            meta    = email_meta.get(addr, {})
+            company = meta.get("company") or meta.get("name") or "there"
+            subject = body.subject
+            html    = body.html_body.replace("[Client Name]", company).replace("[client name]", company)
+            await _graph_send_mail(from_email, [addr], subject, html)
             sent_ok.append(addr)
         except Exception as exc:
             logger.warning(f"[bulk-email] failed {addr}: {exc}")
@@ -2045,6 +2068,7 @@ async def send_bulk_email(body: BulkEmailSendRequest, request: Request):
         "success":       True,
         "sent_count":    len(sent_ok),
         "failed_count":  len(failed),
+        "skipped_count": len(excluded),
         "failed":        failed[:20],
         "sent_from":     from_email,
     }
@@ -3007,61 +3031,150 @@ class SalesMonthlyRollupCreate(BaseModel):
 
 # ── Endpoints ──────────────────────────────────────────────────
 
+@api_router.get("/sales/tracker/users")
+async def get_sales_tracker_users(request: Request):
+    """Return all users who have ever logged sales activity (for admin/viewer user picker)."""
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    sb = get_supabase()
+    # Get distinct logged_by users from the activity log
+    res = await run(lambda: sb.table("sales_activity_log")
+        .select("logged_by,logged_by_name").execute())
+    rows = res.data or []
+    seen = {}
+    for r in rows:
+        uid = r.get("logged_by")
+        if uid and uid not in seen:
+            seen[uid] = r.get("logged_by_name") or uid
+    # Also pull from users table for completeness
+    users_res = await run(lambda: sb.table("users")
+        .select("id,name,role").in_("role", ["sales", "admin"]).execute())
+    for u in (users_res.data or []):
+        if u["id"] not in seen:
+            seen[u["id"]] = u.get("name") or u["id"]
+    return [{"id": uid, "name": name} for uid, name in seen.items()]
+
+
 @api_router.get("/sales/tracker/dashboard")
-async def get_sales_tracker_dashboard(request: Request):
+async def get_sales_tracker_dashboard(
+    request: Request,
+    user_id: Optional[str] = None,   # filter to a specific user (admin/viewer can pass any; sales sees only own)
+    week_offset: int = 0,            # 0 = current week, -1 = last week, etc.
+):
     user = await get_current_user(request)
     _require_module(user, "sales")
 
     from datetime import date, timedelta
+    from datetime import datetime as dt
+
+    role = user.get("role", "")
+    is_privileged = role in ("admin", "viewer")  # admin or CEO (viewer) can see everyone
+
+    # Determine whose logs to show
+    # - sales role: always their own logs only
+    # - admin/viewer: can filter by user_id or see all
+    filter_user_id = None
+    if not is_privileged:
+        filter_user_id = user["id"]   # sales: locked to own
+    elif user_id:
+        filter_user_id = user_id      # admin/viewer: optional filter
+
     today = date.today()
     week_num, year = _current_iso_week()
-    monday, friday = _get_week_bounds(week_num, year)
-    prev_monday, prev_friday = _get_week_bounds(week_num - 1, year) if week_num > 1 else _get_week_bounds(52, year - 1)
+
+    # Apply week offset
+    adjusted_week = week_num + week_offset
+    adjusted_year = year
+    while adjusted_week <= 0:
+        adjusted_week += 52; adjusted_year -= 1
+    while adjusted_week > 52:
+        adjusted_week -= 52; adjusted_year += 1
+
+    monday, friday = _get_week_bounds(adjusted_week, adjusted_year)
+    prev_week = adjusted_week - 1
+    prev_year = adjusted_year
+    if prev_week <= 0:
+        prev_week += 52; prev_year -= 1
+    prev_monday, prev_friday = _get_week_bounds(prev_week, prev_year)
 
     sb = get_supabase()
 
+    def _filter_by_user(q):
+        if filter_user_id:
+            q = q.eq("logged_by", filter_user_id)
+        return q
+
     # ── This week logs ──
-    this_week_res = sb.table("sales_activity_log")        .select("*")        .gte("log_date", monday.isoformat())        .lte("log_date", friday.isoformat())        .execute()
-    this_week_rows = this_week_res.data or []
+    q = sb.table("sales_activity_log").select("*").gte("log_date", monday.isoformat()).lte("log_date", friday.isoformat())
+    this_week_rows = (await run(lambda qq=_filter_by_user(q): qq.execute())).data or []
 
     # ── Last week logs ──
-    last_week_res = sb.table("sales_activity_log")        .select("*")        .gte("log_date", prev_monday.isoformat())        .lte("log_date", prev_friday.isoformat())        .execute()
-    last_week_rows = last_week_res.data or []
+    q2 = sb.table("sales_activity_log").select("*").gte("log_date", prev_monday.isoformat()).lte("log_date", prev_friday.isoformat())
+    last_week_rows = (await run(lambda qq=_filter_by_user(q2): qq.execute())).data or []
 
     # ── Last 4 weeks for traffic light ──
     four_weeks_ago = monday - timedelta(weeks=3)
-    all_recent_res = sb.table("sales_activity_log")        .select("*")        .gte("log_date", four_weeks_ago.isoformat())        .lte("log_date", friday.isoformat())        .order("log_date")        .execute()
-    all_recent = all_recent_res.data or []
+    q3 = sb.table("sales_activity_log").select("*").gte("log_date", four_weeks_ago.isoformat()).lte("log_date", friday.isoformat()).order("log_date")
+    all_recent = (await run(lambda qq=_filter_by_user(q3): qq.execute())).data or []
 
     last4 = []
     for w in range(3, -1, -1):
-        wk = week_num - w
-        yr = year
+        wk = adjusted_week - w
+        yr = adjusted_year
         if wk <= 0:
             wk += 52; yr -= 1
         wmon, wfri = _get_week_bounds(wk, yr)
-        wrows = [r for r in all_recent
-                 if wmon.isoformat() <= r.get("log_date","") <= wfri.isoformat()]
+        wrows = [r for r in all_recent if wmon.isoformat() <= r.get("log_date","") <= wfri.isoformat()]
         s = _sum_logs(wrows)
         s["weekNumber"] = wk
         s["year"]       = yr
         s["dateRange"]  = f"{wmon.strftime('%d %b')} – {wfri.strftime('%d %b')}"
         last4.append(s)
 
-    # ── Daily breakdown for current week (keyed by weekday) ──
-    days_map = {}
+    # ── Daily breakdown for current week ──
+    # FIX: was `days_map[day_name] = r` which overwrote when >1 person logged same day.
+    # Now we SUM all entries per day so multi-user logs are aggregated correctly.
+    days_accumulator: dict = {}  # day_name -> list of rows
     for r in this_week_rows:
         d = r.get("log_date", "")
         if d:
             try:
-                from datetime import datetime as dt
                 day_name = dt.strptime(d, "%Y-%m-%d").strftime("%A")
-                days_map[day_name] = r
+                days_accumulator.setdefault(day_name, []).append(r)
             except Exception:
                 pass
 
+    days_map = {}
+    for day_name, rows in days_accumulator.items():
+        summed = _sum_logs(rows)
+        # Keep the most recent row's narrative fields (mood, biggest_win, etc.) for display
+        latest = max(rows, key=lambda r: r.get("updated_at") or "")
+        days_map[day_name] = {
+            **summed,
+            "mood":            latest.get("mood"),
+            "biggest_win":     latest.get("biggest_win"),
+            "biggest_blocker": latest.get("biggest_blocker"),
+            "log_date":        latest.get("log_date"),
+            "logged_by_name":  latest.get("logged_by_name"),
+            "multiple_users":  len(rows) > 1,
+        }
+
+    # ── Per-user breakdown for this week (admin/viewer only, when showing all) ──
+    per_user_breakdown = []
+    if is_privileged and not filter_user_id:
+        user_groups: dict = {}
+        for r in this_week_rows:
+            uid = r.get("logged_by", "unknown")
+            uname = r.get("logged_by_name") or uid
+            user_groups.setdefault(uid, {"name": uname, "rows": []})["rows"].append(r)
+        for uid, info in user_groups.items():
+            s = _sum_logs(info["rows"])
+            s["userId"]   = uid
+            s["userName"] = info["name"]
+            per_user_breakdown.append(s)
+
     # ── Pipeline ──
-    pipeline_res = sb.table("sales_pipeline")        .select("*")        .eq("is_active", True)        .order("weighted_value", desc=True)        .execute()
+    pipeline_res = await run(lambda: sb.table("sales_pipeline").select("*").eq("is_active", True).order("weighted_value", desc=True).execute())
     pipeline = pipeline_res.data or []
     for deal in pipeline:
         deal["daysInStage"] = _days_in_stage(deal.get("stage_updated_date"))
@@ -3073,23 +3186,26 @@ async def get_sales_tracker_dashboard(request: Request):
     top_deals      = sorted(open_deals, key=lambda d: float(d.get("weighted_value") or 0), reverse=True)[:5]
 
     # ── Latest monthly rollup ──
-    monthly_res = sb.table("sales_monthly_rollup")        .select("*")        .order("year", desc=True)        .order("created_at", desc=True)        .limit(1)        .execute()
+    monthly_res = await run(lambda: sb.table("sales_monthly_rollup").select("*").order("year", desc=True).order("created_at", desc=True).limit(1).execute())
     monthly = (monthly_res.data or [None])[0]
 
     return {
-        "thisWeek":       {**_sum_logs(this_week_rows),
-                           "weekNumber": week_num, "year": year,
-                           "dateRange": f"{monday.strftime('%d %b')} – {friday.strftime('%d %b')}",
-                           "days": days_map},
-        "lastWeek":       _sum_logs(last_week_rows),
-        "last4Weeks":     last4,
-        "pipeline":       pipeline,
-        "pipelineStats":  {"totalDeals": len(pipeline), "totalValue": total_value,
-                           "weightedValue": weighted_total, "stalledCount": len(stalled)},
-        "topDeals":       top_deals,
-        "stalledDeals":   stalled,
-        "monthlyRollup":  monthly,
-        "targets":        SALES_TARGETS,
+        "thisWeek":          {**_sum_logs(this_week_rows),
+                              "weekNumber": adjusted_week, "year": adjusted_year,
+                              "dateRange": f"{monday.strftime('%d %b')} – {friday.strftime('%d %b')}",
+                              "days": days_map},
+        "lastWeek":          _sum_logs(last_week_rows),
+        "last4Weeks":        last4,
+        "pipeline":          pipeline,
+        "pipelineStats":     {"totalDeals": len(pipeline), "totalValue": total_value,
+                              "weightedValue": weighted_total, "stalledCount": len(stalled)},
+        "topDeals":          top_deals,
+        "stalledDeals":      stalled,
+        "monthlyRollup":     monthly,
+        "targets":           SALES_TARGETS,
+        "viewingUserId":     filter_user_id,
+        "isPrivileged":      is_privileged,
+        "perUserBreakdown":  per_user_breakdown,
     }
 
 
@@ -3136,23 +3252,24 @@ async def get_sales_logs(
     request: Request,
     from_date: Optional[str] = None,
     to_date:   Optional[str] = None,
+    user_id:   Optional[str] = None,
     limit:     int = 60,
 ):
     user = await get_current_user(request)
     _require_module(user, "sales")
-    q_fn = lambda: (
-        sb("sales_activity_log").select("*")
-        .order("log_date", desc=True)
-        .limit(limit)
-    )
-    q = q_fn()
+    role = user.get("role", "")
+    is_privileged = role in ("admin", "viewer")
+
+    q = sb("sales_activity_log").select("*").order("log_date", desc=True).limit(limit)
     if from_date: q = q.gte("log_date", from_date)
     if to_date:   q = q.lte("log_date", to_date)
+    # sales role: always locked to own logs
+    if not is_privileged:
+        q = q.eq("logged_by", user["id"])
+    elif user_id:
+        q = q.eq("logged_by", user_id)
     res  = await run(lambda qq=q: qq.execute())
-    rows = res.data or []
-    for r in rows:
-        pass  # days_in_stage not needed here
-    return rows
+    return res.data or []
 
 
 @api_router.post("/sales/tracker/pipeline")

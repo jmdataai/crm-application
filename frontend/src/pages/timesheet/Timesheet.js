@@ -71,6 +71,29 @@ const StatusBadge = ({ status }) => {
   );
 };
 
+// ── HH:MM helpers ────────────────────────────────────────────
+// Accepts: "1:30" → 1.5, "90" → 1.5, "1.5" → 1.5, "2" → 2
+function parseHHMM(raw) {
+  if (!raw && raw !== 0) return 0;
+  const s = String(raw).trim();
+  if (!s) return 0;
+  if (s.includes(':')) {
+    const [h, m] = s.split(':').map(Number);
+    return (h || 0) + (m || 0) / 60;
+  }
+  return parseFloat(s) || 0;
+}
+
+// Formats decimal hours as "H:MM" (e.g. 1.5 → "1:30")
+function toHHMM(decimal) {
+  if (!decimal && decimal !== 0) return '';
+  const total = Math.round(parseFloat(decimal) * 60);
+  if (total <= 0) return '';
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return m > 0 ? `${h}:${String(m).padStart(2, '0')}` : `${h}`;
+}
+
 const WeekForm = ({ weekStart, onSaved }) => {
   const { isMobile } = useBreakpoint();
   const [ts, setTs]             = useState(null);
@@ -84,7 +107,10 @@ const WeekForm = ({ weekStart, onSaved }) => {
       const res = await timesheetAPI.getWeek(weekStart);
       setTs(res.data);
       const map = {};
-      (res.data.entries || []).forEach(e => { map[e.entry_date] = { hours: e.hours ?? 0, comments: e.comments ?? '' }; });
+      (res.data.entries || []).forEach(e => {
+        const decimal = e.hours ?? 0;
+        map[e.entry_date] = { hours: toHHMM(decimal), comments: e.comments ?? '' };
+      });
       setEntries(map);
     } catch (e) { setMsg({ type: 'error', text: formatApiError(e) }); }
   }, [weekStart]);
@@ -92,15 +118,15 @@ const WeekForm = ({ weekStart, onSaved }) => {
   useEffect(() => { load(); }, [load]);
 
   const weekDays = Array.from({ length: 7 }, (_, i) => toISODate(addDays(new Date(weekStart + 'T00:00:00'), i)));
-  const totalHours = weekDays.reduce((sum, d) => sum + parseFloat(entries[d]?.hours || 0), 0);
+  const totalHours = weekDays.reduce((sum, d) => sum + parseHHMM(entries[d]?.hours || 0), 0);
 
   const handleChange = (date, field, value) => {
     setEntries(prev => ({ ...prev, [date]: { ...prev[date], [field]: value } }));
   };
 
   const buildPayload = () => weekDays
-    .filter(d => parseFloat(entries[d]?.hours || 0) > 0 || entries[d]?.comments)
-    .map(d => ({ entry_date: d, hours: parseFloat(entries[d]?.hours || 0), comments: entries[d]?.comments || '' }));
+    .filter(d => parseHHMM(entries[d]?.hours || 0) > 0 || entries[d]?.comments)
+    .map(d => ({ entry_date: d, hours: parseHHMM(entries[d]?.hours || 0), comments: entries[d]?.comments || '' }));
 
   const handleSave = async () => {
     if (!ts) return;
@@ -173,26 +199,33 @@ const WeekForm = ({ weekStart, onSaved }) => {
       <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--surface-container-high)', minWidth: isMobile ? 360 : undefined }}>
         {/* Desktop header */}
         <div style={{ display: 'grid', gridTemplateColumns: '130px 75px 1fr', minWidth: isMobile ? 320 : undefined, padding: '8px 14px', background: 'var(--surface-container)', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--on-surface-variant)', gap: 10 }}>
-          <span>Day / Date</span><span>Hours</span><span>What I worked on</span>
+          <span>Day / Date</span><span style={{ fontSize:'0.75rem' }}>Hours<br/><span style={{ fontWeight:400, opacity:0.7, fontSize:'0.65rem' }}>e.g. 1:30 or 1.5</span></span><span>What I worked on</span>
         </div>
 
         {weekDays.map((date, i) => {
-          const e = entries[date] || { hours: 0, comments: '' };
+          const e = entries[date] || { hours: '', comments: '' };
+          const decimalHours = parseHHMM(e.hours);
           return (
             <div key={date} style={{ borderTop: '1px solid var(--surface-container-high)', background: 'var(--surface-container-lowest)' }}>
               {/* Desktop row */}
-              <div style={{ display: 'grid', gridTemplateColumns: '130px 75px 1fr', minWidth: isMobile ? 320 : undefined, padding: '10px 14px', gap: 10, alignItems: 'center' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '130px 85px 1fr', minWidth: isMobile ? 320 : undefined, padding: '10px 14px', gap: 10, alignItems: 'center' }}>
                 <div>
                   <p style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--on-surface)', margin: 0 }}>{DAY_NAMES[i]}</p>
                   <p style={{ fontSize: '0.7rem', color: 'var(--on-surface-variant)', margin: 0 }}>{formatShortDate(date)}</p>
                 </div>
-                <input type="number" min="0" max="24" step="0.5"
-                  value={e.hours === 0 ? '' : e.hours}
-                  disabled={!isEditable}
-                  onChange={ev => handleChange(date, 'hours', ev.target.value)}
-                  placeholder="0"
-                  style={{ width: '100%', padding: '7px 6px', borderRadius: 8, border: isEditable ? '1px solid var(--surface-container-high)' : '1px solid transparent', fontSize: '0.9375rem', fontWeight: 600, textAlign: 'center', background: isEditable ? 'var(--surface)' : 'transparent', color: 'var(--on-surface)', outline: 'none', boxSizing: 'border-box' }}
-                />
+                <div style={{ position:'relative' }}>
+                  <input type="text"
+                    value={e.hours}
+                    disabled={!isEditable}
+                    onChange={ev => handleChange(date, 'hours', ev.target.value)}
+                    placeholder="0 or 1:30"
+                    title="Enter hours as decimal (1.5) or HH:MM (1:30)"
+                    style={{ width: '100%', padding: '7px 6px', borderRadius: 8, border: isEditable ? '1px solid var(--surface-container-high)' : '1px solid transparent', fontSize: '0.9375rem', fontWeight: 600, textAlign: 'center', background: isEditable ? 'var(--surface)' : 'transparent', color: 'var(--on-surface)', outline: 'none', boxSizing: 'border-box' }}
+                  />
+                  {decimalHours > 0 && e.hours && e.hours.toString().includes(':') && (
+                    <span style={{ position:'absolute', bottom:-14, left:0, right:0, textAlign:'center', fontSize:'0.6rem', color:'var(--on-surface-variant)' }}>{decimalHours.toFixed(2)}h</span>
+                  )}
+                </div>
                 <input type="text"
                   value={e.comments}
                   disabled={!isEditable}
@@ -212,7 +245,8 @@ const WeekForm = ({ weekStart, onSaved }) => {
       <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
         <div style={{ padding: '10px 18px', borderRadius: 12, background: 'rgba(234,88,12,0.08)', border: '1px solid rgba(234,88,12,0.15)' }}>
           <p style={{ margin: 0, fontSize: '0.7rem', color: '#ea580c', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total Hours</p>
-          <p style={{ margin: 0, fontSize: '1.75rem', fontWeight: 800, color: '#ea580c', lineHeight: 1.1 }}>{totalHours.toFixed(1)}</p>
+          <p style={{ margin: 0, fontSize: '1.75rem', fontWeight: 800, color: '#ea580c', lineHeight: 1.1 }}>{toHHMM(totalHours) || '0'}</p>
+          <p style={{ margin: 0, fontSize: '0.7rem', color: '#ea580c', opacity: 0.7 }}>{totalHours.toFixed(2)} decimal</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           {isEditable && (

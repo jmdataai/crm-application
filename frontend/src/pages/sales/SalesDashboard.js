@@ -184,6 +184,9 @@ export default function SalesDashboard() {
   // Per-column search
   const [cs, setCS] = useState({ company:'', type:'', status:'', location:'', domain:'', c1_name:'', remark:'', follow_up:'', source_file:'' });
   const setCol = (k,v) => { setCS(s=>({...s,[k]:v})); setPage(1); };
+  // Location multi-select
+  const [locationFilter, setLocationFilter] = useState(new Set());
+  const [locationDropOpen, setLocationDropOpen] = useState(false);
 
   const fetchLeads = useCallback(async () => {
     setLoading(true);
@@ -199,6 +202,14 @@ export default function SalesDashboard() {
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
 
+  // Close location dropdown on outside click
+  useEffect(() => {
+    if (!locationDropOpen) return;
+    const h = (e) => { if (!e.target.closest('[data-loc-drop]')) setLocationDropOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [locationDropOpen]);
+
   /* quick updates inline */
   const updateStatus = async (id, status) => {
     setLeads(ls => ls.map(l => l.id===id ? {...l, status} : l));
@@ -212,6 +223,15 @@ export default function SalesDashboard() {
   const today = new Date().toISOString().slice(0,10);
 
   /* tab counts */
+  const allLocations = useMemo(() =>
+    [...new Set(leads.map(l => l.location || l.country).filter(Boolean))].sort()
+  , [leads]);
+
+  const toggleLocation = (loc) => {
+    setLocationFilter(prev => { const n=new Set(prev); n.has(loc)?n.delete(loc):n.add(loc); return n; });
+    setPage(1);
+  };
+
   const tabCounts = useMemo(() => {
     const c = { all: leads.length };
     CATEGORY_TABS.slice(1).forEach(t => { c[t.id] = leads.filter(l => l.category === t.id).length; });
@@ -239,10 +259,11 @@ export default function SalesDashboard() {
     let out = leads.filter(l => {
       if (fileFilter !== 'all' && l.source_file !== fileFilter) return false;
       if (tab !== 'all' && l.category !== tab) return false;
+      if (locationFilter.size > 0 && !locationFilter.has(l.location) && !locationFilter.has(l.country)) return false;
       if (cs.company && !l.company?.toLowerCase().includes(cs.company.toLowerCase())) return false;
       if (cs.type    && !l.type?.toLowerCase().includes(cs.type.toLowerCase())) return false;
       if (cs.status  && !l.status?.toLowerCase().includes(cs.status.toLowerCase())) return false;
-      if (cs.location&& !l.location?.toLowerCase().includes(cs.location.toLowerCase()) && !l.country?.toLowerCase().includes(cs.location.toLowerCase())) return false;
+      if (locationFilter.size === 0 && cs.location && !l.location?.toLowerCase().includes(cs.location.toLowerCase()) && !l.country?.toLowerCase().includes(cs.location.toLowerCase())) return false;
       if (cs.domain  && !l.domain?.toLowerCase().includes(cs.domain.toLowerCase())) return false;
       if (cs.c1_name && !l.c1_name?.toLowerCase().includes(cs.c1_name.toLowerCase())) return false;
       if (cs.remark  && !l.remark?.toLowerCase().includes(cs.remark.toLowerCase())) return false;
@@ -255,7 +276,7 @@ export default function SalesDashboard() {
       return sortDir==='asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
     });
     return out;
-  }, [leads, tab, cs, sortBy, sortDir, fileFilter]);
+  }, [leads, tab, cs, locationFilter, sortBy, sortDir, fileFilter]);
 
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
   const paged      = filtered.slice((page-1)*PER_PAGE, page*PER_PAGE);
@@ -276,7 +297,7 @@ export default function SalesDashboard() {
     </th>
   );
 
-  const hasCS = Object.values(cs).some(v=>v);
+  const hasCS = Object.values(cs).some(v=>v) || locationFilter.size > 0;
 
   const colInput = (key, ph) => (
     <input placeholder={ph||'Filter…'} value={cs[key]||''} onChange={e=>setCol(key,e.target.value)}
@@ -403,7 +424,7 @@ export default function SalesDashboard() {
           </button>
         ))}
         {hasCS && (
-          <button onClick={() => setCS({ company:'', type:'', status:'', location:'', domain:'', c1_name:'', remark:'', follow_up:'', source_file:'' })}
+          <button onClick={() => { setCS({ company:'', type:'', status:'', location:'', domain:'', c1_name:'', remark:'', follow_up:'', source_file:'' }); setLocationFilter(new Set()); setPage(1); }}
             style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:'0.375rem', padding:'0.625rem 1rem', border:'none', cursor:'pointer', fontFamily:'var(--font-display)', fontSize:'0.8125rem', fontWeight:600, color:'var(--error)', background:'transparent' }}>
             <Icon name="filter_alt_off" style={{ fontSize:'1rem' }}/> Clear filters
           </button>
@@ -446,7 +467,35 @@ export default function SalesDashboard() {
                   <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}>{colInput('company','Company…')}</th>
                   <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}>{colInput('type','Type…')}</th>
                   <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}>{statusFilter}</th>
-                  <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}>{colInput('location','Location…')}</th>
+                  <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}>
+                    {allLocations.length > 0 ? (
+                      <div data-loc-drop style={{ position:'relative' }} onClick={e=>e.stopPropagation()}>
+                        <button onClick={() => setLocationDropOpen(o=>!o)} style={{
+                          width:'100%', fontSize:'0.68rem', padding:'0.2rem 0.375rem', borderRadius:3,
+                          border:`1px solid ${locationFilter.size>0?'var(--primary)':'var(--outline-variant)'}`,
+                          background: locationFilter.size>0 ? 'rgba(68,104,176,0.1)' : 'var(--surface)',
+                          color: locationFilter.size>0 ? 'var(--primary)' : 'var(--on-surface-variant)',
+                          cursor:'pointer', fontFamily:'var(--font-display)', textAlign:'left', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis',
+                        }}>
+                          {locationFilter.size>0 ? `${locationFilter.size} loc ▾` : 'Location… ▾'}
+                        </button>
+                        {locationDropOpen && (
+                          <div style={{ position:'absolute', top:'100%', left:0, zIndex:300, minWidth:160, maxHeight:200, overflowY:'auto', background:'var(--surface-container-lowest)', border:'1px solid var(--outline-variant)', borderRadius:'0.5rem', boxShadow:'0 4px 16px rgba(0,0,0,0.12)', padding:'0.25rem 0', marginTop:2 }}>
+                            <div style={{ padding:'0.2rem 0.625rem', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                              <span style={{ fontSize:'0.6rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase' }}>Location</span>
+                              {locationFilter.size>0 && <button onClick={()=>{setLocationFilter(new Set());setPage(1);setLocationDropOpen(false);}} style={{ fontSize:'0.6rem', background:'none', border:'none', color:'var(--primary)', cursor:'pointer', fontWeight:600 }}>Clear</button>}
+                            </div>
+                            {allLocations.map(loc => (
+                              <label key={loc} style={{ display:'flex', alignItems:'center', gap:'0.375rem', padding:'0.25rem 0.625rem', cursor:'pointer', fontSize:'0.75rem', color:'var(--on-surface)', background:locationFilter.has(loc)?'rgba(68,104,176,0.08)':'transparent' }}>
+                                <input type="checkbox" checked={locationFilter.has(loc)} onChange={()=>toggleLocation(loc)} style={{ accentColor:'var(--primary)' }} />
+                                {loc}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : colInput('location','Location…')}
+                  </th>
                   <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}>{colInput('domain','Domain…')}</th>
                   <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}/>
                   <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}>{colInput('c1_name','Name…')}</th>
