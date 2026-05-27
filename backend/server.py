@@ -28,6 +28,7 @@ import pandas as pd
 import io
 import uuid
 from datetime import datetime, timezone, timedelta
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import List, Optional
 from pydantic import BaseModel, EmailStr, field_validator, model_validator
 from enum import Enum
@@ -1987,7 +1988,11 @@ async def get_bulk_email_recipients(request: Request):
 
     # Check which have already received a welcome email
     sent_res = await run(lambda: sb("email_sends").select("sent_to").eq("email_type", "welcome").execute())
-    sent_set = {r["sent_to"].lower() for r in (sent_res.data or [])}
+    sent_set = set()
+    for row in (sent_res.data or []):
+        sent_to = row.get("sent_to") if isinstance(row, dict) else None
+        if isinstance(sent_to, str) and sent_to.strip():
+            sent_set.add(sent_to.strip().lower())
 
     result = []
     for e, meta in recipients.items():
@@ -4124,6 +4129,45 @@ class TimesheetReview(BaseModel):
     note:   Optional[str] = None
 
 
+def _to_decimal_hours(value) -> Decimal:
+    try:
+        return Decimal(str(value or 0))
+    except (InvalidOperation, TypeError, ValueError):
+        raise HTTPException(400, "Invalid hours value.")
+
+
+def _normalize_timesheet_hours(entry: dict) -> Decimal:
+    """
+    Accept both legacy decimal-hours payloads and the new hour/minute payload.
+    Minutes are converted into decimal hours for storage in the existing numeric column.
+    """
+    if not isinstance(entry, dict):
+        raise HTTPException(400, "Invalid timesheet entry.")
+
+    if "minutes" in entry or "hours_value" in entry:
+        raw_hours = entry.get("hours_value", 0)
+        raw_minutes = entry.get("minutes", 0)
+        try:
+            hours_value = int(raw_hours or 0)
+            minutes_value = int(raw_minutes or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Hours and minutes must be whole numbers.")
+
+        if hours_value < 0:
+            raise HTTPException(400, "Hours cannot be negative.")
+        if minutes_value < 0 or minutes_value > 59:
+            raise HTTPException(400, "Minutes must be between 0 and 59.")
+
+        total = Decimal(hours_value) + (Decimal(minutes_value) / Decimal(60))
+    else:
+        total = _to_decimal_hours(entry.get("hours", 0))
+
+    if total < 0:
+        raise HTTPException(400, "Hours cannot be negative.")
+
+    return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
 def _week_friday(d: datetime) -> str:
     """Return ISO string of the Friday of the week containing d."""
     # Friday is weekday 4 (Mon=0..Sun=6). Roll back to most recent Friday.
@@ -4189,20 +4233,22 @@ async def upsert_timesheet_entries(timesheet_id: str, body: dict, request: Reque
         raise HTTPException(400, f"Cannot edit a {ts['status']} timesheet")
 
     entries = body.get("entries", [])
-    total_hours = 0.0
+    total_hours = Decimal("0.00")
     for e in entries:
-        h = float(e.get("hours", 0))
-        total_hours += h
-        await run(lambda ed=e["entry_date"], eh=h, ec=e.get("comments"): sb("timesheet_entries").upsert({
+        if not e.get("entry_date"):
+            raise HTTPException(400, "Each timesheet entry must include entry_date.")
+        hours_decimal = _normalize_timesheet_hours(e)
+        total_hours += hours_decimal
+        await run(lambda ed=e["entry_date"], eh=float(hours_decimal), ec=e.get("comments"): sb("timesheet_entries").upsert({
             "timesheet_id": timesheet_id,
             "entry_date":   ed,
             "hours":        eh,
             "comments":     ec,
         }, on_conflict="timesheet_id,entry_date").execute())
 
-    await run(lambda: sb("timesheets").update({"total_hours": total_hours, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", timesheet_id).execute())
+    await run(lambda: sb("timesheets").update({"total_hours": float(total_hours), "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", timesheet_id).execute())
     await _audit("timesheet_saved", entity_name=f"Week of {ts['week_start']}", user=user)
-    return {"success": True, "total_hours": total_hours}
+    return {"success": True, "total_hours": float(total_hours)}
 
 
 @api_router.post("/timesheets/{timesheet_id}/submit")
