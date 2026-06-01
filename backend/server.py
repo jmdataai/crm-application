@@ -968,9 +968,9 @@ async def update_lead(lead_id: str, lead: LeadUpdate, request: Request):
     if "status" in patch and isinstance(patch["status"], LeadStatus):
         patch["status"] = patch["status"].value
 
-    if lead.status and lead.status.value != existing.get("status"):
+    if lead.status and lead.status != existing.get("status"):
         old_status = existing.get("status")
-        new_status = lead.status.value
+        new_status = lead.status
         await run(lambda: sb("lead_status_history").insert({
             "lead_id":        lead_id,
             "old_status":     old_status,
