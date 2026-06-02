@@ -122,11 +122,11 @@ export default function BulkEmail() {
   // Manually skipped emails (✕ button) — only excluded for this send session
   const [excluded, setExcluded] = useState(new Set());
 
-  // Recipient filters — company name, location, name/email search
-  const [search, setSearch]               = useState('');
-  const [companySearch, setCompanySearch] = useState('');
-  const [locationFilter, setLocationFilter] = useState(new Set());
-  const [locationDropOpen, setLocationDropOpen] = useState(false);
+  // Cascading filters: location (single) → company (multi, scoped to location)
+  const [search, setSearch]                   = useState('');
+  const [selectedLocation, setSelectedLocation] = useState('');     // '' = all locations
+  const [selectedCompanies, setSelectedCompanies] = useState(new Set()); // '' set = all companies
+  const [companyDropOpen, setCompanyDropOpen] = useState(false);
 
   // The HTML body to actually send, computed from current editor mode
   const currentHtmlBody = editorMode === 'text' ? plainTextToHtml(plainBody) : htmlBody;
@@ -153,13 +153,13 @@ export default function BulkEmail() {
   useEffect(() => { loadRecipients(); }, [loadRecipients]);
   useEffect(() => { if (tab === 'history') loadHistory(); }, [tab, loadHistory]);
 
-  // Close location dropdown on outside click
+  // Close company dropdown on outside click
   useEffect(() => {
-    if (!locationDropOpen) return;
-    const h = (e) => { if (!e.target.closest('[data-loc-drop]')) setLocationDropOpen(false); };
+    if (!companyDropOpen) return;
+    const h = (e) => { if (!e.target.closest('[data-company-drop]')) setCompanyDropOpen(false); };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
-  }, [locationDropOpen]);
+  }, [companyDropOpen]);
 
   const addExtraEmail = () => {
     const emails = parseEmailInput(extraInput);
@@ -175,24 +175,35 @@ export default function BulkEmail() {
     setTestInput('');
   };
 
-  const toggleExclude  = (email) => setExcluded(prev => { const n=new Set(prev); n.has(email)?n.delete(email):n.add(email); return n; });
-  const toggleLocation = (loc)   => setLocationFilter(prev => { const n=new Set(prev); n.has(loc)?n.delete(loc):n.add(loc); return n; });
+  const toggleExclude   = (email) => setExcluded(prev => { const n=new Set(prev); n.has(email)?n.delete(email):n.add(email); return n; });
+  const toggleCompany   = (co)    => setSelectedCompanies(prev => { const n=new Set(prev); n.has(co)?n.delete(co):n.add(co); return n; });
+
+  // When location changes, reset company selection
+  const handleLocationChange = (loc) => { setSelectedLocation(loc); setSelectedCompanies(new Set()); };
 
   const allLocations = useMemo(() =>
     [...new Set(recipients.map(r => r.hq_location).filter(Boolean))].sort()
   , [recipients]);
 
+  // Companies available for the currently selected location (or all if none selected)
+  const companiesForLocation = useMemo(() => {
+    const base = selectedLocation
+      ? recipients.filter(r => r.hq_location === selectedLocation)
+      : recipients;
+    return [...new Set(base.map(r => r.company).filter(Boolean))].sort();
+  }, [recipients, selectedLocation]);
+
   /**
-   * FILTERED = all recipients matching search/company/location.
-   * No "already sent" exclusion — she controls recipients only via filters + ✕ button.
+   * FILTERED = recipients matching search + location + company selections.
+   * No "already sent" exclusion — she controls list only via filters + ✕ skip.
    */
   const filtered = useMemo(() => recipients.filter(r => {
     const q = search.toLowerCase();
     const matchSearch  = !search || r.email.includes(q) || r.name?.toLowerCase().includes(q) || r.company?.toLowerCase().includes(q);
-    const matchCompany = !companySearch || r.company?.toLowerCase().includes(companySearch.toLowerCase());
-    const matchLoc     = locationFilter.size === 0 || locationFilter.has(r.hq_location);
-    return matchSearch && matchCompany && matchLoc;
-  }), [recipients, search, companySearch, locationFilter]);
+    const matchLoc     = !selectedLocation || r.hq_location === selectedLocation;
+    const matchCompany = selectedCompanies.size === 0 || selectedCompanies.has(r.company);
+    return matchSearch && matchLoc && matchCompany;
+  }), [recipients, search, selectedLocation, selectedCompanies]);
 
   // Recipients who will receive the email on Send
   const activeRecipients = useMemo(() =>
@@ -202,7 +213,7 @@ export default function BulkEmail() {
   const totalToSend = activeRecipients.length + extraEmails.filter(e => !excluded.has(e)).length;
   const sentCount   = recipients.filter(r => r.already_sent).length; // visual info only
 
-  const hasFilters = search || companySearch || locationFilter.size > 0;
+  const hasFilters = search || selectedLocation || selectedCompanies.size > 0;
 
   // Step 1: validate → open PIN modal
   const requestSend = () => {
@@ -455,7 +466,7 @@ export default function BulkEmail() {
             }}>
               <Icon name={sending?'progress_activity':'send'} style={{ fontSize:'1.125rem', color:'#fff' }} />
               {sending ? 'Sending…' : `Send to ${totalToSend} Recipient${totalToSend!==1?'s':''}`}
-              {locationFilter.size > 0 && !sending && <span style={{ fontSize:'0.75rem', fontWeight:500, opacity:0.85 }}>({[...locationFilter].join(', ')})</span>}
+              {selectedLocation && !sending && <span style={{ fontSize:'0.75rem', fontWeight:500, opacity:0.85 }}>({selectedLocation}{selectedCompanies.size>0?` · ${selectedCompanies.size} co.`:''})</span>}
             </button>
           </div>
 
@@ -476,44 +487,85 @@ export default function BulkEmail() {
               </div>
             </div>
 
-            {/* Search by name / email */}
+            {/* Name / email search */}
             <input className="input" type="text" value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Search name or email…" style={{ marginBottom:'0.375rem', fontSize:'0.8125rem' }} />
+              placeholder="Search name or email…" style={{ marginBottom:'0.5rem', fontSize:'0.8125rem' }} />
 
-            {/* Search by company */}
-            <input className="input" type="text" value={companySearch} onChange={e => setCompanySearch(e.target.value)}
-              placeholder="Filter by company…" style={{ marginBottom:'0.5rem', fontSize:'0.8125rem' }} />
-
-            {/* Location filter */}
+            {/* Step 1: Location single-select */}
             {allLocations.length > 0 && (
-              <div data-loc-drop style={{ position:'relative', marginBottom:'0.5rem' }}>
-                <button onClick={() => setLocationDropOpen(o=>!o)} style={{
-                  width:'100%', padding:'0.35rem 0.75rem', borderRadius:'0.5rem', fontSize:'0.8125rem',
-                  border:`1px solid ${locationFilter.size>0?'var(--primary)':'var(--outline-variant)'}`,
-                  background:locationFilter.size>0?'rgba(68,104,176,0.08)':'var(--surface-container-low)',
-                  color:locationFilter.size>0?'var(--primary)':'var(--on-surface-variant)',
-                  cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'space-between',
-                  fontFamily:'var(--font-display)', fontWeight:600,
-                }}>
-                  <span><Icon name="location_on" style={{ fontSize:'0.9rem', marginRight:'0.25rem' }} />
-                    {locationFilter.size>0 ? [...locationFilter].join(', ') : 'Filter by Location'}
+              <div style={{ marginBottom:'0.375rem' }}>
+                <select
+                  value={selectedLocation}
+                  onChange={e => handleLocationChange(e.target.value)}
+                  style={{
+                    width:'100%', padding:'0.35rem 0.75rem', borderRadius:'0.5rem', fontSize:'0.8125rem',
+                    border:`1px solid ${selectedLocation ? 'var(--primary)' : 'var(--outline-variant)'}`,
+                    background: selectedLocation ? 'rgba(68,104,176,0.08)' : 'var(--surface-container-low)',
+                    color: selectedLocation ? 'var(--primary)' : 'var(--on-surface-variant)',
+                    cursor:'pointer', fontFamily:'var(--font-display)', fontWeight:600, outline:'none',
+                  }}
+                >
+                  <option value="">📍 All Locations ({recipients.length})</option>
+                  {allLocations.map(loc => {
+                    const cnt = recipients.filter(r => r.hq_location === loc).length;
+                    return <option key={loc} value={loc}>📍 {loc} ({cnt})</option>;
+                  })}
+                </select>
+              </div>
+            )}
+
+            {/* Step 2: Company multi-select — scoped to selected location */}
+            {companiesForLocation.length > 0 && (
+              <div data-company-drop style={{ position:'relative', marginBottom:'0.5rem' }}>
+                <button
+                  onClick={() => setCompanyDropOpen(o => !o)}
+                  style={{
+                    width:'100%', padding:'0.35rem 0.75rem', borderRadius:'0.5rem', fontSize:'0.8125rem',
+                    border:`1px solid ${selectedCompanies.size > 0 ? 'var(--tertiary)' : 'var(--outline-variant)'}`,
+                    background: selectedCompanies.size > 0 ? 'rgba(0,98,67,0.08)' : 'var(--surface-container-low)',
+                    color: selectedCompanies.size > 0 ? 'var(--tertiary)' : 'var(--on-surface-variant)',
+                    cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'space-between',
+                    fontFamily:'var(--font-display)', fontWeight:600,
+                  }}
+                >
+                  <span>
+                    🏢 {selectedCompanies.size > 0
+                      ? `${selectedCompanies.size} compan${selectedCompanies.size > 1 ? 'ies' : 'y'} selected`
+                      : `All Companies (${companiesForLocation.length})`}
                   </span>
-                  <Icon name={locationDropOpen?'expand_less':'expand_more'} style={{ fontSize:'1rem' }} />
+                  <Icon name={companyDropOpen ? 'expand_less' : 'expand_more'} style={{ fontSize:'1rem' }} />
                 </button>
-                {locationDropOpen && (
-                  <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:200, background:'var(--surface-container-lowest)', border:'1px solid var(--outline-variant)', borderRadius:'0.5rem', boxShadow:'0 4px 16px rgba(0,0,0,0.12)', padding:'0.375rem 0', marginTop:2 }}>
+                {companyDropOpen && (
+                  <div style={{
+                    position:'absolute', top:'100%', left:0, right:0, zIndex:300,
+                    background:'var(--surface-container-lowest)', border:'1px solid var(--outline-variant)',
+                    borderRadius:'0.5rem', boxShadow:'0 4px 20px rgba(0,0,0,0.14)',
+                    padding:'0.375rem 0', marginTop:2,
+                  }}>
                     <div style={{ padding:'0.25rem 0.75rem', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                      <span style={{ fontSize:'0.6875rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase' }}>Locations</span>
-                      {locationFilter.size>0 && <button onClick={() => { setLocationFilter(new Set()); setLocationDropOpen(false); }} style={{ fontSize:'0.6875rem', background:'none', border:'none', color:'var(--primary)', cursor:'pointer', fontWeight:600 }}>Clear all</button>}
+                      <span style={{ fontSize:'0.6875rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase' }}>
+                        {selectedLocation || 'All'} Companies
+                      </span>
+                      {selectedCompanies.size > 0 && (
+                        <button onClick={() => setSelectedCompanies(new Set())}
+                          style={{ fontSize:'0.6875rem', background:'none', border:'none', color:'var(--tertiary)', cursor:'pointer', fontWeight:600 }}>
+                          Clear
+                        </button>
+                      )}
                     </div>
-                    <div style={{ maxHeight:180, overflowY:'auto' }}>
-                      {allLocations.map(loc => {
-                        const cnt = recipients.filter(r => r.hq_location===loc).length;
+                    <div style={{ maxHeight:200, overflowY:'auto' }}>
+                      {companiesForLocation.map(co => {
+                        const cnt = filtered.filter(r => r.company === co).length;
                         return (
-                          <label key={loc} style={{ display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.3rem 0.75rem', cursor:'pointer', fontSize:'0.8125rem', color:'var(--on-surface)', background:locationFilter.has(loc)?'rgba(68,104,176,0.08)':'transparent' }}>
-                            <input type="checkbox" checked={locationFilter.has(loc)} onChange={()=>toggleLocation(loc)} style={{ accentColor:'var(--primary)' }} />
-                            <span style={{ flex:1 }}>{loc}</span>
-                            <span style={{ fontSize:'0.6875rem', color:'var(--on-surface-variant)' }}>{cnt}</span>
+                          <label key={co} style={{
+                            display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.3rem 0.75rem',
+                            cursor:'pointer', fontSize:'0.8125rem', color:'var(--on-surface)',
+                            background: selectedCompanies.has(co) ? 'rgba(0,98,67,0.08)' : 'transparent',
+                          }}>
+                            <input type="checkbox" checked={selectedCompanies.has(co)} onChange={() => toggleCompany(co)}
+                              style={{ accentColor:'var(--tertiary)' }} />
+                            <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{co}</span>
+                            <span style={{ fontSize:'0.6875rem', color:'var(--on-surface-variant)', flexShrink:0 }}>{cnt}</span>
                           </label>
                         );
                       })}
@@ -525,7 +577,8 @@ export default function BulkEmail() {
 
             {/* Clear all filters */}
             {hasFilters && (
-              <button onClick={() => { setSearch(''); setCompanySearch(''); setLocationFilter(new Set()); }}
+              <button
+                onClick={() => { setSearch(''); handleLocationChange(''); setSelectedCompanies(new Set()); setCompanyDropOpen(false); }}
                 style={{ fontSize:'0.6875rem', padding:'0.2rem 0.5rem', borderRadius:9999, border:'1px solid var(--outline-variant)', color:'var(--on-surface-variant)', background:'transparent', cursor:'pointer', marginBottom:'0.375rem', fontWeight:600, alignSelf:'flex-start' }}>
                 <Icon name="filter_alt_off" style={{ fontSize:'0.875rem', marginRight:2 }} /> Clear filters
               </button>
@@ -641,7 +694,7 @@ export default function BulkEmail() {
               <h2 style={{ fontWeight:800, fontSize:'1.125rem', color:'var(--on-surface)', margin:'0 0 0.375rem' }}>Confirm Send</h2>
               <p style={{ fontSize:'0.875rem', color:'var(--on-surface-variant)', margin:0 }}>
                 Enter the 4-digit PIN to send to <strong>{totalToSend}</strong> recipient{totalToSend!==1?'s':''}.
-                {locationFilter.size>0 && <span style={{ display:'block', marginTop:'0.25rem', fontSize:'0.8125rem', color:'var(--primary)' }}>Location: {[...locationFilter].join(', ')}</span>}
+                {selectedLocation && <span style={{ display:'block', marginTop:'0.25rem', fontSize:'0.8125rem', color:'var(--primary)' }}>Location: {selectedLocation}{selectedCompanies.size>0?` · ${selectedCompanies.size} companies`:''}</span>}
               </p>
             </div>
             <input type="password" maxLength={4} value={pinInput}
