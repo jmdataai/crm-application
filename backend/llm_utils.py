@@ -863,6 +863,67 @@ async def extract_resume_insights(resume_text: str) -> dict:
     return {"tech_stack": tech, "experience_years": exp}
 
 
+# ════════════════════════════════════════════════════════════════
+# LINKEDIN POST GENERATOR
+# ════════════════════════════════════════════════════════════════
+
+_LINKEDIN_POST_PROMPT = """\
+You are a professional LinkedIn content writer for JM Data Talent, an Ireland-based IT staffing company.
+Generate an engaging LinkedIn post to attract qualified candidates and IT clients.
+
+Job Details:
+- Title: {title}
+- Location: {location}
+- Type: {employment_type}
+- Key Skills: {skills}
+- Description: {description}
+- Apply Link: {apply_url}
+
+Requirements:
+1. Open with an attention-grabbing line (1-2 lines, use 1-2 relevant emojis)
+2. State role title, location clearly in the first 2-3 lines
+3. Add a blank line, then 4-6 bullet points of key skills/requirements using the • symbol
+4. Add a blank line, then 1-2 lines about JM Data Talent (Ireland-based IT staffing firm)
+5. Add a strong CTA: "Apply here 👉 {apply_url}"
+6. End with 7-9 relevant hashtags on a new line (mix: #Hiring #Ireland #[TechSkill] #ITJobs #Dublin #Recruitment #[Role] etc.)
+7. Keep total post under 1200 characters
+8. Tone: professional, enthusiastic, human — NOT generic corporate boilerplate
+
+Return ONLY this JSON (no markdown, no extra text):
+{{"post": "<the full post text with actual newlines escaped as \\n>"}}
+"""
+
+
+async def generate_linkedin_post(job: dict, apply_url: str) -> str:
+    """
+    Generate an LLM-crafted LinkedIn post for a job opening.
+    Returns the post text string. Returns empty string on failure (caller uses template fallback).
+    """
+    if not job:
+        return ""
+    try:
+        skills_text = ", ".join((job.get("skills") or [])[:8]) or "various technologies"
+        desc        = (job.get("description") or "")[:400].strip()
+        prompt = _LINKEDIN_POST_PROMPT.format(
+            title           = job.get("title", ""),
+            location        = job.get("location") or "Ireland",
+            employment_type = job.get("employment_type") or "Contract/Permanent",
+            skills          = skills_text,
+            description     = desc,
+            apply_url       = apply_url,
+        )
+        loop = asyncio.get_running_loop()
+        raw  = await loop.run_in_executor(None, _call_llm, prompt)
+        result = _parse_json_response(raw)
+        post_text = (result.get("post") or "").strip()
+        if post_text and len(post_text) > 100:
+            # json.loads already unescapes \n; but if LLM literally put \\n, fix it
+            return post_text.replace("\\n", "\n")
+    except Exception as exc:
+        logger.warning(f"[LLM] LinkedIn post generation failed: {exc} — caller will use template fallback")
+    return ""
+
+
 def _jd_keyword_fallback(jd_text: str) -> dict:
     """
     Keyword scan of JD text — no LLM needed.

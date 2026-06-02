@@ -136,12 +136,11 @@ export default function SalesTrackerDashboard() {
   useEffect(() => { if (activeTab === 'monthly')  loadMonthly(); }, [activeTab, loadMonthly]);
 
   // ── Weekly log data for "Daily" tab ──────────────────────────
-  // weekOffset=0 → current week, -1 → last week
+  // The backend always returns thisWeek.days for the selected week (any weekOffset).
   const weekLogs = useMemo(() => {
     if (!data) return {};
-    if (weekOffset === 0) return data.thisWeek?.days || {};
-    return {}; // for past weeks, would need a separate API call — show empty
-  }, [data, weekOffset]);
+    return data.thisWeek?.days || {};
+  }, [data]);
 
   // ── Helpers ───────────────────────────────────────────────────
   const getWeekDates = (offset = 0) => {
@@ -278,7 +277,7 @@ export default function SalesTrackerDashboard() {
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div>
           <p className="label-sm" style={{ color: 'var(--tertiary)', marginBottom: '0.25rem' }}>Sales Tracker</p>
-          <h1 className="headline-sm">{viewingUserName}'s Dashboard</h1>
+          <h1 className="headline-sm">{viewingUserName === 'All Users' ? 'All Users Dashboard' : `${viewingUserName}'s Dashboard`}</h1>
           <p style={{ fontSize: '0.875rem', color: 'var(--on-surface-variant)', marginTop: '0.25rem' }}>
             Week {tw.weekNumber} · {tw.dateRange}
           </p>
@@ -452,21 +451,21 @@ export default function SalesTrackerDashboard() {
                   {isFuture ? 'Not yet' : 'No log for this day'}
                 </p>
                 <p style={{ fontSize: '0.875rem', color: 'var(--on-surface-variant)', marginTop: '0.25rem' }}>
-                  {isFuture ? `${activeDay} hasn't happened yet` : `Kajal didn't log ${activeDay}`}
+                  {isFuture ? `${activeDay} hasn't happened yet` : `${viewingUserName} didn't log ${activeDay}`}
                 </p>
               </div>
             );
             const metrics = [
-              { label: 'Emails Sent',      val: log.emails_sent,      target: [10,15] },
-              { label: 'LinkedIn Msgs',    val: log.linkedin_sent,    target: [8,10]  },
-              { label: 'Calls Made',       val: log.calls_made,       target: [3,5]   },
-              { label: 'Replies',          val: log.replies_received, target: null    },
-              { label: 'Meetings Booked',  val: log.meetings_booked,  target: null    },
-              { label: 'Meetings Done',    val: log.meetings_done,    target: null    },
-              { label: 'Proposals Sent',   val: log.proposals_sent,   target: null    },
-              { label: 'Follow-ups',       val: log.followups_done,   target: [3,5]   },
-              { label: 'New Leads',        val: log.new_leads_added,  target: null    },
-              { label: 'Hours Worked',     val: log.hours_worked,     target: null    },
+              { label: 'Emails Sent',      val: log.emails,         target: [10,15] },
+              { label: 'LinkedIn Msgs',    val: log.linkedin,       target: [8,10]  },
+              { label: 'Calls Made',       val: log.calls,          target: [3,5]   },
+              { label: 'Replies',          val: log.replies,        target: null    },
+              { label: 'Meetings Booked',  val: log.meetingsBooked, target: null    },
+              { label: 'Meetings Done',    val: log.meetingsDone,   target: null    },
+              { label: 'Proposals Sent',   val: log.proposals,      target: null    },
+              { label: 'Follow-ups',       val: log.followups,      target: [3,5]   },
+              { label: 'New Leads',        val: log.newLeads,       target: null    },
+              { label: 'Hours Worked',     val: log.hours_worked,   target: null    },
             ];
             return (
               <div className="card" style={{ padding: '1.5rem' }}>

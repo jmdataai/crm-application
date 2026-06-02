@@ -699,7 +699,7 @@ export default function LeadDetail() {
         </div>
       </div>
 
-      {editing && <EditCompanyModal lead={lead} onClose={() => setEditing(false)} onSave={updated => { setLead(updated); }} />}
+      {editing && <EditCompanyModal lead={lead} onClose={() => setEditing(false)} onSave={() => { fetchLead(); }} />}
       {showLog && <LogActivityModal onClose={() => setShowLog(false)} onLog={logActivity} />}
 
       {/* ── Email Compose Panel ───────────────────────────────── */}

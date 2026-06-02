@@ -1810,19 +1810,24 @@ _PHONE_RE = _re.compile(
     _re.VERBOSE,
 )
 _EMAIL_RE = _re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}')
+_LINKEDIN_RE = _re.compile(
+    r'(?:https?://)?(?:www\.)?linkedin\.com/in/[A-Za-z0-9\-_%\.]+/?',
+    _re.IGNORECASE,
+)
 
 def _mask_text(text: str) -> str:
     text = _EMAIL_RE.sub('[email hidden]', text)
     text = _PHONE_RE.sub('[phone hidden]', text)
+    text = _LINKEDIN_RE.sub('[linkedin hidden]', text)
     return text
 
 def _mask_pdf_bytes(pdf_bytes: bytes) -> bytes:
-    """Redact emails and phone numbers from a PDF using PyMuPDF."""
+    """Redact emails, phone numbers, and LinkedIn URLs from a PDF using PyMuPDF."""
     if not _FITZ_OK:
         raise RuntimeError("PyMuPDF not installed — cannot mask PDF")
     doc = _fitz.open(stream=pdf_bytes, filetype="pdf")
     for page in doc:
-        for pattern in (_EMAIL_RE, _PHONE_RE):
+        for pattern in (_EMAIL_RE, _PHONE_RE, _LINKEDIN_RE):
             for match in pattern.finditer(page.get_text()):
                 rects = page.search_for(match.group())
                 for r in rects:
@@ -2046,8 +2051,13 @@ async def send_bulk_email(body: BulkEmailSendRequest, request: Request):
             # Personalize [Client Name] with company name if available
             meta    = email_meta.get(addr, {})
             company = meta.get("company") or meta.get("name") or "there"
+            # Extract first name from contact name for {name} placeholder
+            contact_name = (meta.get("name") or "").strip()
+            first_name   = contact_name.split()[0] if contact_name else "there"
             subject = body.subject
             html    = body.html_body.replace("[Client Name]", company).replace("[client name]", company)
+            # Replace {name} / {Name} / {NAME} with the contact's first name
+            html    = html.replace("{name}", first_name).replace("{Name}", first_name).replace("{NAME}", first_name)
             await _graph_send_mail(from_email, [addr], subject, html)
             sent_ok.append(addr)
         except Exception as exc:
@@ -2449,21 +2459,31 @@ async def _post_job_to_linkedin(job: dict, apply_url: str) -> dict:
     if not token or not member_id:
         return {"success": False, "error": "LinkedIn credentials not configured — set LINKEDIN_ACCESS_TOKEN and LINKEDIN_ORGANIZATION_ID in HuggingFace Spaces secrets."}
 
-    # Build post text
-    skills_lines = ""
-    if job.get("skills"):
-        skills_lines = "\n" + "\n".join(f"• {s}" for s in (job["skills"] or [])[:6])
+    # ── Build post text via LLM (falls back to template if LLM unavailable) ──
+    post_text = ""
+    if LLM_AVAILABLE:
+        try:
+            from llm_utils import generate_linkedin_post as _gen_li_post
+            post_text = await _gen_li_post(job, apply_url)
+        except Exception as _li_llm_err:
+            logger.warning(f"[LinkedIn] LLM post failed: {_li_llm_err}")
 
-    desc = (job.get("description") or "").strip()
-    short_desc = desc[:300] + ("…" if len(desc) > 300 else "")
+    if not post_text:
+        # Template fallback
+        skills_lines = ""
+        if job.get("skills"):
+            skills_lines = "\n" + "\n".join(f"• {s}" for s in (job["skills"] or [])[:6])
 
-    location_line = ""
-    if job.get("location"):
-        location_line = f"📍 {job['location']}"
-    if job.get("employment_type"):
-        location_line += f" | {job['employment_type']}" if location_line else f"💼 {job['employment_type']}"
+        desc = (job.get("description") or "").strip()
+        short_desc = desc[:300] + ("…" if len(desc) > 300 else "")
 
-    post_text = f"""🚀 We're Hiring: {job['title']}
+        location_line = ""
+        if job.get("location"):
+            location_line = f"📍 {job['location']}"
+        if job.get("employment_type"):
+            location_line += f" | {job['employment_type']}" if location_line else f"💼 {job['employment_type']}"
+
+        post_text = f"""🚀 We're Hiring: {job['title']}
 
 {location_line}
 
@@ -2945,6 +2965,7 @@ def _sum_logs(rows):
         "proposals":      sum(r.get("proposals_sent")   or 0 for r in rows),
         "followups":      sum(r.get("followups_done")   or 0 for r in rows),
         "newLeads":       sum(r.get("new_leads_added")  or 0 for r in rows),
+        "hours_worked":   sum(float(r.get("hours_worked") or 0) for r in rows),
         "daysLogged":     len(rows),
     }
 
@@ -4312,8 +4333,8 @@ async def submit_timesheet(timesheet_id: str, request: Request):
 async def review_timesheet(timesheet_id: str, body: TimesheetReview, request: Request):
     """CEO approves or rejects a timesheet."""
     reviewer = await get_current_user(request)
-    if reviewer.get("role") != "viewer":
-        raise HTTPException(403, "Only the CEO can review timesheets")
+    if reviewer.get("role") not in ("viewer", "admin"):
+        raise HTTPException(403, "Only admin or CEO can review timesheets")
 
     action = body.action.lower()
     if action not in ("approve", "reject"):
@@ -4368,8 +4389,8 @@ async def get_all_timesheets(
 ):
     """CEO view — all timesheets across all users."""
     reviewer = await get_current_user(request)
-    if reviewer.get("role") not in ("viewer",):
-        raise HTTPException(403, "Only the CEO can view all timesheets")
+    if reviewer.get("role") not in ("viewer", "admin"):
+        raise HTTPException(403, "Only admin or CEO can view all timesheets")
 
     q = sb("timesheets").select("*,users!timesheets_user_id_fkey(id,name,email,role)").order("week_start", desc=True).limit(limit)
     if status:   q = q.eq("status", status)

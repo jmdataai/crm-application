@@ -282,6 +282,13 @@ const normalise = (l) => ({
   cp3_linkedin:     l.contact_person_3_linkedin || '',
 });
 
+// ── Filter persistence — survives lead-detail navigate and back ──
+const LEADS_FILTER_KEY = 'nexus_leads_filter';
+function _loadLeadsFilter() {
+  try { const s = sessionStorage.getItem(LEADS_FILTER_KEY); return s ? JSON.parse(s) : null; } catch { return null; }
+}
+const _savedLeadsFilter = _loadLeadsFilter();
+
 // ── Main Component ──────────────────────────────────────────
 export default function LeadsList() {
   const { isMobile } = useBreakpoint();
@@ -292,25 +299,36 @@ export default function LeadsList() {
   const [error, setError]         = useState('');
   const [showAdd, setShowAdd]     = useState(false);
   const [selected, setSelected]   = useState(new Set());
-  const [sortBy, setSortBy]       = useState('created_at');
-  const [sortDir, setSortDir]     = useState('desc');
-  const [page, setPage]           = useState(1);
-  const [statusView, setStatusView]   = useState('all');
-  const [segmentView, setSegmentView] = useState('all');
-  const [fileFilter, setFileFilter]   = useState('all');
+  const [sortBy, setSortBy]       = useState(_savedLeadsFilter?.sortBy || 'created_at');
+  const [sortDir, setSortDir]     = useState(_savedLeadsFilter?.sortDir || 'desc');
+  const [page, setPage]           = useState(_savedLeadsFilter?.page || 1);
+  const [statusView, setStatusView]   = useState(_savedLeadsFilter?.statusView || 'all');
+  const [segmentView, setSegmentView] = useState(_savedLeadsFilter?.segmentView || 'all');
+  const [fileFilter, setFileFilter]   = useState(_savedLeadsFilter?.fileFilter || 'all');
   const PER_PAGE = 25;
 
   // Per-column search
-  const [cs, setColS] = useState({
+  const [cs, setColS] = useState(_savedLeadsFilter?.cs || {
     company:'', company_type:'', hq_location:'', domain_focus:'', status:'',
     cp1_name:'', cp1_email:'', cp2_name:'', cp3_name:'',
     next_follow_up:'', source_file:'', source:'',
   });
   const setCS = (k, v) => { setColS(s => ({ ...s, [k]: v })); setPage(1); };
   // Location multi-select (separate from text search)
-  const [locationFilter, setLocationFilter] = useState(new Set()); // Set of location strings
+  const [locationFilter, setLocationFilter] = useState(() => new Set(_savedLeadsFilter?.locationFilter || []));
   const [locationDropOpen, setLocationDropOpen] = useState(false);
   const hasCS = Object.values(cs).some(v => v) || locationFilter.size > 0;
+
+  // ── Persist filter state to sessionStorage on every change ──
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(LEADS_FILTER_KEY, JSON.stringify({
+        cs, statusView, segmentView, fileFilter,
+        locationFilter: [...locationFilter],
+        page, sortBy, sortDir,
+      }));
+    } catch {}
+  }, [cs, statusView, segmentView, fileFilter, locationFilter, page, sortBy, sortDir]);
 
   useEffect(() => {
     const p = new URLSearchParams(location.search);
@@ -466,7 +484,7 @@ export default function LeadsList() {
             </button>
           )}
           {hasCS && (
-            <button onClick={() => { setColS(Object.fromEntries(Object.keys(cs).map(k=>[k,'']))); setStatusView('all'); setSegmentView('all'); setFileFilter('all'); setLocationFilter(new Set()); setPage(1); }} className="btn-ghost" style={{ fontSize:'0.8125rem' }}>
+            <button onClick={() => { setColS(Object.fromEntries(Object.keys(cs).map(k=>[k,'']))); setStatusView('all'); setSegmentView('all'); setFileFilter('all'); setLocationFilter(new Set()); setPage(1); try { sessionStorage.removeItem(LEADS_FILTER_KEY); } catch {} }} className="btn-ghost" style={{ fontSize:'0.8125rem' }}>
               <Icon name="filter_alt_off" style={{ fontSize:'1rem' }} /> Clear Filters
             </button>
           )}
