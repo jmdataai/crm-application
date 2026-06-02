@@ -88,6 +88,7 @@ export default function SalesTrackerDashboard() {
   const [dealSaving, setDealSaving]     = useState(false);
   const [dealError, setDealError]       = useState('');
   const [monthlyRollups, setMonthlyRollups] = useState([]);
+  const [trafficLightData, setTrafficLightData] = useState(null); // always fetched at week_offset=0
 
   // User picker (admin/viewer only)
   const [trackerUsers, setTrackerUsers]   = useState([]);
@@ -131,9 +132,21 @@ export default function SalesTrackerDashboard() {
     } catch (_) {}
   }, []);
 
+  // Traffic light always shows the REAL last-4 weeks from today (week_offset=0),
+  // regardless of what week the Daily tab is currently navigated to.
+  const loadTrafficLight = useCallback(async () => {
+    try {
+      const params = { week_offset: 0 };
+      if (isPrivileged && selectedUserId) params.user_id = selectedUserId;
+      const res = await salesTrackerAPI.getDashboard(params);
+      setTrafficLightData(res.data);
+    } catch (_) {}
+  }, [selectedUserId, isPrivileged]);
+
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
   useEffect(() => { if (activeTab === 'pipeline') loadPipeline(); }, [activeTab, loadPipeline]);
   useEffect(() => { if (activeTab === 'monthly')  loadMonthly(); }, [activeTab, loadMonthly]);
+  useEffect(() => { if (activeTab === 'traffic')  loadTrafficLight(); }, [activeTab, loadTrafficLight]);
 
   // ── Weekly log data for "Daily" tab ──────────────────────────
   // The backend always returns thisWeek.days for the selected week (any weekOffset).
@@ -651,7 +664,7 @@ export default function SalesTrackerDashboard() {
                 <span key={h} style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--on-surface-variant)', textAlign: 'center' }}>{h}</span>
               ))}
             </div>
-            {(data?.last4Weeks || []).map((wk, i) => {
+            {(trafficLightData?.last4Weeks || []).map((wk, i) => {
               const statuses = [
                 trafficLight(wk.emails,         TARGETS.weeklyEmails.min,    TARGETS.weeklyEmails.max),
                 trafficLight(wk.linkedin,        TARGETS.weeklyLinkedin.min,  TARGETS.weeklyLinkedin.max),
@@ -661,7 +674,7 @@ export default function SalesTrackerDashboard() {
               ];
               const greenCount = statuses.filter(s => s === 'green').length;
               const overall = greenCount >= 4 ? 'green' : greenCount >= 2 ? 'amber' : 'red';
-              const isCurrentWeek = i === data.last4Weeks.length - 1;
+              const isCurrentWeek = i === (trafficLightData.last4Weeks.length - 1);
               return (
                 <div key={i} style={{ display: 'grid', gridTemplateColumns: '140px repeat(6,1fr)', padding: '0.875rem 1rem', gap: '0.5rem', alignItems: 'center', borderBottom: '1px solid var(--outline-variant)', background: isCurrentWeek ? 'rgba(68,104,176,0.04)' : 'transparent' }}>
                   <div>
@@ -695,7 +708,10 @@ export default function SalesTrackerDashboard() {
           {monthlyRollups.length === 0 ? (
             <div className="card" style={{ padding: '3rem', textAlign: 'center' }}>
               <Icon name="bar_chart" style={{ fontSize: '2rem', color: 'var(--on-surface-variant)', display: 'block', margin: '0 auto 0.75rem' }} />
-              <p style={{ color: 'var(--on-surface-variant)' }}>No monthly rollups yet. Kajal fills this last Friday of each month.</p>
+              <p style={{ color: 'var(--on-surface-variant)' }}>
+                No monthly rollups yet.
+                {isSales && ' Fill this in on the last Friday of each month.'}
+              </p>
             </div>
           ) : monthlyRollups.map((m, idx) => {
             const kpis = [
