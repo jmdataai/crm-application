@@ -114,7 +114,7 @@ class T:
         self.req("GET","leads",params={"status":"new"}, label="GET /leads — status filter")
 
         r = self.req("POST","leads", 200, label="POST /leads — create",
-                     json={"company_name":f"PW Test {int(time.time())}",
+                     json={"company":f"PW Test {int(time.time())}",
                            "company_type":"client","hq_location":"Ireland","status":"new"})
         if r:
             self.lead_id = (r.get("id")
@@ -239,7 +239,7 @@ class T:
             r = self.req("POST","interviews",[200,201], label="POST /interviews",
                          json={"candidate_id":self.candidate_id,"job_id":self.job_id,
                                "scheduled_at":(datetime.utcnow()+timedelta(days=3)).isoformat(),
-                               "type":"technical","status":"scheduled"})
+                               "interview_type":"technical","status":"scheduled"})
             if r: self.interview_id = r.get("id") or (r.get("data") or [{}])[0].get("id")
             if self.interview_id:
                 self.req("PUT",f"interviews/{self.interview_id}",[200,204],
@@ -263,10 +263,10 @@ class T:
                        "linkedin_sent":3,"calls_made":2,"replies_received":1,
                        "meetings_booked":0,"meetings_done":0,"proposals_sent":0,
                        "followups_done":2,"new_leads_added":1,"hours_worked":7.5,
-                       "mood":"good","biggest_win":"PW test","biggest_blocker":"None"})
+                       "mood":3,"biggest_win":"PW test","biggest_blocker":"None"})
         self.req("GET","sales/tracker/pipeline",              label="GET /tracker/pipeline")
         r = self.req("POST","sales/tracker/pipeline",[200,201],label="POST /tracker/pipeline",
-                     json={"company":"PW Deal Co","stage":"proposal","value":5000,
+                     json={"client_name":"PW Deal Co","stage":"proposal","value":5000,
                            "probability":60,
                            "close_date":(date.today()+timedelta(days=30)).isoformat()})
         if r: self.deal_id = r.get("id") or (r.get("data") or [{}])[0].get("id")
@@ -294,8 +294,8 @@ class T:
         self.req("GET","expenses",         label="GET /expenses")
         self.req("GET","expenses/summary", [200,404], label="GET /expenses/summary")
         r = self.req("POST","expenses",[200,201], label="POST /expenses",
-                     json={"date":date.today().isoformat(),"category":"travel",
-                           "description":"PW test expense","amount_eur":50.0,"currency":"EUR"})
+                     json={"title":"PW test expense","amount":50.0,"currency":"EUR",
+                           "category":"travel","expense_date":date.today().isoformat()})
         if r: self.expense_id = r.get("id") or (r.get("data") or [{}])[0].get("id")
         if self.expense_id:
             self.req("PUT",f"expenses/{self.expense_id}",[200,204,404],
