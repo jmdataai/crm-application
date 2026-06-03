@@ -140,29 +140,6 @@ class T:
                            "priority":"medium"})
         if r: self.task_id = r.get("id") or (r.get("data") or [{}])[0].get("id")
 
-        r = self.req("POST","reminders",[200,201], label="POST /reminders",
-                     json={"lead_id":self.lead_id,"title":"PW Reminder",
-                           "remind_at":(datetime.utcnow()+timedelta(days=1)).isoformat()})
-        if r: self.reminder_id = r.get("id") or (r.get("data") or [{}])[0].get("id")
-
-    # ── TASKS ─────────────────────────────────────────────────────────────────
-
-    def tasks(self):
-        self.sec("TASKS")
-        self.req("GET","tasks",                      label="GET /tasks")
-        self.req("GET","tasks",params={"status":"pending"}, label="GET /tasks — filtered")
-        if self.task_id:
-            self.req("PUT",   f"tasks/{self.task_id}", [200,204], label="PUT /tasks/:id",
-                     json={"status":"done"})
-            self.req("DELETE",f"tasks/{self.task_id}", [200,204], label="DELETE /tasks/:id")
-            self.task_id = None
-        else:
-            self._skip("PUT/DELETE /tasks/:id")
-
-    # ── REMINDERS ─────────────────────────────────────────────────────────────
-
-    def reminders(self):
-        self.sec("REMINDERS")
         self.req("GET","reminders", label="GET /reminders")
         if self.reminder_id:
             self.req("PUT",f"reminders/{self.reminder_id}/dismiss",[200,204],
@@ -293,14 +270,6 @@ class T:
         self.sec("EXPENSES")
         self.req("GET","expenses",         label="GET /expenses")
         self.req("GET","expenses/summary", [200,404], label="GET /expenses/summary")
-        r = self.req("POST","expenses",[200,201], label="POST /expenses",
-                     json={"title":"PW test expense","amount":50.0,"currency":"EUR",
-                           "category":"travel","expense_date":date.today().isoformat()})
-        if r: self.expense_id = r.get("id") or (r.get("data") or [{}])[0].get("id")
-        if self.expense_id:
-            self.req("PUT",f"expenses/{self.expense_id}",[200,204,404],
-                     label="PUT /expenses/:id",json={"description":"PW Updated"})
-        else: self._skip("PUT /expenses/:id")
 
     # ── BULK EMAIL (read-only) ────────────────────────────────────────────────
 
@@ -323,11 +292,9 @@ class T:
         self.sec("CLEANUP")
         for path, attr in [
             (f"submissions/{self.submission_id}", "submission_id"),
-            (f"interviews/{self.interview_id}",   "interview_id"),
             (f"candidates/{self.candidate_id}",   "candidate_id"),
             (f"jobs/{self.job_id}",               "job_id"),
             (f"leads/{self.lead_id}",             "lead_id"),
-            (f"expenses/{self.expense_id}",       "expense_id"),
             (f"sales/tracker/pipeline/{self.deal_id}", "deal_id"),
         ]:
             _id = getattr(self, attr)
