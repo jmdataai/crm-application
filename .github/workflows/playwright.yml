@@ -1,0 +1,159 @@
+# .github/workflows/playwright.yml
+#
+# WHEN: Every pull request targeting master
+#
+# WHAT IT DOES:
+#   1. Deploys the frontend to a Vercel PREVIEW URL (not production)
+#   2. Waits for HuggingFace backend to be warm
+#   3. Runs all Playwright smoke tests against that preview URL
+#   4. If tests pass: you can safely merge the PR → Vercel auto-deploys to production
+#   5. If tests fail: PR is blocked, you see exactly which test failed + screenshots
+#
+# BRANCH PROTECTION (set this up on GitHub after adding this file):
+#   Settings → Branches → master → Require status check: "playwright-tests"
+#   This prevents ANY merge to master unless this action passes.
+
+name: Playwright Tests
+
+on:
+  pull_request:
+    branches: [master]
+    # Only run when frontend or backend files changed (skip docs/README changes)
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - '.github/workflows/playwright.yml'
+
+  # Allow manual trigger from GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'URL to test against (leave blank for auto Vercel preview)'
+        required: false
+        default: ''
+
+jobs:
+  playwright-tests:
+    name: Playwright Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # ── 1. Checkout code ──────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Node ────────────────────────────────────────────────────
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'yarn'
+          cache-dependency-path: frontend/yarn.lock
+
+      # ── 3. Install frontend dependencies ─────────────────────────────────
+      - name: Install dependencies
+        working-directory: frontend
+        run: yarn install --frozen-lockfile
+
+      # ── 4. Install Playwright + Chromium only (fastest) ──────────────────
+      - name: Install Playwright Chromium
+        working-directory: frontend
+        run: npx playwright install chromium --with-deps
+
+      # ── 5. Deploy preview to Vercel ───────────────────────────────────────
+      #    This deploys to a preview URL (NOT production).
+      #    Production only gets deployed when the PR merges to master.
+      - name: Deploy Preview to Vercel
+        id: vercel_deploy
+        working-directory: frontend
+        run: |
+          # Deploy to preview (no --prod flag)
+          DEPLOY_URL=$(npx vercel deploy \
+            --token="${{ secrets.VERCEL_TOKEN }}" \
+            --yes \
+            2>&1 | grep -E "^https://" | tail -1)
+
+          if [ -z "$DEPLOY_URL" ]; then
+            echo "❌ Vercel deploy failed or returned no URL"
+            exit 1
+          fi
+
+          echo "✅ Preview deployed to: $DEPLOY_URL"
+          echo "PREVIEW_URL=$DEPLOY_URL" >> $GITHUB_OUTPUT
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      # ── 6. Determine which URL to test against ────────────────────────────
+      - name: Set test URL
+        id: set_url
+        run: |
+          # Manual override takes priority, then Vercel preview, then fallback
+          if [ -n "${{ github.event.inputs.base_url }}" ]; then
+            URL="${{ github.event.inputs.base_url }}"
+          else
+            URL="${{ steps.vercel_deploy.outputs.PREVIEW_URL }}"
+          fi
+          echo "TEST_URL=$URL" >> $GITHUB_OUTPUT
+          echo "🧪 Testing against: $URL"
+
+      # ── 7. Wait for backend to be warm (HuggingFace cold start) ──────────
+      - name: Wait for backend health
+        run: |
+          echo "Pinging backend..."
+          for i in {1..10}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              https://freddy-jmdataai-nexus-crm-backend.hf.space/api/auth/me \
+              --max-time 10 || echo "000")
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ] || [ "$STATUS" = "401" ] || [ "$STATUS" = "403" ]; then
+              echo "✅ Backend is warm"
+              break
+            fi
+            sleep 15
+          done
+
+      # ── 8. Create auth directory ──────────────────────────────────────────
+      - name: Create auth directory
+        run: mkdir -p frontend/tests/playwright/.auth
+
+      # ── 9. Run Playwright tests ───────────────────────────────────────────
+      - name: Run Playwright Tests
+        working-directory: frontend
+        run: npx playwright test --reporter=list,html
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ steps.set_url.outputs.TEST_URL }}
+          TEST_ADMIN_EMAIL: ${{ secrets.TEST_ADMIN_EMAIL }}
+          TEST_ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
+
+      # ── 10. Upload report and screenshots (always, so you can debug failures)
+      - name: Upload Playwright Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 14
+
+      # ── 11. Post summary to PR ────────────────────────────────────────────
+      - name: Post test summary to PR
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const passed = '${{ job.status }}' === 'success';
+            const emoji  = passed ? '✅' : '❌';
+            const status = passed ? 'All tests passed' : 'Tests FAILED — merge blocked';
+            const url    = '${{ steps.set_url.outputs.TEST_URL }}';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## ${emoji} Playwright Tests — ${status}\n\n` +
+                    `**Preview URL tested:** ${url}\n\n` +
+                    (passed
+                      ? '✅ All smoke tests passed. Safe to merge.'
+                      : '❌ One or more tests failed. Check the **playwright-report** artifact above for screenshots and traces.\n\n**Do not merge until fixed.**')
+            });

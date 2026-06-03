@@ -1,0 +1,2070 @@
+{
+  "config": {
+    "configFile": "C:\\Users\\nalam\\Downloads\\crm-application-main\\crm-application-main\\frontend\\playwright.config.js",
+    "rootDir": "C:/Users/nalam/Downloads/crm-application-main/crm-application-main/frontend/tests",
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/Users/nalam/Downloads/crm-application-main/crm-application-main/frontend/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "setup",
+        "name": "setup",
+        "testDir": "C:/Users/nalam/Downloads/crm-application-main/crm-application-main/frontend/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "/auth\\.setup\\.js/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "C:/Users/nalam/Downloads/crm-application-main/crm-application-main/frontend/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "C:/Users/nalam/Downloads/crm-application-main/crm-application-main/frontend/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "html",
+        {
+          "open": "never",
+          "outputFolder": "playwright-report"
+        }
+      ],
+      [
+        "json",
+        {
+          "outputFile": "playwright-report/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.60.0",
+    "workers": 4,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "auth.setup.js",
+      "file": "auth.setup.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "authenticate as admin",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "setup",
+              "projectName": "setup",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 825,
+                  "error": {
+                    "message": "Error: TEST_ADMIN_EMAIL and TEST_ADMIN_PASSWORD must be set.\nIn local dev: create a .env.test file in frontend/.\nIn CI: add them as GitHub Secrets.",
+                    "stack": "Error: TEST_ADMIN_EMAIL and TEST_ADMIN_PASSWORD must be set.\nIn local dev: create a .env.test file in frontend/.\nIn CI: add them as GitHub Secrets.\n    at C:\\Users\\nalam\\Downloads\\crm-application-main\\crm-application-main\\frontend\\tests\\auth.setup.js:15:11",
+                    "location": {
+                      "file": "C:\\Users\\nalam\\Downloads\\crm-application-main\\crm-application-main\\frontend\\tests\\auth.setup.js",
+                      "column": 11,
+                      "line": 15
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 13 |\u001b[39m\n \u001b[90m 14 |\u001b[39m   \u001b[36mif\u001b[39m (\u001b[33m!\u001b[39memail \u001b[33m||\u001b[39m \u001b[33m!\u001b[39mpassword) {\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 15 |\u001b[39m     \u001b[36mthrow\u001b[39m \u001b[36mnew\u001b[39m \u001b[33mError\u001b[39m(\n \u001b[90m    |\u001b[39m           \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 16 |\u001b[39m       \u001b[32m'TEST_ADMIN_EMAIL and TEST_ADMIN_PASSWORD must be set.\\n'\u001b[39m \u001b[33m+\u001b[39m\n \u001b[90m 17 |\u001b[39m       \u001b[32m'In local dev: create a .env.test file in frontend/.\\n'\u001b[39m \u001b[33m+\u001b[39m\n \u001b[90m 18 |\u001b[39m       \u001b[32m'In CI: add them as GitHub Secrets.'\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "C:\\Users\\nalam\\Downloads\\crm-application-main\\crm-application-main\\frontend\\tests\\auth.setup.js",
+                        "column": 11,
+                        "line": 15
+                      },
+                      "message": "Error: TEST_ADMIN_EMAIL and TEST_ADMIN_PASSWORD must be set.\nIn local dev: create a .env.test file in frontend/.\nIn CI: add them as GitHub Secrets.\n\n\u001b[0m \u001b[90m 13 |\u001b[39m\n \u001b[90m 14 |\u001b[39m   \u001b[36mif\u001b[39m (\u001b[33m!\u001b[39memail \u001b[33m||\u001b[39m \u001b[33m!\u001b[39mpassword) {\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 15 |\u001b[39m     \u001b[36mthrow\u001b[39m \u001b[36mnew\u001b[39m \u001b[33mError\u001b[39m(\n \u001b[90m    |\u001b[39m           \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 16 |\u001b[39m       \u001b[32m'TEST_ADMIN_EMAIL and TEST_ADMIN_PASSWORD must be set.\\n'\u001b[39m \u001b[33m+\u001b[39m\n \u001b[90m 17 |\u001b[39m       \u001b[32m'In local dev: create a .env.test file in frontend/.\\n'\u001b[39m \u001b[33m+\u001b[39m\n \u001b[90m 18 |\u001b[39m       \u001b[32m'In CI: add them as GitHub Secrets.'\u001b[39m\u001b[0m\n\u001b[2m    at C:\\Users\\nalam\\Downloads\\crm-application-main\\crm-application-main\\frontend\\tests\\auth.setup.js:15:11\u001b[22m"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-06-03T10:25:44.469Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "C:\\Users\\nalam\\Downloads\\crm-application-main\\crm-application-main\\frontend\\test-results\\auth.setup.js-authenticate-as-admin-setup\\test-failed-1.png"
+                    },
+                    {
+                      "name": "video",
+                      "contentType": "video/webm",
+                      "path": "C:\\Users\\nalam\\Downloads\\crm-application-main\\crm-application-main\\frontend\\test-results\\auth.setup.js-authenticate-as-admin-setup\\video.webm"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "C:\\Users\\nalam\\Downloads\\crm-application-main\\crm-application-main\\frontend\\test-results\\auth.setup.js-authenticate-as-admin-setup\\error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "C:\\Users\\nalam\\Downloads\\crm-application-main\\crm-application-main\\frontend\\test-results\\auth.setup.js-authenticate-as-admin-setup\\trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "C:\\Users\\nalam\\Downloads\\crm-application-main\\crm-application-main\\frontend\\tests\\auth.setup.js",
+                    "column": 11,
+                    "line": 15
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "f376efe52c54b1a876fd-28b184ba26ee58ce6bc0",
+          "file": "auth.setup.js",
+          "line": 10,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "smoke.spec.js",
+      "file": "smoke.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Auth",
+          "file": "smoke.spec.js",
+          "line": 39,
+          "column": 6,
+          "specs": [
+            {
+              "title": "login page renders all fields",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-752d0aefc0af09e47ce5",
+              "file": "smoke.spec.js",
+              "line": 40,
+              "column": 3
+            },
+            {
+              "title": "wrong credentials shows error, stays on /login",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-63ee091c2de4e6ed6aad",
+              "file": "smoke.spec.js",
+              "line": 47,
+              "column": 3
+            },
+            {
+              "title": "empty email shows validation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-a0776ce2b5b281e2650c",
+              "file": "smoke.spec.js",
+              "line": 58,
+              "column": 3
+            },
+            {
+              "title": "unauthenticated access redirects to login",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-7e473392578ba5ebaa50",
+              "file": "smoke.spec.js",
+              "line": 65,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Navigation — all routes load",
+          "file": "smoke.spec.js",
+          "line": 78,
+          "column": 6,
+          "specs": [
+            {
+              "title": "/sales — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-a7050e5844fe2146bc4c",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/sales/leads — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-7a2c6e4aa82e142f90ac",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/sales/tracker — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-24dd5460530c533d4ad5",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/sales/tasks — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-a2da9f15d509efa74f6d",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/sales/reminders — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-c2245358cd7154b5c248",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/sales/activity-log — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-a55cd6b0f4f2f6d0e92c",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/sales/bulk-email — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-2f8a0ad48e9a25089d7b",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/sales/import — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-b0d3e77d2f248807d615",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/sales/enrich — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-cd173df3dc8a9924c94f",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/recruitment — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-0cbb4ee0d683f13f0c2e",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/recruitment/jobs — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-31fd947f39e407dfc220",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/recruitment/candidates — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-732d3b8721f97a294395",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/recruitment/pipeline — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-90749ff78e4b98d53b0e",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/recruitment/interviews — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-9659768cff5f594a385e",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/recruitment/tasks — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-e188088b95f73b7736bc",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/recruitment/ats-match — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-c9d57d8ec14cd8691fbf",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/recruitment/ats-score — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-cfc6058c433ccf9d9d75",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/recruitment/bulk-upload — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-21b8f2e82190842caf0a",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/recruitment/import-candidates — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-a7dc2038bc97e6213293",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/timesheet — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-1494d5de4181454c2cff",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/timesheet/approvals — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-e124e9308cf9be84f159",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/expenses — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-bbd50175ffe33d014f79",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/ceo — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-a3619f3f1e3730c71a08",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/audit-log — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-b018051d515e36461850",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            },
+            {
+              "title": "/settings — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-b8f2c212014056713a80",
+              "file": "smoke.spec.js",
+              "line": 108,
+              "column": 5
+            }
+          ]
+        },
+        {
+          "title": "Leads List",
+          "file": "smoke.spec.js",
+          "line": 122,
+          "column": 6,
+          "specs": [
+            {
+              "title": "page title visible",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-3858793e691cf457f89b",
+              "file": "smoke.spec.js",
+              "line": 128,
+              "column": 3
+            },
+            {
+              "title": "company column search filters list",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-e15e77960cf35065d4bf",
+              "file": "smoke.spec.js",
+              "line": 132,
+              "column": 3
+            },
+            {
+              "title": "status tabs are clickable",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-e8368b459951343dc6e9",
+              "file": "smoke.spec.js",
+              "line": 141,
+              "column": 3
+            },
+            {
+              "title": "clear filters button works",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-a521ca9dfd231e92b734",
+              "file": "smoke.spec.js",
+              "line": 149,
+              "column": 3
+            },
+            {
+              "title": "filter persists after navigate-to-lead-and-back",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-c5535e9e92b6f1ed59e5",
+              "file": "smoke.spec.js",
+              "line": 162,
+              "column": 3
+            },
+            {
+              "title": "column sort changes order",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-50dfeffb6925c1a76dac",
+              "file": "smoke.spec.js",
+              "line": 180,
+              "column": 3
+            },
+            {
+              "title": "pagination buttons exist when leads > 25",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-3313cd6c34db0bce2ba6",
+              "file": "smoke.spec.js",
+              "line": 187,
+              "column": 3
+            },
+            {
+              "title": "Add Lead button opens modal",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-a80d847a27681c4255aa",
+              "file": "smoke.spec.js",
+              "line": 192,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Lead Detail",
+          "file": "smoke.spec.js",
+          "line": 210,
+          "column": 6,
+          "specs": [
+            {
+              "title": "detail page loads with company name (not \"?\")",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-9740a903e56dea329272",
+              "file": "smoke.spec.js",
+              "line": 225,
+              "column": 3
+            },
+            {
+              "title": "Contacts tab visible and not empty",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-9de00225fd88de97bdae",
+              "file": "smoke.spec.js",
+              "line": 236,
+              "column": 3
+            },
+            {
+              "title": "Activity tab shows timeline",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-8b6beb49679ec16e8c1d",
+              "file": "smoke.spec.js",
+              "line": 243,
+              "column": 3
+            },
+            {
+              "title": "Notes tab clickable",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-a9edb70483b71402830a",
+              "file": "smoke.spec.js",
+              "line": 252,
+              "column": 3
+            },
+            {
+              "title": "Submissions tab clickable",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-790f9ffd965406f69326",
+              "file": "smoke.spec.js",
+              "line": 263,
+              "column": 3
+            },
+            {
+              "title": "Tasks tab clickable",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-d36831fda21a3b65da3a",
+              "file": "smoke.spec.js",
+              "line": 274,
+              "column": 3
+            },
+            {
+              "title": "Edit button opens edit modal",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-79b676499d256a829342",
+              "file": "smoke.spec.js",
+              "line": 285,
+              "column": 3
+            },
+            {
+              "title": "Email compose button opens panel",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-8bd02094839a961476e5",
+              "file": "smoke.spec.js",
+              "line": 299,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Sales Tracker",
+          "file": "smoke.spec.js",
+          "line": 317,
+          "column": 6,
+          "specs": [
+            {
+              "title": "Overview tab — KPI cards load",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-8d75feac023d44940514",
+              "file": "smoke.spec.js",
+              "line": 323,
+              "column": 3
+            },
+            {
+              "title": "Daily tab — shows week days Mon–Fri",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-16d7bab30591e8eb072d",
+              "file": "smoke.spec.js",
+              "line": 329,
+              "column": 3
+            },
+            {
+              "title": "Daily tab — navigate to previous week",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-e279e14f41bd317d6dcd",
+              "file": "smoke.spec.js",
+              "line": 335,
+              "column": 3
+            },
+            {
+              "title": "Traffic Light tab — shows EMAILS / CALLS / OVERALL columns",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-fefd6a9d57e0356c38e2",
+              "file": "smoke.spec.js",
+              "line": 347,
+              "column": 3
+            },
+            {
+              "title": "Traffic Light tab — shows 4 week rows",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-e67e76d7891fe554dc8d",
+              "file": "smoke.spec.js",
+              "line": 355,
+              "column": 3
+            },
+            {
+              "title": "Monthly tab — loads without crash",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-517f620b64cf6614622e",
+              "file": "smoke.spec.js",
+              "line": 364,
+              "column": 3
+            },
+            {
+              "title": "Pipeline tab — loads deals table",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-d1bf07161459b6572ed6",
+              "file": "smoke.spec.js",
+              "line": 372,
+              "column": 3
+            },
+            {
+              "title": "User picker dropdown visible for admin",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-51c41530d2b5a9815e92",
+              "file": "smoke.spec.js",
+              "line": 378,
+              "column": 3
+            },
+            {
+              "title": "Refresh button triggers reload",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-73336d858f0d1944707f",
+              "file": "smoke.spec.js",
+              "line": 385,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Bulk Email — UI only (no sends)",
+          "file": "smoke.spec.js",
+          "line": 399,
+          "column": 6,
+          "specs": [
+            {
+              "title": "page header visible",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-cbeaae6bc912b0b30f01",
+              "file": "smoke.spec.js",
+              "line": 405,
+              "column": 3
+            },
+            {
+              "title": "recipients panel visible",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-9017866fab5a8f9b77c7",
+              "file": "smoke.spec.js",
+              "line": 409,
+              "column": 3
+            },
+            {
+              "title": "Plain Text / HTML / Preview toggle buttons present",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-be4e3440efbf1e74e1e3",
+              "file": "smoke.spec.js",
+              "line": 413,
+              "column": 3
+            },
+            {
+              "title": "switching to HTML mode shows textarea",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-c067f642b23e30dfc0f1",
+              "file": "smoke.spec.js",
+              "line": 419,
+              "column": 3
+            },
+            {
+              "title": "Preview mode renders HTML preview",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-9c724e6d7d1873448758",
+              "file": "smoke.spec.js",
+              "line": 425,
+              "column": 3
+            },
+            {
+              "title": "location dropdown present",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-7e5c62fc9add5b4c9e33",
+              "file": "smoke.spec.js",
+              "line": 431,
+              "column": 3
+            },
+            {
+              "title": "Sent History tab loads",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-609f564a20125531b822",
+              "file": "smoke.spec.js",
+              "line": 436,
+              "column": 3
+            },
+            {
+              "title": "Send button is visible (not clicking it)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-de2b40517cfd118af23a",
+              "file": "smoke.spec.js",
+              "line": 442,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Recruitment — Jobs",
+          "file": "smoke.spec.js",
+          "line": 452,
+          "column": 6,
+          "specs": [
+            {
+              "title": "jobs list loads",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-1a68b0448a6ce8de01a2",
+              "file": "smoke.spec.js",
+              "line": 458,
+              "column": 3
+            },
+            {
+              "title": "clicking a job opens detail panel",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-9014e24f7339c89945c8",
+              "file": "smoke.spec.js",
+              "line": 463,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Recruitment — Candidates",
+          "file": "smoke.spec.js",
+          "line": 476,
+          "column": 6,
+          "specs": [
+            {
+              "title": "candidates list loads",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-a3b8d63a6e7a41388295",
+              "file": "smoke.spec.js",
+              "line": 482,
+              "column": 3
+            },
+            {
+              "title": "search box filters candidates",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-dcd35acc9546894fd31f",
+              "file": "smoke.spec.js",
+              "line": 486,
+              "column": 3
+            },
+            {
+              "title": "Export button present",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-efe9765dab1eb7e55538",
+              "file": "smoke.spec.js",
+              "line": 494,
+              "column": 3
+            },
+            {
+              "title": "candidate detail opens on click",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-846cf626c2142374e522",
+              "file": "smoke.spec.js",
+              "line": 499,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Recruitment — ATS Match",
+          "file": "smoke.spec.js",
+          "line": 513,
+          "column": 6,
+          "specs": [
+            {
+              "title": "ATS match page loads textarea and button",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-e21147b14caa21433fb1",
+              "file": "smoke.spec.js",
+              "line": 514,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Recruitment — Pipeline",
+          "file": "smoke.spec.js",
+          "line": 527,
+          "column": 6,
+          "specs": [
+            {
+              "title": "pipeline board loads",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-41cab494a5e8338e05df",
+              "file": "smoke.spec.js",
+              "line": 528,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Timesheet (worker view)",
+          "file": "smoke.spec.js",
+          "line": 539,
+          "column": 6,
+          "specs": [
+            {
+              "title": "timesheet page loads current week",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-5eecb9d40bfed20acd3e",
+              "file": "smoke.spec.js",
+              "line": 540,
+              "column": 3
+            },
+            {
+              "title": "HH:MM input accepted",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-b1e9d9276829fbbdeb9f",
+              "file": "smoke.spec.js",
+              "line": 550,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Timesheet Approvals (admin view)",
+          "file": "smoke.spec.js",
+          "line": 561,
+          "column": 6,
+          "specs": [
+            {
+              "title": "approvals page loads submitted timesheets",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-e169fcd8d5459a0d5d72",
+              "file": "smoke.spec.js",
+              "line": 562,
+              "column": 3
+            },
+            {
+              "title": "employee filter dropdown present",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-55c191232c8786e1b54f",
+              "file": "smoke.spec.js",
+              "line": 568,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Expenses",
+          "file": "smoke.spec.js",
+          "line": 580,
+          "column": 6,
+          "specs": [
+            {
+              "title": "expense list loads",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-21347fef16d6e3605c95",
+              "file": "smoke.spec.js",
+              "line": 581,
+              "column": 3
+            },
+            {
+              "title": "Add Expense button opens form",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-49cf7cc364235f3b3229",
+              "file": "smoke.spec.js",
+              "line": 587,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "CEO Dashboard",
+          "file": "smoke.spec.js",
+          "line": 606,
+          "column": 6,
+          "specs": [
+            {
+              "title": "KPI summary cards load",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-863d025821062da63a78",
+              "file": "smoke.spec.js",
+              "line": 607,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Settings",
+          "file": "smoke.spec.js",
+          "line": 620,
+          "column": 6,
+          "specs": [
+            {
+              "title": "user management table visible",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-ef08be3d93c5a197c074",
+              "file": "smoke.spec.js",
+              "line": 621,
+              "column": 3
+            },
+            {
+              "title": "Add User button visible for admin",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-836bda0675b3944d1661",
+              "file": "smoke.spec.js",
+              "line": 628,
+              "column": 3
+            },
+            {
+              "title": "role change button visible per row",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-5a014388bb83c07ec560",
+              "file": "smoke.spec.js",
+              "line": 635,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Audit Log",
+          "file": "smoke.spec.js",
+          "line": 647,
+          "column": 6,
+          "specs": [
+            {
+              "title": "audit events list loads",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-4ae37a56d8ea8fb64d1f",
+              "file": "smoke.spec.js",
+              "line": 648,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Public Apply Form",
+          "file": "smoke.spec.js",
+          "line": 659,
+          "column": 6,
+          "specs": [
+            {
+              "title": "apply page loads with form fields",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-36494601c183041f56f1",
+              "file": "smoke.spec.js",
+              "line": 660,
+              "column": 3
+            },
+            {
+              "title": "submit empty apply form shows validation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-60695ca5e199425fdf6a",
+              "file": "smoke.spec.js",
+              "line": 671,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Global Search",
+          "file": "smoke.spec.js",
+          "line": 690,
+          "column": 6,
+          "specs": [
+            {
+              "title": "search bar opens on Enter / click",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-ba90cb1ed477a4ac2099",
+              "file": "smoke.spec.js",
+              "line": 691,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Quick Add",
+          "file": "smoke.spec.js",
+          "line": 708,
+          "column": 6,
+          "specs": [
+            {
+              "title": "Quick Add button opens modal",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-d491cdfebf2e9dfc4a6e",
+              "file": "smoke.spec.js",
+              "line": 709,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Logout",
+          "file": "smoke.spec.js",
+          "line": 728,
+          "column": 6,
+          "specs": [
+            {
+              "title": "logout button redirects to /login",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2c14808d47b386fba9eb-3a6c31f5cd4415401be2",
+              "file": "smoke.spec.js",
+              "line": 729,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-06-03T10:25:44.023Z",
+    "duration": 1900.234,
+    "expected": 0,
+    "skipped": 86,
+    "unexpected": 1,
+    "flaky": 0
+  }
+}
