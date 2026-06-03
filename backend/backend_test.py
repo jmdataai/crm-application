@@ -134,12 +134,30 @@ class T:
         self.req("POST","activities", [200,201], label="POST /activities",
                  json={"lead_id":self.lead_id,"activity_type":"call","description":"PW test"})
 
+    # ── TASKS ─────────────────────────────────────────────────────────────────
+
+    def tasks(self):
+        self.sec("TASKS")
+        if not self.lead_id:
+            self._skip("POST /tasks — need lead_id"); return
         r = self.req("POST","tasks",[200,201], label="POST /tasks",
                      json={"title":"PW Task","lead_id":self.lead_id,
                            "due_date":(date.today()+timedelta(days=7)).isoformat(),
                            "priority":"medium"})
         if r: self.task_id = r.get("id") or (r.get("data") or [{}])[0].get("id")
 
+        if self.task_id:
+            self.req("GET", f"tasks/{self.task_id}",    [200,404], label="GET /tasks/:id")
+            self.req("PUT", f"tasks/{self.task_id}",    [200,204], label="PUT /tasks/:id",
+                     json={"priority":"high"})
+            self.req("DELETE",f"tasks/{self.task_id}",  [200,204,404], label="DELETE /tasks/:id")
+        else:
+            self._skip("GET/PUT/DELETE /tasks/:id")
+
+    # ── REMINDERS ─────────────────────────────────────────────────────────────
+
+    def reminders(self):
+        self.sec("REMINDERS")
         self.req("GET","reminders", label="GET /reminders")
         if self.reminder_id:
             self.req("PUT",f"reminders/{self.reminder_id}/dismiss",[200,204],
@@ -163,7 +181,7 @@ class T:
         if not self.job_id:
             self._skip("GET/PUT /jobs/:id"); return
 
-        self.req("GET","f/jobs/{self.job_id}", [200,404], label="GET /jobs/:id")
+        self.req("GET",f"jobs/{self.job_id}", [200,404], label="GET /jobs/:id")
         self.req("PUT",f"jobs/{self.job_id}", [200,204], label="PUT /jobs/:id",
                  json={"title":"PW Test Role Updated"})
 

@@ -506,6 +506,8 @@ const JobPanel = ({ job, onClose, onToggle, onViewApplicants, onEdit, candidateC
   );
 };
 
+const JOBS_FILTER_KEY = 'nexus_jobs_filter';
+
 /* ── Main ───────────────────────────────────────────── */
 export default function JobsList() {
   const { isMobile, isTablet } = useBreakpoint();
@@ -551,11 +553,28 @@ export default function JobsList() {
     // Navigate to candidates page with job filter pre-applied via URL state
     navigate('/recruitment/candidates', { state: { jobFilter: jobId } });
   };
-  const [search, setSearch]   = useState('');
-  const [deptFilter, setDept] = useState('all');
-  const [typeFilter, setType] = useState('all');
-  const [statusFilter, setStat] = useState('active');
-  const [view, setView]       = useState('grid'); // grid | list
+  const [search, setSearch]     = useState(() => {
+    try { const raw = sessionStorage.getItem(JOBS_FILTER_KEY); return raw ? (JSON.parse(raw).search || '') : ''; } catch { return ''; }
+  });
+  const [deptFilter, setDept]   = useState(() => {
+    try { const raw = sessionStorage.getItem(JOBS_FILTER_KEY); return raw ? (JSON.parse(raw).deptFilter || 'all') : 'all'; } catch { return 'all'; }
+  });
+  const [typeFilter, setType]   = useState(() => {
+    try { const raw = sessionStorage.getItem(JOBS_FILTER_KEY); return raw ? (JSON.parse(raw).typeFilter || 'all') : 'all'; } catch { return 'all'; }
+  });
+  const [statusFilter, setStat] = useState(() => {
+    try { const raw = sessionStorage.getItem(JOBS_FILTER_KEY); return raw ? (JSON.parse(raw).statusFilter || 'active') : 'active'; } catch { return 'active'; }
+  });
+  const [view, setView]         = useState(() => {
+    try { const raw = sessionStorage.getItem(JOBS_FILTER_KEY); return raw ? (JSON.parse(raw).view || 'grid') : 'grid'; } catch { return 'grid'; }
+  }); // grid | list
+
+  // ── Persist filter state to sessionStorage on every change ──
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(JOBS_FILTER_KEY, JSON.stringify({ search, deptFilter, typeFilter, statusFilter, view }));
+    } catch {}
+  }, [search, deptFilter, typeFilter, statusFilter, view]);
 
   const toggle = async (id) => {
     const job = jobs.find(j => j.id === id);
