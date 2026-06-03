@@ -127,14 +127,14 @@ jobs:
       # ── 11. Post result comment to PR ─────────────────────────────────────
       - name: Post test summary to PR
         if: always() && github.event_name == 'pull_request'
-        continue-on-error: true   # never fail the job just because of a comment
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const passed  = '${{ job.status }}' === 'success';
-            const emoji   = passed ? '✅' : '❌';
-            const status  = passed ? 'All tests passed' : 'Tests FAILED — merge blocked';
+            const pw_passed  = '${{ job.status }}' === 'success';
+            const emoji   = pw_passed ? '✅' : '❌';
+            const status  = pw_passed ? 'All tests passed' : 'Tests FAILED — merge blocked';
             const url     = '${{ steps.set_url.outputs.TEST_URL }}';
 
             await github.rest.issues.createComment({
@@ -144,7 +144,73 @@ jobs:
               body:
                 `## ${emoji} Playwright Tests — ${status}\n\n` +
                 `**URL tested:** ${url}\n\n` +
-                (passed
+                (pw_passed
                   ? '✅ All smoke tests passed. Safe to merge.'
                   : '❌ One or more tests failed. Download the **playwright-report** artifact above for screenshots.\n\n**Do not merge until fixed.**')
+            });
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # JOB 2 — Backend API Tests
+  # Runs backend_test.py against the live HuggingFace API
+  # ════════════════════════════════════════════════════════════════════════════
+  backend-tests:
+    name: backend-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Wait for HuggingFace backend to wake up
+        run: |
+          echo "Pinging backend..."
+          for i in {1..10}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              https://freddy-jmdataai-nexus-crm-backend.hf.space/api/auth/me \
+              --max-time 10 || echo "000")
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ] || [ "$STATUS" = "401" ] || [ "$STATUS" = "403" ]; then
+              echo "✅ Backend is warm"
+              break
+            fi
+            sleep 15
+          done
+
+      - name: Run Backend API Tests
+        run: |
+          python backend_test.py \
+            https://freddy-jmdataai-nexus-crm-backend.hf.space
+        env:
+          ADMIN_EMAIL: ${{ secrets.TEST_ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
+
+      - name: Post backend test summary to PR
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const passed = '${{ job.status }}' === 'success';
+            const emoji  = passed ? '✅' : '❌';
+            const status = passed ? 'All endpoints passed' : 'Backend tests FAILED';
+
+            await github.rest.issues.createComment({
+              owner:        context.repo.owner,
+              repo:         context.repo.repo,
+              issue_number: context.issue.number,
+              body:
+                `## ${emoji} Backend API Tests — ${status}\n\n` +
+                (passed
+                  ? '✅ All API endpoints responded correctly.'
+                  : '❌ One or more API endpoints failed. Check the **backend-tests** job logs above for details.')
             });

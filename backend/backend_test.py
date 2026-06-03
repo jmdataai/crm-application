@@ -25,8 +25,8 @@ from datetime import datetime, timedelta, date
 # ── Config ────────────────────────────────────────────────────────────────────
 BASE_URL  = sys.argv[1] if len(sys.argv) > 1 else \
             "https://freddy-jmdataai-nexus-crm-backend.hf.space"
-EMAIL     = os.environ.get("ADMIN_EMAIL",    "ravi@jmdatatalent.com")
-PASSWORD  = os.environ.get("ADMIN_PASSWORD", "your_password_here")
+EMAIL     = os.environ.get("ADMIN_EMAIL") or os.environ.get("TEST_ADMIN_EMAIL") or "ravi@jmdatatalent.com"
+PASSWORD  = os.environ.get("ADMIN_PASSWORD") or os.environ.get("TEST_ADMIN_PASSWORD") or "your_password_here"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 GREEN = "\033[92m"; RED = "\033[91m"; YELLOW = "\033[93m"
