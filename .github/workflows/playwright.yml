@@ -53,7 +53,6 @@ jobs:
       #    and tests fall back to the production URL automatically.
       - name: Deploy Preview to Vercel
         id: vercel_deploy
-        if: ${{ secrets.VERCEL_TOKEN != '' }}
         working-directory: frontend
         continue-on-error: true   # don't block tests if preview deploy fails
         run: |
