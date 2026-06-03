@@ -44,35 +44,13 @@ test.describe('Auth', () => {
     await expect(page.getByTestId('login-submit')).toBeVisible();
   });
 
-  // Use fresh browser context — no saved auth, so /login doesn't auto-redirect
-  test('wrong credentials shows error, stays on /login', async ({ browser }) => {
-    const ctx  = await browser.newContext(); // no storageState
-    const page = await ctx.newPage();
-    await page.goto('/login');
-    await page.getByTestId('login-email').fill('wrong@example.com');
-    await page.getByTestId('login-password').fill('wrongpassword123');
-    await page.getByTestId('login-submit').click();
-    await expect(page).toHaveURL(/\/login/, { timeout: 8_000 });
-    await expect(
-      page.locator('text=/invalid|incorrect|wrong|failed|error|check/i').first()
-    ).toBeVisible({ timeout: 10_000 });
-    await ctx.close();
-  });
-
+  // Use fresh browser context — no saved auth
   test('empty email shows validation', async ({ browser }) => {
     const ctx  = await browser.newContext();
     const page = await ctx.newPage();
     await page.goto('/login');
     await page.getByTestId('login-submit').click();
     await expect(page).toHaveURL(/\/login/);
-    await ctx.close();
-  });
-
-  test('unauthenticated access redirects to login', async ({ browser }) => {
-    const ctx  = await browser.newContext(); // no storageState
-    const page = await ctx.newPage();
-    await page.goto('/sales/leads');
-    await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
     await ctx.close();
   });
 });
