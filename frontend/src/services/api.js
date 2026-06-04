@@ -235,8 +235,9 @@ export const ceoDashboardAPI = {
 
 // Audit Logs API
 export const auditLogsAPI = {
-  getAll:   (params) => api.get('/audit-logs', { params }),
-  logEvent: (body)   => api.post('/audit/log', body),
+  getAll:          (params) => api.get('/audit-logs', { params }),
+  getUserActivity: (params) => api.get('/audit-logs/user-activity', { params }),
+  logEvent:        (body)   => api.post('/audit/log', body),
 };
 
 // Expenses API

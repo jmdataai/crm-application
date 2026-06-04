@@ -412,6 +412,27 @@ export default function SalesTrackerDashboard() {
       {/* ── DAILY TAB ────────────────────────────────────────────── */}
       {activeTab === 'daily' && (
         <div>
+          {/* Pending log reminder — only for sales role, only on current week, only on weekdays */}
+          {(() => {
+            if (!isSales || weekOffset !== 0 || loading) return null;
+            const todayIdx = new Date().getDay(); // 0=Sun..6=Sat
+            if (todayIdx < 1 || todayIdx > 5) return null;   // weekend — no nudge
+            const todayName = DAYS_OF_WEEK[todayIdx - 1];
+            if (weekLogs[todayName]) return null;             // already logged today
+            return (
+              <div style={{ display:'flex', alignItems:'center', gap:'0.75rem', padding:'0.75rem 1rem', borderRadius:'0.625rem', background:'rgba(217,119,6,0.1)', border:'1px solid rgba(217,119,6,0.35)', marginBottom:'1rem' }}>
+                <Icon name="pending_actions" style={{ fontSize:'1.25rem', color:'#D97706', flexShrink:0 }} />
+                <div style={{ flex:1 }}>
+                  <span style={{ fontWeight:600, fontSize:'0.875rem', color:'#92400e' }}>You haven't logged today yet</span>
+                  <span style={{ fontSize:'0.8125rem', color:'#B45309', marginLeft:'0.5rem' }}>Go to Activity Log to fill in today's numbers.</span>
+                </div>
+                <a href="/sales/activity-log" style={{ fontSize:'0.8125rem', fontWeight:600, color:'#D97706', textDecoration:'none', whiteSpace:'nowrap', padding:'0.25rem 0.625rem', border:'1px solid rgba(217,119,6,0.4)', borderRadius:'0.375rem' }}>
+                  Log Now →
+                </a>
+              </div>
+            );
+          })()}
+
           {/* Week navigation */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
             <button onClick={() => setWeekOffset(w => w - 1)} style={{ background: 'none', border: '1px solid var(--outline-variant)', borderRadius: '0.5rem', padding: '0.375rem 0.625rem', cursor: 'pointer' }}>

@@ -30,6 +30,11 @@ const ALL_ENTITY_TYPES = ['lead','candidate','job','user','email','bulk_email','
 
 export default function AuditLog() {
   const { user } = useAuth();
+
+  // ── Tab ──────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState('events'); // 'events' | 'activity'
+
+  // ── Event log state ──────────────────────────────────────────
   const [logs,     setLogs]     = useState([]);
   const [total,    setTotal]    = useState(0);
   const [loading,  setLoading]  = useState(true);
@@ -44,10 +49,49 @@ export default function AuditLog() {
   // Filters
   const [action,     setAction]     = useState('');
   const [entity,     setEntity]     = useState('');
-  const [userId,     setUserId]     = useState('');   // UUID from dropdown
+  const [userId,     setUserId]     = useState('');
   const [entityName, setEntityName] = useState('');
   const [dateFrom,   setDateFrom]   = useState('');
   const [dateTo,     setDateTo]     = useState('');
+
+  // ── User Activity tab state ───────────────────────────────────
+  const [activity,        setActivity]        = useState([]);
+  const [actLoading,      setActLoading]      = useState(false);
+  const [actError,        setActError]        = useState('');
+  const [actFrom,         setActFrom]         = useState('');
+  const [actTo,           setActTo]           = useState('');
+
+  const fmtDuration = (mins) => {
+    if (mins < 1)  return '< 1 min';
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h === 0)   return `${m}m`;
+    if (m === 0)   return `${h}h`;
+    return `${h}h ${m}m`;
+  };
+
+  const durationColor = (mins) => {
+    if (mins >= 180) return { bg:'rgba(16,185,129,0.1)',  text:'#059669' }; // 3h+   green
+    if (mins >= 30)  return { bg:'rgba(245,158,11,0.1)',  text:'#D97706' }; // 30m+  amber
+    return               { bg:'var(--surface-container)', text:'var(--on-surface-variant)' };
+  };
+
+  const fetchActivity = useCallback(async () => {
+    setActLoading(true);
+    setActError('');
+    try {
+      const params = {};
+      if (actFrom) params.date_from = actFrom;
+      if (actTo)   params.date_to   = actTo;
+      if (!actFrom && !actTo) params.days = 14;
+      const res = await auditLogsAPI.getUserActivity(params);
+      setActivity(Array.isArray(res.data) ? res.data : []);
+    } catch (e) {
+      setActError('Failed to load activity data.');
+    } finally {
+      setActLoading(false);
+    }
+  }, [actFrom, actTo]);
 
   const selectedUser = users.find(u => u.id === userId);
   const hasFilters = action || entity || userId || entityName || dateFrom || dateTo;
@@ -85,6 +129,7 @@ export default function AuditLog() {
   }, [page, action, entity, userId, entityName, dateFrom, dateTo]);
 
   useEffect(() => { fetchLogs(); }, [fetchLogs]);
+  useEffect(() => { if (activeTab === 'activity') fetchActivity(); }, [activeTab, fetchActivity]);
 
   if (user?.role !== 'admin' && user?.role !== 'viewer') {
     return (
@@ -102,7 +147,7 @@ export default function AuditLog() {
   return (
     <div className="fade-in">
       {/* Header */}
-      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.5rem' }}>
+      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1rem' }}>
         <div>
           <p className="label-sm" style={{ marginBottom:'0.25rem' }}>Admin · Read-Only</p>
           <h1 className="headline-sm">Audit & Access Log</h1>
@@ -110,10 +155,145 @@ export default function AuditLog() {
             Tamper-proof record of every login, access, edit, email and export. {total.toLocaleString()} total entries.
           </p>
         </div>
-        <button onClick={fetchLogs} className="btn-secondary" style={{ display:'inline-flex', alignItems:'center', gap:'0.375rem' }}>
+        <button onClick={activeTab === 'events' ? fetchLogs : fetchActivity} className="btn-secondary" style={{ display:'inline-flex', alignItems:'center', gap:'0.375rem' }}>
           <Icon name="refresh" style={{ fontSize:'1rem' }} /> Refresh
         </button>
       </div>
+
+      {/* Tabs */}
+      <div style={{ display:'flex', gap:0, borderBottom:'1px solid var(--outline-variant)', marginBottom:'1.25rem' }}>
+        {[
+          { id:'events',   label:'Event Log',      icon:'history' },
+          { id:'activity', label:'User Activity',  icon:'access_time' },
+        ].map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+            display:'inline-flex', alignItems:'center', gap:'0.375rem',
+            padding:'0.625rem 1.125rem', background:'none', border:'none', cursor:'pointer',
+            fontFamily:'var(--font-display)', fontWeight: activeTab===t.id ? 700 : 500,
+            fontSize:'0.875rem',
+            color: activeTab===t.id ? 'var(--tertiary)' : 'var(--on-surface-variant)',
+            borderBottom: activeTab===t.id ? '2px solid var(--tertiary)' : '2px solid transparent',
+            marginBottom: -1,
+          }}>
+            <Icon name={t.icon} style={{ fontSize:'1rem' }} />{t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════ */}
+      {/* USER ACTIVITY TAB                                         */}
+      {/* ══════════════════════════════════════════════════════════ */}
+      {activeTab === 'activity' && (
+        <div>
+          {/* Controls */}
+          <div className="card" style={{ marginBottom:'1.25rem', padding:'1rem 1.25rem' }}>
+            <div style={{ display:'flex', gap:'0.75rem', flexWrap:'wrap', alignItems:'flex-end' }}>
+              <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem' }}>
+                <label style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--on-surface-variant)' }}>Date From</label>
+                <input type="date" value={actFrom} onChange={e => setActFrom(e.target.value)} style={inputStyle} />
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:'0.25rem' }}>
+                <label style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--on-surface-variant)' }}>Date To</label>
+                <input type="date" value={actTo} onChange={e => setActTo(e.target.value)} style={inputStyle} />
+              </div>
+              <button onClick={fetchActivity} className="btn-secondary" style={{ alignSelf:'flex-end', display:'inline-flex', alignItems:'center', gap:'0.375rem' }}>
+                <Icon name="search" style={{ fontSize:'1rem' }} /> Apply
+              </button>
+              {(actFrom || actTo) && (
+                <button onClick={() => { setActFrom(''); setActTo(''); }} className="btn-ghost" style={{ alignSelf:'flex-end', fontSize:'0.8125rem' }}>
+                  <Icon name="filter_alt_off" style={{ fontSize:'1rem' }} /> Clear
+                </button>
+              )}
+              <p style={{ marginLeft:'auto', fontSize:'0.8125rem', color:'var(--on-surface-variant)', alignSelf:'flex-end' }}>
+                {!actFrom && !actTo ? 'Showing last 14 days' : `${actFrom || '…'} → ${actTo || '…'}`}
+              </p>
+            </div>
+          </div>
+
+          {/* Legend */}
+          <div style={{ display:'flex', gap:'1rem', marginBottom:'0.875rem', fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>
+            <span style={{ display:'inline-flex', alignItems:'center', gap:'0.25rem' }}>
+              <span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'#059669' }} /> 3h+ active
+            </span>
+            <span style={{ display:'inline-flex', alignItems:'center', gap:'0.25rem' }}>
+              <span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'#D97706' }} /> 30m – 3h
+            </span>
+            <span style={{ display:'inline-flex', alignItems:'center', gap:'0.25rem' }}>
+              <span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'var(--outline-variant)' }} /> &lt; 30m
+            </span>
+            <span style={{ marginLeft:'auto', fontStyle:'italic' }}>Active window = first to last event of the day (UTC). Does not count idle time.</span>
+          </div>
+
+          {/* Table */}
+          <div className="card" style={{ padding:0, overflow:'hidden' }}>
+            {actLoading && (
+              <div style={{ textAlign:'center', padding:'3rem', color:'var(--on-surface-variant)' }}>
+                <Icon name="progress_activity" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.5rem' }} />Loading…
+              </div>
+            )}
+            {!actLoading && actError && (
+              <div style={{ textAlign:'center', padding:'3rem', color:'var(--error)' }}>{actError}</div>
+            )}
+            {!actLoading && !actError && activity.length === 0 && (
+              <div style={{ textAlign:'center', padding:'4rem', color:'var(--on-surface-variant)' }}>
+                <Icon name="event_busy" style={{ fontSize:'2.5rem', display:'block', margin:'0 auto 0.75rem', opacity:0.3 }} />
+                <p style={{ fontWeight:600 }}>No activity found for this period</p>
+              </div>
+            )}
+            {!actLoading && !actError && activity.length > 0 && (
+              <div style={{ overflowX:'auto' }}>
+                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.8125rem' }}>
+                  <thead style={{ position:'sticky', top:0, background:'var(--surface-container-low)', zIndex:1 }}>
+                    <tr>
+                      {['User','Date','First Seen','Last Seen','Active Window','Events'].map(h => (
+                        <th key={h} style={{ padding:'0.625rem 1rem', textAlign:'left', fontWeight:700, fontSize:'0.75rem', textTransform:'uppercase', color:'var(--on-surface-variant)', letterSpacing:'0.05em', borderBottom:'1px solid var(--outline-variant)', whiteSpace:'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activity.map((row, i) => {
+                      const dc = durationColor(row.duration_minutes);
+                      return (
+                        <tr key={i} style={{ borderBottom:'1px solid var(--surface-container)' }}
+                            onMouseEnter={e => e.currentTarget.style.background='var(--surface-container-low)'}
+                            onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                          <td style={{ padding:'0.625rem 1rem' }}>
+                            <p style={{ fontWeight:600 }}>{row.user_name}</p>
+                            <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>{row.user_email}</p>
+                          </td>
+                          <td style={{ padding:'0.625rem 1rem', color:'var(--on-surface)', whiteSpace:'nowrap' }}>
+                            {new Date(row.date).toLocaleDateString('en-IN', { weekday:'short', day:'2-digit', month:'short', year:'numeric' })}
+                          </td>
+                          <td style={{ padding:'0.625rem 1rem', fontFamily:'monospace', fontSize:'0.8125rem', color:'var(--on-surface-variant)', whiteSpace:'nowrap' }}>
+                            {row.first_action} <span style={{ fontSize:'0.7rem' }}>UTC</span>
+                          </td>
+                          <td style={{ padding:'0.625rem 1rem', fontFamily:'monospace', fontSize:'0.8125rem', color:'var(--on-surface-variant)', whiteSpace:'nowrap' }}>
+                            {row.last_action} <span style={{ fontSize:'0.7rem' }}>UTC</span>
+                          </td>
+                          <td style={{ padding:'0.625rem 1rem' }}>
+                            <span style={{ display:'inline-block', padding:'0.2rem 0.625rem', borderRadius:9999, fontSize:'0.8125rem', fontWeight:700, background:dc.bg, color:dc.text }}>
+                              {fmtDuration(row.duration_minutes)}
+                            </span>
+                          </td>
+                          <td style={{ padding:'0.625rem 1rem', color:'var(--on-surface-variant)', textAlign:'center' }}>
+                            {row.event_count}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════ */}
+      {/* EVENT LOG TAB (existing content)                          */}
+      {/* ══════════════════════════════════════════════════════════ */}
+      {activeTab === 'events' && (
+        <div>
 
       {/* ── Filter Panel ── */}
       <div className="card" style={{ marginBottom:'1.25rem', padding:'1rem 1.25rem' }}>
@@ -316,6 +496,8 @@ export default function AuditLog() {
           <button onClick={() => setPage(p=>Math.min(pages-1,p+1))} disabled={page>=pages-1} className="btn-secondary" style={{ padding:'0.375rem 0.75rem', opacity:page>=pages-1?0.4:1 }}>Next →</button>
         </div>
       )}
+      </div>
+      )}{/* end events tab */}
     </div>
   );
 }
