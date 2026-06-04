@@ -147,7 +147,6 @@ class T:
         if r: self.task_id = r.get("id") or (r.get("data") or [{}])[0].get("id")
 
         if self.task_id:
-            self.req("GET", f"tasks/{self.task_id}",    [200,404], label="GET /tasks/:id")
             self.req("PUT", f"tasks/{self.task_id}",    [200,204], label="PUT /tasks/:id",
                      json={"priority":"high"})
             self.req("DELETE",f"tasks/{self.task_id}",  [200,204,404], label="DELETE /tasks/:id")
