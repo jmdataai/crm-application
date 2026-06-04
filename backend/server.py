@@ -3290,6 +3290,19 @@ async def submit_sales_log(body: SalesActivityLogCreate, request: Request):
     return {"success": True, "data": (res.data or [{}])[0]}
 
 
+@api_router.delete("/sales/tracker/log/{log_date}")
+async def delete_sales_log(log_date: str, request: Request):
+    """Delete a daily activity log entry for a given date.
+    Sales users can only delete their own entry; admin can delete any."""
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    q = sb("sales_activity_log").delete().eq("log_date", log_date)
+    if user.get("role") not in ("admin",):
+        q = q.eq("logged_by", user["id"])
+    await run(lambda: q.execute())
+    return {"success": True}
+
+
 @api_router.get("/sales/tracker/log")
 async def get_sales_logs(
     request: Request,
@@ -4115,7 +4128,73 @@ async def get_audit_logs(
     return {"logs": res.data or [], "total": res.count or 0}
 
 
-# ============================================================
+@api_router.get("/audit-logs/user-activity")
+async def get_user_activity_log(
+    request:   Request,
+    date_from: Optional[str] = None,   # YYYY-MM-DD
+    date_to:   Optional[str] = None,   # YYYY-MM-DD
+    days:      int = 14,               # default window when no dates given
+):
+    """Per-user, per-day activity windows derived from audit_logs.
+    Uses min(created_at) and max(created_at) per user per calendar day
+    as the 'active window' (Plan B — no idle-time inflation)."""
+    caller = await get_current_user(request)
+    if caller.get("role") not in ("admin", "viewer"):
+        raise HTTPException(403, "Audit log is restricted to admin and CEO accounts")
+
+    if not date_from:
+        date_from = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    if not date_to:
+        date_to = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    res = await run(lambda: sb("audit_logs")
+        .select("user_id, user_name, user_email, created_at")
+        .gte("created_at", f"{date_from}T00:00:00Z")
+        .lte("created_at", f"{date_to}T23:59:59Z")
+        .not_.is_("user_id", "null")
+        .execute())
+
+    rows = res.data or []
+
+    # Group by (user_id, calendar-date)
+    from collections import defaultdict
+    from datetime import datetime as _dt
+    groups: dict = defaultdict(list)
+    for r in rows:
+        uid = r.get("user_id")
+        ts  = r.get("created_at", "")
+        if not uid or not ts:
+            continue
+        groups[(uid, ts[:10])].append({
+            "user_name":  r.get("user_name")  or "Unknown",
+            "user_email": r.get("user_email") or "",
+            "ts": ts,
+        })
+
+    result = []
+    for (uid, day_str), events in groups.items():
+        timestamps = [e["ts"] for e in events]
+        first_ts   = min(timestamps)
+        last_ts    = max(timestamps)
+        try:
+            t1 = _dt.fromisoformat(first_ts.replace("Z", "+00:00"))
+            t2 = _dt.fromisoformat(last_ts.replace("Z", "+00:00"))
+            duration_min = max(0, int((t2 - t1).total_seconds() / 60))
+        except Exception:
+            duration_min = 0
+
+        result.append({
+            "user_name":        events[0]["user_name"],
+            "user_email":       events[0]["user_email"],
+            "date":             day_str,
+            "first_action":     first_ts[11:16],   # HH:MM (UTC)
+            "last_action":      last_ts[11:16],    # HH:MM (UTC)
+            "duration_minutes": duration_min,
+            "event_count":      len(events),
+        })
+
+    result.sort(key=lambda x: (x["date"], x["user_name"]), reverse=True)
+    return result# ============================================================
 # AUDIT LOG — frontend event endpoint
 # ============================================================
 class FrontendAuditRequest(BaseModel):
@@ -4495,6 +4574,66 @@ async def send_timesheet_reminder():
             logger.info(f"[timesheet-reminder] Sent reminder to {u['email']}")
         except Exception as e:
             logger.error(f"[timesheet-reminder] Failed for {u['email']}: {e}")
+
+
+async def send_draft_timesheet_reminder():
+    """Every Monday 9AM UTC — remind users whose previous week's timesheet is still in draft.
+    Skips submitted, approved, and rejected timesheets — only targets genuinely forgotten drafts."""
+    today = datetime.now(timezone.utc)
+    current_friday_str = _week_friday(today)
+    current_friday     = datetime.fromisoformat(current_friday_str).date()
+    last_friday        = (current_friday - timedelta(days=7)).isoformat()
+
+    logger.info(f"[draft-reminder] Checking draft timesheets for week {last_friday}")
+    try:
+        ts_res = await run(lambda: sb("timesheets")
+            .select("id, user_id, week_start, status")
+            .eq("week_start", last_friday)
+            .eq("status", "draft")
+            .execute())
+        drafts = ts_res.data or []
+    except Exception as e:
+        logger.error(f"[draft-reminder] Failed to fetch draft timesheets: {e}")
+        return
+
+    if not drafts:
+        logger.info(f"[draft-reminder] No draft timesheets for week {last_friday}")
+        return
+
+    logger.info(f"[draft-reminder] Found {len(drafts)} draft timesheet(s) for week {last_friday}")
+    for ts in drafts:
+        try:
+            u_res = await run(lambda uid=ts["user_id"]:
+                sb("users").select("id, name, email").eq("id", uid).single().execute())
+            u = u_res.data
+            if not u or not u.get("email"):
+                continue
+            html = f'''
+<div style="font-family:Inter,sans-serif;max-width:600px;margin:0 auto">
+  <div style="background:linear-gradient(135deg,#d97706,#f59e0b);padding:32px;border-radius:12px 12px 0 0;color:#fff">
+    <h1 style="margin:0;font-size:1.5rem">⏰ Timesheet Not Submitted</h1>
+    <p style="margin:8px 0 0;opacity:0.9">Your timesheet from last week is still in draft</p>
+  </div>
+  <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;border-top:none">
+    <p>Hi {u['name']},</p>
+    <p>Your timesheet for the week of <strong>{last_friday}</strong> has been saved as a draft but has not been submitted for approval yet.</p>
+    <p>Please log in to the CRM and click <strong>Submit for Approval</strong> so your manager can review it.</p>
+    <div style="margin-top:24px;padding:16px;background:#fffbeb;border-radius:8px;border-left:4px solid #f59e0b">
+      <p style="margin:0;font-size:0.875rem;color:#92400e">
+        <strong>Action needed:</strong> Go to Timesheet → click <em>Submit for Approval</em> for week of {last_friday}.
+      </p>
+    </div>
+    <p style="margin-top:16px;font-size:0.8rem;color:#94a3b8">Nexus CRM — Automated reminder</p>
+  </div>
+</div>'''
+            await send_email(
+                u["email"],
+                f"Action needed: Submit your timesheet for week of {last_friday}",
+                html,
+            )
+            logger.info(f"[draft-reminder] Sent to {u['email']} for week {last_friday}")
+        except Exception as e:
+            logger.error(f"[draft-reminder] Failed for user {ts.get('user_id')}: {e}")
 
 
 
@@ -5456,6 +5595,7 @@ async def startup():
     scheduler.add_job(send_daily_digest, CronTrigger(hour=int(hour), minute=int(minute)), id="daily_digest", replace_existing=True)
     scheduler.add_job(cleanup_audit_logs, CronTrigger(hour=3, minute=0), id="audit_cleanup", replace_existing=True)
     scheduler.add_job(send_timesheet_reminder, CronTrigger(day_of_week="fri", hour=17, minute=0), id="timesheet_reminder", replace_existing=True)
+    scheduler.add_job(send_draft_timesheet_reminder, CronTrigger(day_of_week="mon", hour=9, minute=0), id="draft_timesheet_reminder", replace_existing=True)
     scheduler.start()
     logger.info("[scheduler] Audit log cleanup scheduled at 03:00 daily (keeps 180 days)")
     logger.info(f"[scheduler] Daily digest scheduled at {digest_time}")

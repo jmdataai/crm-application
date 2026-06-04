@@ -39,6 +39,8 @@ class T:
         self.lead_id = self.job_id = self.candidate_id = None
         self.task_id = self.reminder_id = self.interview_id = None
         self.expense_id = self.deal_id = self.submission_id = None
+        self.test_log_date  = None  # date we POSTed to sales_activity_log
+        self.pre_test_log   = None  # existing log row BEFORE our POST (to restore on cleanup)
 
     def req(self, method, path, expected=200, label=None, **kw):
         url  = f"{self.base}/{path.lstrip('/')}"
@@ -252,12 +254,25 @@ class T:
                  label="GET /tracker/dashboard — week -3")
         self.req("GET","sales/tracker/users",                 label="GET /tracker/users")
         self.req("GET","sales/tracker/log",                   label="GET /tracker/log")
-        self.req("POST","sales/tracker/log",[200,201],        label="POST /tracker/log",
-                 json={"log_date":date.today().isoformat(),"emails_sent":5,
+
+        # ── Snapshot today's log BEFORE the test POST so we can restore it on cleanup.
+        # This prevents data loss whether the POST succeeds or fails.
+        today_iso = date.today().isoformat()
+        snap = self.req("GET", "sales/tracker/log",
+                        params={"from_date": today_iso, "to_date": today_iso},
+                        label="GET /tracker/log — pre-test snapshot")
+        if snap and isinstance(snap, list):
+            self.pre_test_log = next((r for r in snap if r.get("log_date") == today_iso), None)
+
+        # POST only if snapshot succeeded (we know the state we're overwriting)
+        post_ok = self.req("POST","sales/tracker/log",[200,201], label="POST /tracker/log",
+                 json={"log_date":today_iso,"emails_sent":5,
                        "linkedin_sent":3,"calls_made":2,"replies_received":1,
                        "meetings_booked":0,"meetings_done":0,"proposals_sent":0,
                        "followups_done":2,"new_leads_added":1,"hours_worked":7.5,
                        "mood":3,"biggest_win":"PW test","biggest_blocker":"None"})
+        if post_ok:
+            self.test_log_date = today_iso   # only set if POST actually succeeded
         self.req("GET","sales/tracker/pipeline",              label="GET /tracker/pipeline")
         r = self.req("POST","sales/tracker/pipeline",[200,201],label="POST /tracker/pipeline",
                      json={"client_name":"PW Deal Co","stage":"proposal","value":5000,
@@ -318,6 +333,32 @@ class T:
             if _id:
                 self.req("DELETE", path, [200,204,404],
                          label=f"DELETE /{path.split('/')[0]}/:id")
+        # Sales activity log — restore pre-test state rather than blindly deleting
+        if self.test_log_date:
+            if self.pre_test_log:
+                # Real data existed before we ran — restore it exactly
+                self.req("POST", "sales/tracker/log", [200,201],
+                         label="POST /sales/tracker/log — restore pre-test data",
+                         json={
+                             "log_date":         self.pre_test_log.get("log_date"),
+                             "emails_sent":       self.pre_test_log.get("emails_sent",       0),
+                             "linkedin_sent":     self.pre_test_log.get("linkedin_sent",     0),
+                             "calls_made":        self.pre_test_log.get("calls_made",        0),
+                             "replies_received":  self.pre_test_log.get("replies_received",  0),
+                             "meetings_booked":   self.pre_test_log.get("meetings_booked",   0),
+                             "meetings_done":     self.pre_test_log.get("meetings_done",     0),
+                             "proposals_sent":    self.pre_test_log.get("proposals_sent",    0),
+                             "followups_done":    self.pre_test_log.get("followups_done",    0),
+                             "new_leads_added":   self.pre_test_log.get("new_leads_added",   0),
+                             "hours_worked":      self.pre_test_log.get("hours_worked",      0),
+                             "mood":              self.pre_test_log.get("mood"),
+                             "biggest_win":       self.pre_test_log.get("biggest_win"),
+                             "biggest_blocker":   self.pre_test_log.get("biggest_blocker"),
+                         })
+            else:
+                # No prior data — the POST created a new row; safe to delete it
+                self.req("DELETE", f"sales/tracker/log/{self.test_log_date}", [200,204,404],
+                         label="DELETE /sales/tracker/log/:date — remove test entry")
 
     # ── LOGOUT ────────────────────────────────────────────────────────────────
 
@@ -332,22 +373,25 @@ class T:
         print(f"\n{B}{'='*52}\n  Nexus CRM — Full Backend API Test Suite\n"
               f"  {BASE_URL}\n{'='*52}{E}\n")
         if not self.auth(): self._summary(); return
-        self.users()
-        self.dashboards()
-        self.leads()
-        self.tasks()
-        self.reminders()
-        self.jobs()
-        self.candidates()
-        self.submissions()
-        self.interviews()
-        self.tracker()
-        self.timesheets()
-        self.expenses()
-        self.bulk_email()
-        self.other()
-        self.cleanup()
-        self.logout()
+        try:
+            self.users()
+            self.dashboards()
+            self.leads()
+            self.tasks()
+            self.reminders()
+            self.jobs()
+            self.candidates()
+            self.submissions()
+            self.interviews()
+            self.tracker()
+            self.timesheets()
+            self.expenses()
+            self.bulk_email()
+            self.other()
+        finally:
+            # Cleanup always runs — even if a test throws mid-suite
+            self.cleanup()
+            self.logout()
         self._summary()
 
     def _summary(self):
