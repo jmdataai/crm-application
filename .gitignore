@@ -92,3 +92,10 @@ android-sdk/-e
 AGENTS.md
 CLAUDE.md
 GEMINI.md
+
+/playwright-report/
+/test-results/
+/tests/playwright/.auth/
+.env.test
+.vercel
+.env*

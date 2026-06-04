@@ -563,6 +563,8 @@ const ExpFilter = ({ value, onChange }) => {
   );
 };
 
+const CANDIDATES_FILTER_KEY = 'nexus_candidates_filter';
+
 export default function CandidatesList() {
   const { isMobile } = useBreakpoint();
   const navigate = useNavigate();
@@ -570,30 +572,50 @@ export default function CandidatesList() {
   const [candidates, setCandidates] = useState([]);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState('');
-  const [activeTab, setActiveTab]   = useState('domestic');
-  const [stageFilter, setStage]     = useState('all');
   const [selected, setSelected]     = useState(new Set());
   const [showAdd, setShowAdd]       = useState(false);
-  const [sortBy, setSortBy]         = useState('applied');
-  const [sortDir, setSortDir]       = useState('desc');
-  const [page, setPage]             = useState(1);
   const [viewerCandidate, setViewer] = useState(null);
   const PER_PAGE = 25;
 
+  // Read saved filters fresh on every mount (lazy initializer runs per mount, not per module load)
+  const [sf] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem(CANDIDATES_FILTER_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  });
+
+  const [activeTab, setActiveTab]   = useState(sf.activeTab || 'domestic');
+  const [stageFilter, setStage]     = useState(sf.stageFilter || 'all');
+  const [sortBy, setSortBy]         = useState(sf.sortBy || 'applied');
+  const [sortDir, setSortDir]       = useState(sf.sortDir || 'desc');
+  const [page, setPage]             = useState(sf.page || 1);
+
   // Column text searches
-  const [colSearch, setColSearch] = useState({ name:'', candidate_role:'', total_experience:'', relevant_experience:'', location:'', visa_status:'', relocation:'', source:'', job_title:'' });
+  const [colSearch, setColSearch] = useState(sf.colSearch || { name:'', candidate_role:'', total_experience:'', relevant_experience:'', location:'', visa_status:'', relocation:'', source:'', job_title:'' });
   const setCS = (k, v) => { setColSearch(s => ({ ...s, [k]: v })); setPage(1); };
 
   // Advanced filters
-  const [expFilter, setExpFilter]         = useState({ op: '>', years: '' });
-  const [techSelected, setTechSelected]   = useState(new Set());
-  const [techMode, setTechMode]           = useState('any');   // 'any' | 'all'
-  const [hasResumeOnly, setHasResumeOnly] = useState(false);
+  const [expFilter, setExpFilter]         = useState(sf.expFilter || { op: '>', years: '' });
+  const [techSelected, setTechSelected]   = useState(() => new Set(sf.techSelected || []));
+  const [techMode, setTechMode]           = useState(sf.techMode || 'any');   // 'any' | 'all'
+  const [hasResumeOnly, setHasResumeOnly] = useState(sf.hasResumeOnly || false);
 
   // Source & Job filters (new)
-  const [sourceFilter, setSourceFilter] = useState('all');   // 'all' | 'website' | 'LinkedIn' | ...
-  const [jobFilter, setJobFilter]       = useState('all');   // 'all' | job_id
+  const [sourceFilter, setSourceFilter] = useState(sf.sourceFilter || 'all');   // 'all' | 'website' | 'LinkedIn' | ...
+  const [jobFilter, setJobFilter]       = useState(sf.jobFilter || 'all');   // 'all' | job_id
   const [jobs, setJobs]                 = useState([]);
+
+  // ── Persist filter state to sessionStorage on every change ──
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(CANDIDATES_FILTER_KEY, JSON.stringify({
+        activeTab, stageFilter, colSearch, expFilter,
+        techSelected: [...techSelected], techMode, hasResumeOnly,
+        sourceFilter, jobFilter, sortBy, sortDir, page,
+      }));
+    } catch {}
+  }, [activeTab, stageFilter, colSearch, expFilter, techSelected, techMode, hasResumeOnly, sourceFilter, jobFilter, sortBy, sortDir, page]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -762,6 +784,7 @@ export default function CandidatesList() {
     setSourceFilter('all');
     setJobFilter('all');
     setPage(1);
+    try { sessionStorage.removeItem(CANDIDATES_FILTER_KEY); } catch {}
   };
 
   const domCols  = [
