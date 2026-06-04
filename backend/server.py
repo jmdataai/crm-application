@@ -935,6 +935,24 @@ async def get_leads(
     return {"leads": res.data or [], "total": res.count or 0}
 
 
+@api_router.get("/leads/email-dates")
+async def get_leads_email_dates(request: Request):
+    """Return {lead_id: last_email_iso} for every lead that has at least one email activity."""
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    res = await run(lambda: sb("activities")
+        .select("lead_id, created_at")
+        .eq("activity_type", "email")
+        .execute())
+    email_map: dict = {}
+    for row in (res.data or []):
+        lid = row.get("lead_id")
+        ts  = row.get("created_at") or ""
+        if lid and (lid not in email_map or ts > email_map[lid]):
+            email_map[lid] = ts
+    return email_map
+
+
 @api_router.get("/leads/{lead_id}")
 async def get_lead(lead_id: str, request: Request):
     user = await get_current_user(request)

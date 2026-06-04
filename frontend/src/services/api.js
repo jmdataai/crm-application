@@ -68,6 +68,7 @@ export const leadsAPI = {
   create: (data) => api.post('/leads', data),
   update: (id, data) => api.put(`/leads/${id}`, data),
   delete: (id) => api.delete(`/leads/${id}`),
+  getEmailDates: () => api.get('/leads/email-dates'),
   import: (fileOrForm) => {
     const formData = fileOrForm instanceof FormData
       ? fileOrForm

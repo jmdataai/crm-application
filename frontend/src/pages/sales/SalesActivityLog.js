@@ -80,9 +80,12 @@ export default function SalesActivityLog() {
 
   const isFriday = today.getDay() === 5;
 
+  const [loadError, setLoadError]   = useState('');
+
   const loadRecentLogs = useCallback(async () => {
     try {
       setLoadingLogs(true);
+      setLoadError('');
       setForm(EMPTY_FORM);
       setSubmitted(false);
       const selectedWeekStartISO = getWeekStartISO(selectedDateISO);
@@ -112,7 +115,9 @@ export default function SalesActivityLog() {
         });
         setSubmitted(true);
       }
-    } catch (_) {}
+    } catch (e) {
+      setLoadError(e?.response?.data?.detail || 'Failed to load logs. Check your connection and try again.');
+    }
     finally { setLoadingLogs(false); }
   }, [historyFromISO, historyToISO, selectedDateISO]);
 
@@ -137,7 +142,7 @@ export default function SalesActivityLog() {
     setError('');
     setSubmitting(true);
     try {
-      await salesTrackerAPI.submitLog({
+      const res = await salesTrackerAPI.submitLog({
         log_date:          selectedDateISO,
         emails_sent:       parseInt(form.emails_sent)      || 0,
         linkedin_sent:     parseInt(form.linkedin_sent)    || 0,
@@ -153,8 +158,15 @@ export default function SalesActivityLog() {
         biggest_win:       form.biggest_win     || null,
         biggest_blocker:   form.biggest_blocker || null,
       });
+      const savedRow = res.data?.data || null;
+      // Update local recentLogs without a full refetch (avoids flicker)
+      if (savedRow) {
+        setRecentLogs(prev => {
+          const others = prev.filter(l => l.log_date !== selectedDateISO);
+          return [savedRow, ...others].sort((a, b) => (b.log_date > a.log_date ? 1 : -1));
+        });
+      }
       setSubmitted(true);
-      loadRecentLogs();
     } catch (e) {
       setError(e?.response?.data?.detail || 'Failed to save. Please try again.');
     } finally {
@@ -288,6 +300,13 @@ export default function SalesActivityLog() {
           ))}
         </div>
       </div>
+
+      {/* Load error banner */}
+      {loadError && (
+        <div style={{ marginBottom: '1rem', padding: '0.625rem 0.875rem', borderRadius: '0.5rem', background: 'var(--error-container)', color: 'var(--error)', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <Icon name="error_outline" style={{ fontSize: '1rem' }} /> {loadError}
+        </div>
+      )}
 
       {/* Target banner */}
       <div style={{

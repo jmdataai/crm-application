@@ -401,7 +401,9 @@ const normalise = (c) => ({
   total_experience: c.total_experience || '', relevant_experience: c.relevant_experience || '',
   location: c.location || '', relocation: c.relocation || '', visa_status: c.visa_status || '',
   source: c.source || 'Manual', status: c.status, candidate_type: c.candidate_type || 'domestic',
-  applied: c.created_at?.slice(0, 10), notes: c.notes,
+  applied: c.created_at?.slice(0, 10),
+  updated_at: c.updated_at?.slice(0, 10) || '',
+  notes: c.notes,
   resume_url: c.resume_url || null,
   tech_stack: Array.isArray(c.tech_stack) ? c.tech_stack : [],
   // v4 fields
@@ -798,6 +800,7 @@ export default function CandidatesList() {
     {label:'Source',           key:'source'},
     {label:'Resume',           key:'resume_url'},
     {label:'Stage',            key:'status'},
+    {label:'Updated',          key:'updated_at'},
     {label:'Added',            key:'applied'},
   ];
   const intlCols = [
@@ -813,6 +816,7 @@ export default function CandidatesList() {
     {label:'Applied Job',      key:'job_title'},
     {label:'Resume',           key:'resume_url'},
     {label:'Stage',            key:'status'},
+    {label:'Updated',          key:'updated_at'},
     {label:'Added',            key:'applied'},
   ];
   const cols = isIntl ? intlCols : domCols;
@@ -1093,6 +1097,7 @@ export default function CandidatesList() {
                       )}
                     </td>
                     <td style={{padding:'0.75rem 1rem'}}><Chip status={c.status}/></td>
+                    <td style={{padding:'0.75rem 1rem',fontSize:'0.8125rem',color:'var(--on-surface-variant)',whiteSpace:'nowrap'}}>{c.updated_at || '—'}</td>
                     <td style={{padding:'0.75rem 1rem',fontSize:'0.8125rem',color:'var(--on-surface-variant)',whiteSpace:'nowrap'}}>{c.applied}</td>
                     <td style={{padding:'0.75rem 1rem',textAlign:'right'}} onClick={e=>e.stopPropagation()}>
                       <button className="btn-icon" onClick={()=>navigate(`/recruitment/candidates/${c.id}`)}><Icon name="open_in_new" style={{fontSize:'1rem'}}/></button>
