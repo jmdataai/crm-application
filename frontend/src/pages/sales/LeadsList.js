@@ -261,6 +261,8 @@ const normalise = (l) => ({
   linkedin_invite_accepted: l.linkedin_invite_accepted || false,
   lead_share_date:          l.lead_share_date || '',
   created_at:       l.created_at?.slice(0, 10) || '',
+  updated_at:       l.updated_at?.slice(0, 10) || '',
+  last_email_at:    l.last_email_at ? l.last_email_at.slice(0, 10) : '',
   deal_value:       l.deal_value || 0,
   // Contact Person 1
   cp1_name:         l.full_name || '',
@@ -343,11 +345,15 @@ export default function LeadsList() {
   const fetchLeads = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const res = await leadsAPI.getAll({ limit: 1000 });
+      const [res, emailRes] = await Promise.all([
+        leadsAPI.getAll({ limit: 1000 }),
+        leadsAPI.getEmailDates().catch(() => ({ data: {} })),
+      ]);
       const data = Array.isArray(res.data) ? res.data
         : Array.isArray(res.data?.leads)   ? res.data.leads
         : Array.isArray(res.data?.data)    ? res.data.data : [];
-      setLeads(data.map(normalise));
+      const emailDates = emailRes.data || {};
+      setLeads(data.map(l => normalise({ ...l, last_email_at: emailDates[l.id] || '' })));
     } catch { setError('Failed to load companies.'); }
     finally   { setLoading(false); }
   }, []);
@@ -585,6 +591,8 @@ export default function LeadsList() {
                   {th('Status', 'status', 100)}
                   {th('Follow-up', 'next_follow_up', 90)}
                   {th('Segment', 'segment', 110)}
+                  {th('Updated', 'updated_at', 90)}
+                  {th('Last Email', 'last_email_at', 100)}
                   <th style={{ padding:'0.5rem 0.75rem', width:40 }} />
                 </tr>
                 {/* Per-column search row */}
@@ -628,13 +636,13 @@ export default function LeadsList() {
                   <td style={{ padding:'0.25rem 0.5rem' }}><input {...siProps('cp2_name', 90)} /></td>
                   <td style={{ padding:'0.25rem 0.5rem' }}><input {...siProps('status', 80)} /></td>
                   <td style={{ padding:'0.25rem 0.5rem' }}><input {...siProps('next_follow_up', 80)} /></td>
-                  <td colSpan={2} />
+                  <td colSpan={4} />
                 </tr>
               </thead>
               <tbody>
                 {paged.length === 0 && (
                   <tr>
-                    <td colSpan={12} style={{ padding:'3rem', textAlign:'center', color:'var(--on-surface-variant)' }}>
+                    <td colSpan={14} style={{ padding:'3rem', textAlign:'center', color:'var(--on-surface-variant)' }}>
                       <Icon name="domain_disabled" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.5rem', opacity:0.3 }} />
                       No companies found.
                     </td>
@@ -716,6 +724,16 @@ export default function LeadsList() {
                       {l.next_follow_up || '—'}
                     </td>
                     <td style={{ padding:'0.625rem 0.5rem' }}><SegmentBadge segment={l.segment} /></td>
+                    <td style={{ padding:'0.625rem 0.5rem', color:'var(--on-surface-variant)', whiteSpace:'nowrap', fontSize:'0.8125rem' }}>
+                      {l.updated_at || '—'}
+                    </td>
+                    <td style={{ padding:'0.625rem 0.5rem', whiteSpace:'nowrap', fontSize:'0.8125rem' }}>
+                      {l.last_email_at ? (
+                        <span style={{ display:'inline-flex', alignItems:'center', gap:'0.25rem', color:'var(--primary)' }}>
+                          <Icon name="mail" style={{ fontSize:'0.875rem' }} />{l.last_email_at}
+                        </span>
+                      ) : <span style={{ color:'var(--outline)' }}>—</span>}
+                    </td>
                     <td style={{ padding:'0.625rem 0.5rem' }} onClick={e => e.stopPropagation()}>
                       <button className="btn-icon" onClick={() => navigate(`/sales/leads/${l.id}`)} style={{ opacity:0.6 }}>
                         <Icon name="open_in_new" style={{ fontSize:'1rem' }} />

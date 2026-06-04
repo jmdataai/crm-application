@@ -335,6 +335,10 @@ export default function CandidateDetail() {
   const [editing, setEditing]       = useState(false);
   const [editForm, setEditForm]     = useState({});
   const [note, setNote]             = useState('');
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteError, setNoteError]   = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError]   = useState('');
   const [showEmailCompose, setShowEmailCompose] = useState(false);
   const [emailTo, setEmailTo]         = useState('');
   const [emailSubject, setEmailSubject] = useState('');
@@ -406,12 +410,42 @@ export default function CandidateDetail() {
     } catch { setCand(c => ({ ...c, status: prev })); }
   };
 
+  // logAct: fire-and-forget activity log — has its own try/catch so callers
+  // (phone button, manual-note button) don't need to handle errors.
   const logAct = async (type, text) => {
     if (!text.trim()) return;
     try {
       await activitiesAPI.create({ candidate_id: id, activity_type: type, description: text });
       setActivities(prev => [{ id:`a${Date.now()}`, type, text, date:new Date().toLocaleString(), user:'You' }, ...prev]);
     } catch {}
+  };
+
+  const addNote = async () => {
+    const trimmed = note.trim();
+    if (!trimmed || noteSaving) return;
+    setNoteSaving(true);
+    setNoteError('');
+    const ts = new Date().toLocaleString('en-IN', {
+      day:'2-digit', month:'short', year:'numeric',
+      hour:'2-digit', minute:'2-digit', hour12:false,
+    });
+    const existing = candidate.notes ? candidate.notes.trim() : '';
+    const updatedNotes = existing ? `[${ts}] ${trimmed}\n\n${existing}` : `[${ts}] ${trimmed}`;
+    try {
+      // Call candidatesAPI and activitiesAPI directly so any error surfaces here.
+      // logAct is intentionally NOT used here — it swallows errors.
+      await Promise.all([
+        candidatesAPI.update(id, { notes: updatedNotes }),
+        activitiesAPI.create({ candidate_id: id, activity_type: 'note', description: trimmed }),
+      ]);
+      setCand(c => ({ ...c, notes: updatedNotes }));
+      setActivities(prev => [{ id:`a${Date.now()}`, type:'note', text:trimmed, date:new Date().toLocaleString(), user:'You' }, ...prev]);
+      setNote('');
+    } catch (e) {
+      setNoteError(e?.response?.data?.detail || 'Failed to save note. Please try again.');
+    } finally {
+      setNoteSaving(false);
+    }
   };
 
   const addInterview = async (iv) => {
@@ -426,8 +460,6 @@ export default function CandidateDetail() {
       logAct('interview', `${iv.type} scheduled for ${iv.date}`);
     } catch (err) { alert(err?.response?.data?.detail || 'Failed to schedule interview'); }
   };
-
-  const addNote = () => { if (note.trim()) { logAct('note', note.trim()); setNote(''); } };
 
   const openEmailCompose = () => {
     const toEmail = candidate?.email || '';
@@ -461,11 +493,17 @@ export default function CandidateDetail() {
 
   const set = (k, v) => setEditForm(f => ({ ...f, [k]: v }));
   const saveEdit = async () => {
+    setEditSaving(true);
+    setEditError('');
     try {
       await candidatesAPI.update(id, editForm);
       setCand(c => ({ ...c, ...editForm }));
       setEditing(false);
-    } catch {}
+    } catch (e) {
+      setEditError(e?.response?.data?.detail || 'Failed to save changes. Please try again.');
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   if (loading) return (
@@ -732,9 +770,13 @@ export default function CandidateDetail() {
               </div>
               <div>
                 <label className="label">Add Note</label>
-                <textarea className="textarea" rows={3} placeholder="Type a note…" value={note} onChange={e => setNote(e.target.value)} />
-                <button onClick={addNote} style={{ marginTop:'0.75rem', display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1.25rem', borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none', cursor:'pointer', background:'linear-gradient(135deg,var(--tertiary),#009966)' }}>
-                  <Icon name="save" style={{ fontSize:'1rem', color:'#fff' }} /> Save Note
+                <textarea className="textarea" rows={3} placeholder="Type a note…" value={note} onChange={e => setNote(e.target.value)} disabled={noteSaving} />
+                {noteError && (
+                  <p style={{ fontSize:'0.8125rem', color:'var(--error)', marginTop:'0.375rem' }}>{noteError}</p>
+                )}
+                <button onClick={addNote} disabled={noteSaving || !note.trim()} style={{ marginTop:'0.75rem', display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1.25rem', borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none', cursor: noteSaving ? 'not-allowed' : 'pointer', background: noteSaving ? 'var(--outline-variant)' : 'linear-gradient(135deg,var(--tertiary),#009966)', opacity: noteSaving || !note.trim() ? 0.65 : 1 }}>
+                  <Icon name={noteSaving ? 'progress_activity' : 'save'} style={{ fontSize:'1rem', color:'#fff' }} />
+                  {noteSaving ? 'Saving…' : 'Save Note'}
                 </button>
               </div>
             </div>
@@ -905,11 +947,16 @@ export default function CandidateDetail() {
               <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', marginTop:'0.25rem' }}>Enter or comma to add · Backspace removes last</p>
             </div>
 
-            <div style={{ display:'flex', gap:'0.75rem', justifyContent:'flex-end', marginTop:'1.5rem', position:'sticky', bottom:0, background:'var(--surface-container-lowest)', paddingTop:'0.875rem', borderTop:'1px solid var(--outline-variant)' }}>
-              <button className="btn-secondary" onClick={() => setEditing(false)}>Cancel</button>
-              <button onClick={saveEdit} style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1.25rem', borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none', cursor:'pointer', background:'linear-gradient(135deg,var(--tertiary),#009966)' }}>
-                <Icon name="save" style={{ fontSize:'1rem', color:'#fff' }} /> Save Changes
-              </button>
+            <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem', marginTop:'1.5rem', position:'sticky', bottom:0, background:'var(--surface-container-lowest)', paddingTop:'0.875rem', borderTop:'1px solid var(--outline-variant)' }}>
+              {editError && (
+                <p style={{ fontSize:'0.8125rem', color:'var(--error)', textAlign:'right' }}>{editError}</p>
+              )}
+              <div style={{ display:'flex', gap:'0.75rem', justifyContent:'flex-end' }}>
+                <button className="btn-secondary" onClick={() => { setEditing(false); setEditError(''); }}>Cancel</button>
+                <button onClick={saveEdit} disabled={editSaving} style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1.25rem', borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none', cursor: editSaving ? 'not-allowed' : 'pointer', background: editSaving ? 'var(--outline-variant)' : 'linear-gradient(135deg,var(--tertiary),#009966)' }}>
+                  <Icon name={editSaving ? 'progress_activity' : 'save'} style={{ fontSize:'1rem', color:'#fff' }} /> {editSaving ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
