@@ -110,6 +110,11 @@ JWT_ALGORITHM = "HS256"
 app        = FastAPI(title="Nexus CRM — Recruit & Onboarding Service", redirect_slashes=False)
 api_router = APIRouter(prefix="/api", redirect_slashes=False)
 
+# ── Supabase concurrency guard ────────────────────────────────────────────────
+# Limits concurrent Supabase calls to prevent HTTP/2 COMPRESSION_ERROR (error_code:9)
+# which occurs when asyncio.gather fires too many parallel queries over one connection.
+_supabase_sem = asyncio.Semaphore(3)
+
 # ── Rate limiter (protects /public/apply from spam bots) ──────
 limiter = Limiter(key_func=get_remote_address, default_limits=[])
 app.state.limiter = limiter
@@ -369,8 +374,11 @@ def get_supabase() -> Client:
     return supabase
 
 async def run(fn):
-    """Run a synchronous supabase call in a thread pool."""
-    return await asyncio.to_thread(fn)
+    """Run a synchronous supabase call in a thread pool.
+    Semaphore limits concurrency to prevent HTTP/2 stream exhaustion.
+    """
+    async with _supabase_sem:
+        return await asyncio.to_thread(fn)
 
 async def safe_single(fn):
     """Run a .single() query safely — returns None on 0 rows (PGRST116) instead of crashing."""
@@ -2163,6 +2171,24 @@ async def root_health():
         "service": "Nexus CRM — Recruit & Onboarding Service",
         "version": "2.0.0",
     }
+
+
+# ============================================================
+# TRAILING SLASH MIDDLEWARE
+# ============================================================
+# Vercel's :path* rewrites produce a trailing slash when the captured
+# segment is empty: /api/candidates/:path* → /api/candidates/
+# This strips it before routing so routes match without redirect.
+# Combined with redirect_slashes=False this avoids the 307 → HF-direct bypass.
+@app.middleware("http")
+async def strip_trailing_slash(request: Request, call_next):
+    path = request.scope.get("path", "")
+    if path != "/" and path.endswith("/"):
+        request.scope["path"] = path[:-1]
+        raw = request.scope.get("raw_path", b"")
+        if raw.endswith(b"/"):
+            request.scope["raw_path"] = raw[:-1]
+    return await call_next(request)
 
 
 # ============================================================
