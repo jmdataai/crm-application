@@ -188,8 +188,8 @@ JWT_SECRET    = os.environ.get("JWT_SECRET", "change_me_in_production")
 JWT_ALGORITHM = "HS256"
 
 # ── App ───────────────────────────────────────────────────────
-app        = FastAPI(title="Nexus CRM + ATS")
-api_router = APIRouter(prefix="/api")
+app        = FastAPI(title="Nexus CRM + ATS", redirect_slashes=False)
+api_router = APIRouter(prefix="/api", redirect_slashes=False)
 
 # ── Rate limiter (protects public /apply from spam bots) ──────
 limiter = Limiter(key_func=get_remote_address, default_limits=[])

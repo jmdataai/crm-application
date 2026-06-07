@@ -107,8 +107,8 @@ JWT_ALGORITHM = "HS256"
 # Scheduled tasks (timesheet reminders, digest emails) live in the Core Space only.
 # This means Recruit can safely run multiple uvicorn workers in future if needed.
 #
-app        = FastAPI(title="Nexus CRM — Recruit & Onboarding Service")
-api_router = APIRouter(prefix="/api")
+app        = FastAPI(title="Nexus CRM — Recruit & Onboarding Service", redirect_slashes=False)
+api_router = APIRouter(prefix="/api", redirect_slashes=False)
 
 # ── Rate limiter (protects /public/apply from spam bots) ──────
 limiter = Limiter(key_func=get_remote_address, default_limits=[])
