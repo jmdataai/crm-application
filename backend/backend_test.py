@@ -104,7 +104,7 @@ class T:
     def dashboards(self):
         self.sec("DASHBOARDS")
         self.req("GET","dashboard/sales",       label="GET /dashboard/sales")
-        self.req("GET","dashboard/recruitment", label="GET /dashboard/recruitment")
+        # dashboard/recruitment → moved to Recruit space (tested in recruit_test.py)
         self.req("GET","dashboard/ceo",         label="GET /dashboard/ceo")
 
     # ── LEADS ─────────────────────────────────────────────────────────────────
@@ -323,9 +323,7 @@ class T:
     def cleanup(self):
         self.sec("CLEANUP")
         for path, attr in [
-            (f"submissions/{self.submission_id}", "submission_id"),
-            (f"candidates/{self.candidate_id}",   "candidate_id"),
-            (f"jobs/{self.job_id}",               "job_id"),
+            # submissions/candidates/jobs → cleaned up by recruit_test.py
             (f"leads/{self.lead_id}",             "lead_id"),
             (f"sales/tracker/pipeline/{self.deal_id}", "deal_id"),
         ]:
@@ -379,10 +377,7 @@ class T:
             self.leads()
             self.tasks()
             self.reminders()
-            self.jobs()
-            self.candidates()
-            self.submissions()
-            self.interviews()
+            # jobs/candidates/submissions/interviews → Recruit space (recruit_test.py)
             self.tracker()
             self.timesheets()
             self.expenses()
