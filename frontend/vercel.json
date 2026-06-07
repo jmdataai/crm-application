@@ -1,6 +1,30 @@
 {
   "rewrites": [
     {
+      "source": "/api/candidates/:path*",
+      "destination": "https://freddy-jmdataai-nexus-crm-recruit.hf.space/api/candidates/:path*"
+    },
+    {
+      "source": "/api/jobs/:path*",
+      "destination": "https://freddy-jmdataai-nexus-crm-recruit.hf.space/api/jobs/:path*"
+    },
+    {
+      "source": "/api/interviews/:path*",
+      "destination": "https://freddy-jmdataai-nexus-crm-recruit.hf.space/api/interviews/:path*"
+    },
+    {
+      "source": "/api/submissions/:path*",
+      "destination": "https://freddy-jmdataai-nexus-crm-recruit.hf.space/api/submissions/:path*"
+    },
+    {
+      "source": "/api/dashboard/recruitment",
+      "destination": "https://freddy-jmdataai-nexus-crm-recruit.hf.space/api/dashboard/recruitment"
+    },
+    {
+      "source": "/api/public/:path*",
+      "destination": "https://freddy-jmdataai-nexus-crm-recruit.hf.space/api/public/:path*"
+    },
+    {
       "source": "/api/:path*",
       "destination": "https://freddy-jmdataai-nexus-crm-backend.hf.space/api/:path*"
     },

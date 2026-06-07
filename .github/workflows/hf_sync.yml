@@ -1,31 +1,38 @@
-name: Sync Backend to HuggingFace Space
+name: Sync Core Backend to HuggingFace Space
 
 on:
   push:
     branches: [master]
     paths:
       - 'backend/**'
+      - 'shared/**'        # shared utils change → redeploy Core too
 
 jobs:
-  sync-to-huggingface:
+  sync-core-to-huggingface:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      - name: Push backend to HuggingFace Space
+      - name: Push Core backend to HuggingFace Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           git config --global user.email "ci@github.com"
           git config --global user.name "GitHub Actions"
-          mkdir /tmp/hf_deploy
-          cp -r backend/. /tmp/hf_deploy/
-          cd /tmp/hf_deploy
+
+          mkdir /tmp/hf_core
+          # Copy backend source
+          cp -r backend/. /tmp/hf_core/
+          # Overlay shared utilities (single source of truth)
+          cp shared/llm_utils.py   /tmp/hf_core/llm_utils.py
+          cp shared/google_drive.py /tmp/hf_core/google_drive.py
+
+          cd /tmp/hf_core
           git init
           git checkout -b main
           git add .
-          git commit -m "deploy: $(date +'%Y-%m-%d %H:%M:%S')"
+          git commit -m "deploy core: $(date +'%Y-%m-%d %H:%M:%S')"
           git remote add hfspace https://freddy-jmdataai:$HF_TOKEN@huggingface.co/spaces/freddy-jmdataai/nexus-crm-backend
           git push hfspace main --force
