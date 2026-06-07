@@ -48,6 +48,13 @@ function isInAnySelectedMonth(dateStr, monthSet) {
   const d = new Date(dateStr + 'T00:00:00');
   return monthSet.has(getMonthKey(d));
 }
+function isInDateRange(dateStr, from, to) {
+  if (!dateStr) return false;
+  const d = dateStr.slice(0, 10); // YYYY-MM-DD string comparison works for ISO dates
+  if (from && d < from) return false;
+  if (to   && d > to)   return false;
+  return true;
+}
 function getUser(ts) {
   return ts['users!timesheets_user_id_fkey'] || ts.users || {};
 }
@@ -480,6 +487,17 @@ const TimesheetApprovals = () => {
   const [filterUser, setFilterUser]         = useState('');
   const [filterEmployee, setFilterEmployee] = useState('');
   const [selectedMonths, setSelectedMonths] = useState(() => new Set([getMonthKey(new Date())]));
+
+  // ── Date-range mode state (alternative to month multi-select) ──
+  const [monthMode, setMonthMode] = useState('month');   // 'month' | 'range'
+  const [rangeFrom, setRangeFrom] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+  });
+  const [rangeTo, setRangeTo] = useState(() => {
+    const now = new Date();
+    return toISODate(new Date(now.getFullYear(), now.getMonth()+1, 0));
+  });
   const availableMonths = React.useMemo(() => {
     const months = [];
     const now = new Date();
@@ -510,13 +528,24 @@ const TimesheetApprovals = () => {
     return `${selectedMonths.size} months (${MONTH_SHORT[parseInt(fm)-1]} ${fy}–${MONTH_SHORT[parseInt(lm)-1]} ${ly})`;
   }, [selectedMonths]);
 
+  const rangeModeLabel = React.useMemo(() => {
+    const fmt = (iso) => iso
+      ? new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })
+      : '…';
+    if (!rangeFrom && !rangeTo) return 'All dates';
+    return `${fmt(rangeFrom)} – ${fmt(rangeTo)}`;
+  }, [rangeFrom, rangeTo]);
+
   const listEmpOptions = React.useMemo(() => EMP_OPTIONS.map(u => {
     const uid = u.id || u.email || u.name;
+    const entryFilter = monthMode === 'range'
+      ? (e) => isInDateRange(e.entry_date, rangeFrom, rangeTo)
+      : (e) => isInAnySelectedMonth(e.entry_date, selectedMonths);
     const totalHours = timesheets
       .filter(ts => ts.status === 'approved' && (getUser(ts).id || getUser(ts).email || getUser(ts).name) === uid)
-      .reduce((s, ts) => s + (ts.entries||[]).filter(e=>isInAnySelectedMonth(e.entry_date,selectedMonths)).reduce((sh,e)=>sh+parseFloat(e.hours||0),0), 0);
+      .reduce((s, ts) => s + (ts.entries||[]).filter(entryFilter).reduce((sh,e)=>sh+parseFloat(e.hours||0),0), 0);
     return { id: uid, name: u.name || u.email || 'Unknown', totalHours };
-  }).filter(o => o.id), [EMP_OPTIONS, timesheets, selectedMonths]);
+  }).filter(o => o.id), [EMP_OPTIONS, timesheets, selectedMonths, monthMode, rangeFrom, rangeTo]);
 
   const currentWeekStart = toISODate(getFridayOf(new Date()));
   const isCurrentWeek    = weekStart === currentWeekStart;
@@ -606,10 +635,12 @@ const TimesheetApprovals = () => {
     return obj;
   }),[activeMonths,visibleEmps,yearlySummary]);
 
-  // ── Per-employee hours for the selected month (used by bar chart) ──────────
-  // Replaces the annual chart: one bar per employee, hours for monthDate only.
+  // ── Per-employee hours for the selected month/range (used by bar chart) ──
   const monthlyChartData = useMemo(()=>{
     if (view !== 'monthly') return [];
+    const entryFilter = monthMode === 'range'
+      ? (e) => isInDateRange(e.entry_date, rangeFrom, rangeTo)
+      : (e) => isInAnySelectedMonth(e.entry_date, selectedMonths);
     const empMap = new Map();
     timesheets
       .filter(ts => ts.status === 'approved')
@@ -621,9 +652,7 @@ const TimesheetApprovals = () => {
       .forEach(ts => {
         const u = getUser(ts);
         const name = u.name || u.email || 'Unknown';
-        const mh = (ts.entries||[])
-          .filter(e => isInAnySelectedMonth(e.entry_date, selectedMonths))
-          .reduce((s,e) => s + parseFloat(e.hours||0), 0);
+        const mh = (ts.entries||[]).filter(entryFilter).reduce((s,e) => s + parseFloat(e.hours||0), 0);
         if (!mh) return;
         empMap.set(name, (empMap.get(name)||0) + mh);
       });
@@ -631,31 +660,36 @@ const TimesheetApprovals = () => {
       .map(([name, hours]) => ({ name, hours }))
       .filter(d => d.hours > 0)
       .sort((a,b) => b.hours - a.hours);
-  }, [timesheets, view, selectedMonths, listEmpSelected]);
+  }, [timesheets, view, selectedMonths, listEmpSelected, monthMode, rangeFrom, rangeTo]);
 
-  const filtered = useMemo(()=>timesheets.filter(ts=>{
-    const emp=getUser(ts);
-    if(filterUser&&!emp.name?.toLowerCase().includes(filterUser.toLowerCase())&&!emp.email?.toLowerCase().includes(filterUser.toLowerCase())) return false;
-    if(filterEmployee){const key=emp.id||emp.email||emp.name;if(key!==filterEmployee)return false;}
-    // monthly view: use its own list employee multi-filter
-    if(view==='monthly'&&listEmpSelected.size>0){const key=emp.id||emp.email||emp.name;if(!listEmpSelected.has(key))return false;}
-    if(filterStatus&&ts.status!==filterStatus) return false;
-    if(view==='monthly'&&!['submitted','approved'].includes(ts.status)) return false;
-    if(view==='monthly') return (ts.entries||[]).some(e=>isInAnySelectedMonth(e.entry_date,selectedMonths));
-    return true;
-  }),[timesheets,filterUser,filterEmployee,listEmpSelected,filterStatus,view,selectedMonths]);
+  const filtered = useMemo(()=>{
+    const entryFilter = monthMode === 'range'
+      ? (e) => isInDateRange(e.entry_date, rangeFrom, rangeTo)
+      : (e) => isInAnySelectedMonth(e.entry_date, selectedMonths);
+    return timesheets.filter(ts=>{
+      const emp=getUser(ts);
+      if(filterUser&&!emp.name?.toLowerCase().includes(filterUser.toLowerCase())&&!emp.email?.toLowerCase().includes(filterUser.toLowerCase())) return false;
+      if(filterEmployee){const key=emp.id||emp.email||emp.name;if(key!==filterEmployee)return false;}
+      if(view==='monthly'&&listEmpSelected.size>0){const key=emp.id||emp.email||emp.name;if(!listEmpSelected.has(key))return false;}
+      if(filterStatus&&ts.status!==filterStatus) return false;
+      if(view==='monthly'&&!['submitted','approved'].includes(ts.status)) return false;
+      if(view==='monthly') return (ts.entries||[]).some(entryFilter);
+      return true;
+    });
+  },[timesheets,filterUser,filterEmployee,listEmpSelected,filterStatus,view,selectedMonths,monthMode,rangeFrom,rangeTo]);
 
   const stats = useMemo(()=>{
     if (view === 'monthly') {
-      // In monthly view: count timesheets with entries in selected months,
-      // sum hours per-entry so cross-month weeks are split correctly.
+      const entryFilter = monthMode === 'range'
+        ? (e) => isInDateRange(e.entry_date, rangeFrom, rangeTo)
+        : (e) => isInAnySelectedMonth(e.entry_date, selectedMonths);
       const monthTs = timesheets.filter(ts => {
         if (!['submitted','approved','rejected'].includes(ts.status)) return false;
         if (listEmpSelected.size > 0) {
           const key = getUser(ts).id || getUser(ts).email || getUser(ts).name;
           if (!listEmpSelected.has(key)) return false;
         }
-        return (ts.entries||[]).some(e => isInAnySelectedMonth(e.entry_date, selectedMonths));
+        return (ts.entries||[]).some(entryFilter);
       });
       return {
         submitted:  monthTs.filter(t=>t.status==='submitted').length,
@@ -664,14 +698,12 @@ const TimesheetApprovals = () => {
         totalHours: monthTs
           .filter(t=>t.status==='approved')
           .reduce((s,t)=>{
-            const mh = (t.entries||[])
-              .filter(e=>isInAnySelectedMonth(e.entry_date, selectedMonths))
-              .reduce((sh,e)=>sh+parseFloat(e.hours||0),0);
+            const mh = (t.entries||[]).filter(entryFilter).reduce((sh,e)=>sh+parseFloat(e.hours||0),0);
             return s + mh;
           }, 0),
       };
     }
-    // Pending / Weekly views — no month filtering needed
+    // Pending / Weekly views — no date filtering needed
     const base = filterEmployee
       ? timesheets.filter(ts=>{const key=getUser(ts).id||getUser(ts).email||getUser(ts).name; return key===filterEmployee;})
       : timesheets;
@@ -681,7 +713,7 @@ const TimesheetApprovals = () => {
       rejected:   base.filter(t=>t.status==='rejected').length,
       totalHours: base.filter(t=>t.status==='approved').reduce((s,t)=>s+parseFloat(t.total_hours||0),0),
     };
-  },[timesheets,view,selectedMonths,listEmpSelected,filterEmployee]);
+  },[timesheets,view,selectedMonths,listEmpSelected,filterEmployee,monthMode,rangeFrom,rangeTo]);
 
   // pendingCount is now a separate state fetched independently — see loadPendingCount()
   const navBtn = {display:'flex',alignItems:'center',justifyContent:'center',width:32,height:32,borderRadius:8,border:'1px solid var(--surface-container-high)',background:'var(--surface-container-lowest)',color:'var(--on-surface)',cursor:'pointer'};
@@ -739,23 +771,83 @@ const TimesheetApprovals = () => {
         </div>
       )}
 
-      {/* Monthly view — multi-employee + multi-month selectors */}
+      {/* Monthly view — employee selector + mode toggle (Month | Date Range) */}
       {view==='monthly'&&(
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:16,flexWrap:'wrap'}}>
+
+          {/* Employee multi-select — always visible */}
           <MultiSelect
             options={listEmpOptions}
             selected={listEmpSelected}
             onChange={setListEmpSelected}
           />
-          <MonthMultiSelect
-            availableMonths={availableMonths}
-            selected={selectedMonths}
-            onChange={setSelectedMonths}
-          />
-          {(listEmpSelected.size > 0 || selectedMonths.size > 1) && (
+
+          {/* Mode toggle */}
+          <div style={{display:'flex',borderRadius:8,border:'1px solid var(--surface-container-high)',overflow:'hidden',flexShrink:0}}>
             <button
-              onClick={() => { setListEmpSelected(new Set()); setSelectedMonths(new Set([getMonthKey(new Date())])); }}
-              style={{ padding:'6px 12px', borderRadius:8, border:'1px solid var(--outline-variant)', background:'transparent', fontSize:'0.8rem', fontWeight:600, color:'#ea580c', cursor:'pointer' }}
+              onClick={() => setMonthMode('month')}
+              style={{padding:'7px 14px',border:'none',cursor:'pointer',fontFamily:'var(--font-display)',fontSize:'0.8125rem',fontWeight:600,
+                background: monthMode==='month' ? 'var(--surface-container)' : 'var(--surface)',
+                color:      monthMode==='month' ? '#ea580c' : 'var(--on-surface-variant)',
+                borderRight:'1px solid var(--surface-container-high)',transition:'all 0.15s'}}>
+              Month
+            </button>
+            <button
+              onClick={() => setMonthMode('range')}
+              style={{padding:'7px 14px',border:'none',cursor:'pointer',fontFamily:'var(--font-display)',fontSize:'0.8125rem',fontWeight:600,
+                background: monthMode==='range' ? 'var(--surface-container)' : 'var(--surface)',
+                color:      monthMode==='range' ? '#ea580c' : 'var(--on-surface-variant)',
+                transition:'all 0.15s'}}>
+              Date Range
+            </button>
+          </div>
+
+          {/* Month mode: existing multi-month picker */}
+          {monthMode === 'month' && (
+            <MonthMultiSelect
+              availableMonths={availableMonths}
+              selected={selectedMonths}
+              onChange={setSelectedMonths}
+            />
+          )}
+
+          {/* Date range mode: two date inputs */}
+          {monthMode === 'range' && (
+            <>
+              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                <label style={{fontSize:'0.75rem',fontWeight:600,color:'var(--on-surface-variant)',whiteSpace:'nowrap'}}>From</label>
+                <input
+                  type="date"
+                  value={rangeFrom}
+                  onChange={e => setRangeFrom(e.target.value)}
+                  style={{padding:'6px 10px',borderRadius:8,border:'1px solid var(--surface-container-high)',fontSize:'0.875rem',background:'var(--surface)',color:'var(--on-surface)',outline:'none'}}
+                />
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                <label style={{fontSize:'0.75rem',fontWeight:600,color:'var(--on-surface-variant)',whiteSpace:'nowrap'}}>To</label>
+                <input
+                  type="date"
+                  value={rangeTo}
+                  min={rangeFrom || undefined}
+                  onChange={e => setRangeTo(e.target.value)}
+                  style={{padding:'6px 10px',borderRadius:8,border:'1px solid var(--surface-container-high)',fontSize:'0.875rem',background:'var(--surface)',color:'var(--on-surface)',outline:'none'}}
+                />
+              </div>
+            </>
+          )}
+
+          {/* Reset button */}
+          {(listEmpSelected.size > 0 || selectedMonths.size > 1 || monthMode === 'range') && (
+            <button
+              onClick={() => {
+                setListEmpSelected(new Set());
+                setSelectedMonths(new Set([getMonthKey(new Date())]));
+                setMonthMode('month');
+                const now = new Date();
+                setRangeFrom(`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`);
+                setRangeTo(toISODate(new Date(now.getFullYear(), now.getMonth()+1, 0)));
+              }}
+              style={{padding:'6px 12px',borderRadius:8,border:'1px solid var(--outline-variant)',background:'transparent',fontSize:'0.8rem',fontWeight:600,color:'#ea580c',cursor:'pointer'}}
             >
               Reset filters
             </button>
@@ -778,7 +870,10 @@ const TimesheetApprovals = () => {
           {filtered.map(ts=>{
             const emp=getUser(ts);
             const initials=(emp.name||'U').split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
-            const monthEntries=view==='monthly'?(ts.entries||[]).filter(e=>isInAnySelectedMonth(e.entry_date,selectedMonths)):(ts.entries||[]);
+            const rowEntryFilter = monthMode === 'range'
+              ? (e) => isInDateRange(e.entry_date, rangeFrom, rangeTo)
+              : (e) => isInAnySelectedMonth(e.entry_date, selectedMonths);
+            const monthEntries=view==='monthly'?(ts.entries||[]).filter(rowEntryFilter):(ts.entries||[]);
             const totalH=view==='monthly'?monthEntries.reduce((s,e)=>s+parseFloat(e.hours||0),0):parseFloat(ts.total_hours||0);
             const isPending=ts.status==='submitted';
             return(
@@ -811,23 +906,27 @@ const TimesheetApprovals = () => {
         <div style={{marginTop:28,background:'var(--surface-container-lowest)',border:'1px solid var(--surface-container-high)',borderRadius:16,padding:'20px 20px 12px'}}>
           <div style={{marginBottom:16}}>
             <h3 style={{margin:0,fontWeight:800,fontSize:'1rem',color:'var(--on-surface)'}}>
-              Hours Overview — {monthsLabel}
+              Hours Overview — {monthMode === 'range' ? rangeModeLabel : monthsLabel}
             </h3>
             <p style={{margin:'3px 0 0',fontSize:'0.8rem',color:'var(--on-surface-variant)'}}>
               Approved hours only · {listEmpSelected.size > 0 ? `${listEmpSelected.size} employee${listEmpSelected.size>1?'s':''}` : 'all employees'}
-              {' · use the filters above to change employee or month'}
+              {monthMode === 'range'
+                ? ' · use the date inputs above to change the range'
+                : ' · use the filters above to change employee or month'}
             </p>
           </div>
 
           {monthlyChartData.length===0?(
             <div style={{textAlign:'center',padding:'40px 0',color:'var(--on-surface-variant)'}}>
               <Icon name="bar_chart" style={{fontSize:'2.5rem',marginBottom:8}}/>
-              <p style={{margin:0,fontWeight:600}}>No approved hours for {monthsLabel}</p>
+              <p style={{margin:0,fontWeight:600}}>
+                No approved hours for {monthMode === 'range' ? rangeModeLabel : monthsLabel}
+              </p>
             </div>
           ):(
             <MonthlyBarChart
               data={monthlyChartData}
-              monthLabel={monthsLabel}
+              monthLabel={monthMode === 'range' ? rangeModeLabel : monthsLabel}
             />
           )}
         </div>

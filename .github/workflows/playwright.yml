@@ -1,4 +1,4 @@
-name: Playwright Tests
+name: Playwright + API Tests
 
 on:
   pull_request:
@@ -6,6 +6,8 @@ on:
     paths:
       - 'frontend/**'
       - 'backend/**'
+      - 'recruit/**'
+      - 'shared/**'           # shared utils change → retest both spaces
       - '.github/workflows/playwright.yml'
   workflow_dispatch:
     inputs:
@@ -14,23 +16,29 @@ on:
         required: false
         default: ''
 
-# ── FIX: grant permission to post PR comments ─────────────────────────────────
 permissions:
   pull-requests: write
   contents: read
 
+# ════════════════════════════════════════════════════════════════════════════
+# SHARED WAIT SCRIPT — reused by all three jobs
+# Both HF Spaces must be warm before any tests run.
+# First-time Docker builds take 7-10 min. 25 × 20s = 8.3 min max wait.
+# ════════════════════════════════════════════════════════════════════════════
+
 jobs:
+  # ══════════════════════════════════════════════════════════════════════════
+  # JOB 1 — Playwright E2E Tests (frontend smoke suite)
+  # ══════════════════════════════════════════════════════════════════════════
   playwright-tests:
     name: playwright-tests
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
-      # ── 1. Checkout ───────────────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── 2. Node ───────────────────────────────────────────────────────────
       - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
@@ -38,29 +46,23 @@ jobs:
           cache: 'yarn'
           cache-dependency-path: frontend/yarn.lock
 
-      # ── 3. Install deps ───────────────────────────────────────────────────
       - name: Install dependencies
         working-directory: frontend
         run: yarn install --frozen-lockfile
 
-      # ── 4. Playwright browser ─────────────────────────────────────────────
       - name: Install Playwright Chromium
         working-directory: frontend
         run: npx playwright install chromium --with-deps
 
-      # ── 5. Deploy preview to Vercel (if token is configured) ──────────────
-      #    If VERCEL_TOKEN secret is not set yet, this step is skipped
-      #    and tests fall back to the production URL automatically.
       - name: Deploy Preview to Vercel
         id: vercel_deploy
         working-directory: frontend
-        continue-on-error: true   # don't block tests if preview deploy fails
+        continue-on-error: true
         run: |
           DEPLOY_URL=$(npx vercel deploy \
             --token="${{ secrets.VERCEL_TOKEN }}" \
             --yes \
             2>&1 | grep -E "^https://" | tail -1)
-
           if [ -z "$DEPLOY_URL" ]; then
             echo "⚠️ Vercel preview deploy failed — will fall back to production URL"
           else
@@ -71,8 +73,6 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
-      # ── 6. Determine test URL ─────────────────────────────────────────────
-      #    Priority: manual input → Vercel preview → production URL
       - name: Set test URL
         id: set_url
         run: |
@@ -86,27 +86,31 @@ jobs:
           echo "TEST_URL=$URL" >> $GITHUB_OUTPUT
           echo "🧪 Testing against: $URL"
 
-      # ── 7. Wait for HuggingFace backend to wake up ────────────────────────
-      - name: Wait for backend health
+      # Wait for BOTH spaces — Playwright tests need candidates (Recruit) + login (Core)
+      - name: Wait for Core + Recruit backends
         run: |
-          echo "Pinging backend..."
-          for i in {1..10}; do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-              https://freddy-jmdataai-nexus-crm-backend.hf.space/api/auth/me \
-              --max-time 10 || echo "000")
-            echo "Attempt $i: HTTP $STATUS"
-            if [ "$STATUS" = "200" ] || [ "$STATUS" = "401" ] || [ "$STATUS" = "403" ]; then
-              echo "✅ Backend is warm"
-              break
-            fi
-            sleep 15
-          done
+          wait_for() {
+            local NAME=$1
+            local URL=$2
+            echo "⏳ Waiting for $NAME..."
+            for i in $(seq 1 25); do
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" --max-time 15 || echo "000")
+              echo "  Attempt $i: HTTP $STATUS"
+              if [ "$STATUS" = "200" ] || [ "$STATUS" = "401" ] || [ "$STATUS" = "403" ]; then
+                echo "  ✅ $NAME is warm"
+                return 0
+              fi
+              sleep 20
+            done
+            echo "  ⚠️ $NAME did not respond after 25 attempts — continuing anyway"
+            return 0
+          }
+          wait_for "Core"    "https://freddy-jmdataai-nexus-crm-backend.hf.space/api/auth/me"
+          wait_for "Recruit" "https://freddy-jmdataai-nexus-crm-recruit.hf.space/health"
 
-      # ── 8. Auth directory ─────────────────────────────────────────────────
       - name: Create auth directory
         run: mkdir -p frontend/tests/playwright/.auth
 
-      # ── 9. Run Playwright tests ───────────────────────────────────────────
       - name: Run Playwright Tests
         working-directory: frontend
         run: npx playwright test
@@ -115,7 +119,6 @@ jobs:
           TEST_ADMIN_EMAIL: ${{ secrets.TEST_ADMIN_EMAIL }}
           TEST_ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
 
-      # ── 10. Upload report (always runs even on failure) ───────────────────
       - name: Upload Playwright Report
         uses: actions/upload-artifact@v4
         if: always()
@@ -124,19 +127,17 @@ jobs:
           path: frontend/playwright-report/
           retention-days: 14
 
-      # ── 11. Post result comment to PR ─────────────────────────────────────
-      - name: Post test summary to PR
+      - name: Post result comment to PR
         if: always() && github.event_name == 'pull_request'
         continue-on-error: true
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const pw_passed  = '${{ job.status }}' === 'success';
-            const emoji   = pw_passed ? '✅' : '❌';
-            const status  = pw_passed ? 'All tests passed' : 'Tests FAILED — merge blocked';
-            const url     = '${{ steps.set_url.outputs.TEST_URL }}';
-
+            const passed = '${{ job.status }}' === 'success';
+            const emoji  = passed ? '✅' : '❌';
+            const status = passed ? 'All tests passed' : 'Tests FAILED — merge blocked';
+            const url    = '${{ steps.set_url.outputs.TEST_URL }}';
             await github.rest.issues.createComment({
               owner:        context.repo.owner,
               repo:         context.repo.repo,
@@ -144,19 +145,18 @@ jobs:
               body:
                 `## ${emoji} Playwright Tests — ${status}\n\n` +
                 `**URL tested:** ${url}\n\n` +
-                (pw_passed
+                (passed
                   ? '✅ All smoke tests passed. Safe to merge.'
                   : '❌ One or more tests failed. Download the **playwright-report** artifact above for screenshots.\n\n**Do not merge until fixed.**')
             });
 
-  # ════════════════════════════════════════════════════════════════════════════
-  # JOB 2 — Backend API Tests
-  # Runs backend_test.py against the live HuggingFace API
-  # ════════════════════════════════════════════════════════════════════════════
+  # ══════════════════════════════════════════════════════════════════════════
+  # JOB 2 — Core Backend API Tests (backend_test.py → Core HF Space)
+  # ══════════════════════════════════════════════════════════════════════════
   backend-tests:
     name: backend-tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -170,22 +170,22 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Wait for HuggingFace backend to wake up
+      - name: Wait for Core backend
         run: |
-          echo "Pinging backend..."
-          for i in {1..10}; do
+          echo "⏳ Waiting for Core space..."
+          for i in $(seq 1 25); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
               https://freddy-jmdataai-nexus-crm-backend.hf.space/api/auth/me \
-              --max-time 10 || echo "000")
-            echo "Attempt $i: HTTP $STATUS"
+              --max-time 15 || echo "000")
+            echo "  Attempt $i: HTTP $STATUS"
             if [ "$STATUS" = "200" ] || [ "$STATUS" = "401" ] || [ "$STATUS" = "403" ]; then
-              echo "✅ Backend is warm"
+              echo "  ✅ Core is warm"
               break
             fi
-            sleep 15
+            sleep 20
           done
 
-      - name: Run Backend API Tests
+      - name: Run Core API Tests
         run: |
           python backend/backend_test.py \
             https://freddy-jmdataai-nexus-crm-backend.hf.space
@@ -202,15 +202,86 @@ jobs:
           script: |
             const passed = '${{ job.status }}' === 'success';
             const emoji  = passed ? '✅' : '❌';
-            const status = passed ? 'All endpoints passed' : 'Backend tests FAILED';
-
+            const status = passed ? 'All Core endpoints passed' : 'Core backend tests FAILED';
             await github.rest.issues.createComment({
               owner:        context.repo.owner,
               repo:         context.repo.repo,
               issue_number: context.issue.number,
               body:
-                `## ${emoji} Backend API Tests — ${status}\n\n` +
+                `## ${emoji} Core Backend Tests — ${status}\n\n` +
                 (passed
-                  ? '✅ All API endpoints responded correctly.'
-                  : '❌ One or more API endpoints failed. Check the **backend-tests** job logs above for details.')
+                  ? '✅ All Core API endpoints responded correctly.'
+                  : '❌ One or more Core endpoints failed. Check the **backend-tests** job logs.')
+            });
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # JOB 3 — Recruit API Tests (recruit_test.py → Recruit HF Space)
+  # ══════════════════════════════════════════════════════════════════════════
+  recruit-tests:
+    name: recruit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      # Recruit tests log into Core first — wait for both
+      - name: Wait for Core + Recruit backends
+        run: |
+          wait_for() {
+            local NAME=$1
+            local URL=$2
+            echo "⏳ Waiting for $NAME..."
+            for i in $(seq 1 25); do
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" --max-time 15 || echo "000")
+              echo "  Attempt $i: HTTP $STATUS"
+              if [ "$STATUS" = "200" ] || [ "$STATUS" = "401" ] || [ "$STATUS" = "403" ]; then
+                echo "  ✅ $NAME is warm"
+                return 0
+              fi
+              sleep 20
+            done
+            echo "  ⚠️ $NAME did not respond — continuing anyway"
+            return 0
+          }
+          wait_for "Core"    "https://freddy-jmdataai-nexus-crm-backend.hf.space/api/auth/me"
+          wait_for "Recruit" "https://freddy-jmdataai-nexus-crm-recruit.hf.space/health"
+
+      - name: Run Recruit API Tests
+        run: |
+          python recruit/recruit_test.py \
+            https://freddy-jmdataai-nexus-crm-recruit.hf.space
+        env:
+          ADMIN_EMAIL:  ${{ secrets.TEST_ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
+          CORE_URL: https://freddy-jmdataai-nexus-crm-backend.hf.space
+
+      - name: Post recruit test summary to PR
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const passed = '${{ job.status }}' === 'success';
+            const emoji  = passed ? '✅' : '❌';
+            const status = passed ? 'All Recruit endpoints passed' : 'Recruit backend tests FAILED';
+            await github.rest.issues.createComment({
+              owner:        context.repo.owner,
+              repo:         context.repo.repo,
+              issue_number: context.issue.number,
+              body:
+                `## ${emoji} Recruit Backend Tests — ${status}\n\n` +
+                (passed
+                  ? '✅ All Recruit API endpoints responded correctly.'
+                  : '❌ One or more Recruit endpoints failed. Check the **recruit-tests** job logs.')
             });

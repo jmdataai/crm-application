@@ -1,0 +1,38 @@
+name: Sync Recruit Backend to HuggingFace Space
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'recruit/**'
+      - 'shared/**'        # shared utils change → redeploy Recruit too
+
+jobs:
+  sync-recruit-to-huggingface:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Push Recruit backend to HuggingFace Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git config --global user.email "ci@github.com"
+          git config --global user.name "GitHub Actions"
+
+          mkdir /tmp/hf_recruit
+          # Copy recruit source
+          cp -r recruit/. /tmp/hf_recruit/
+          # Overlay shared utilities (single source of truth)
+          cp shared/llm_utils.py    /tmp/hf_recruit/llm_utils.py
+          cp shared/google_drive.py /tmp/hf_recruit/google_drive.py
+
+          cd /tmp/hf_recruit
+          git init
+          git checkout -b main
+          git add .
+          git commit -m "deploy recruit: $(date +'%Y-%m-%d %H:%M:%S')"
+          git remote add hfspace https://freddy-jmdataai:$HF_TOKEN@huggingface.co/spaces/freddy-jmdataai/nexus-crm-recruit
+          git push hfspace main --force
