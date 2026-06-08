@@ -191,7 +191,7 @@ export default function SalesDashboard() {
   const fetchLeads = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await leadsAPI.getAll({ limit:5000 });
+      const res = await leadsAPI.getAllBatched({ limit:5000 });
       const data = Array.isArray(res.data) ? res.data
         : Array.isArray(res.data?.leads) ? res.data.leads
         : Array.isArray(res.data?.data) ? res.data.data : [];

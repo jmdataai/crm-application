@@ -64,6 +64,31 @@ export const usersAPI = {
 // Leads APIs
 export const leadsAPI = {
   getAll: (params) => api.get('/leads', { params }),
+  getAllBatched: async (params = {}, batchSize = 1000) => {
+    const allLeads = [];
+    let skip = Number(params.skip) || 0;
+    const requestedLimit = params.limit == null ? Infinity : Math.max(Number(params.limit) || 0, 0);
+    let total = null;
+
+    while (allLeads.length < requestedLimit) {
+      const nextLimit = requestedLimit === Infinity
+        ? batchSize
+        : Math.min(batchSize, requestedLimit - allLeads.length);
+      const res = await api.get('/leads', {
+        params: { ...params, skip, limit: nextLimit }
+      });
+      const leads = Array.isArray(res.data?.leads) ? res.data.leads : [];
+      total = Number.isFinite(res.data?.total) ? res.data.total : total;
+      allLeads.push(...leads);
+
+      if (!leads.length) break;
+      skip += leads.length;
+      if (total != null && allLeads.length >= total) break;
+      if (leads.length < nextLimit) break;
+    }
+
+    return { data: { ...(typeof total === 'number' ? { total } : {}), leads: allLeads } };
+  },
   getOne: (id) => api.get(`/leads/${id}`),
   create: (data) => api.post('/leads', data),
   update: (id, data) => api.put(`/leads/${id}`, data),

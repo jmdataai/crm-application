@@ -346,7 +346,7 @@ export default function LeadsList() {
     setLoading(true); setError('');
     try {
       const [res, emailRes] = await Promise.all([
-        leadsAPI.getAll({ limit: 5000 }),
+        leadsAPI.getAllBatched({ limit: 5000 }),
         leadsAPI.getEmailDates().catch(() => ({ data: {} })),
       ]);
       const data = Array.isArray(res.data) ? res.data
