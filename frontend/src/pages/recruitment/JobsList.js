@@ -533,7 +533,7 @@ export default function JobsList() {
   // Fetch candidate counts per job + aggregate website jobs
   const fetchCandidateCounts = useCallback(async () => {
     try {
-      const res = await candidatesAPI.getAll({ limit: 1000 });
+      const res = await candidatesAPI.getAllBatched({ limit: 5000 });
       const all = Array.isArray(res.data) ? res.data
         : Array.isArray(res.data?.candidates) ? res.data.candidates : [];
 

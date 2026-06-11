@@ -298,7 +298,7 @@ export default function LeadDetail() {
       const [lRes, aRes, cRes, sRes] = await Promise.all([
         leadsAPI.getOne(id),
         activitiesAPI.getAll({ lead_id: id }),
-        candidatesAPI.getAll({ limit: 500 }),
+        candidatesAPI.getAllBatched({ limit: 5000 }),
         submissionsAPI.getAll({ lead_id: id }),
       ]);
       const l = lRes.data;

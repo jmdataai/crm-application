@@ -157,24 +157,30 @@ logger = logging.getLogger(__name__)
 # ── Supabase client ───────────────────────────────────────────
 SUPABASE_URL: str = os.environ["SUPABASE_URL"]
 SUPABASE_KEY: str = os.environ["SUPABASE_SERVICE_ROLE_KEY"]   # service role — bypasses RLS
+# Force HTTP/1.1 for all PostgREST traffic.
+# supabase-py's default httpx client uses http2=True; Supabase's HTTP/2 server
+# sends GOAWAY / terminates idle connections, which surfaces as
+# httpx.RemoteProtocolError ("Server disconnected" / ConnectionTerminated)
+# and 500s on the next request. HTTP/1.1 + keepalive limits avoids this class
+# of failure entirely; the retry in run()/safe_single() covers the rest.
+_supabase_httpx = httpx.Client(
+    http2=False,
+    timeout=httpx.Timeout(30.0, connect=10.0),
+    limits=httpx.Limits(max_keepalive_connections=10, max_connections=20, keepalive_expiry=20.0),
+)
+supabase: Client = None
 if ClientOptions:
-    _supabase_httpx = httpx.Client(http2=False)
-    options = None
     try:
-        init_sig = inspect.signature(ClientOptions.__init__)
-        if "http_client" in init_sig.parameters:
-            options = ClientOptions(http_client=_supabase_httpx)
-        else:
-            options = ClientOptions()
+        init_params = inspect.signature(ClientOptions.__init__).parameters
+        # Param was renamed across supabase-py versions — support both.
+        if "httpx_client" in init_params:
+            supabase = create_client(SUPABASE_URL, SUPABASE_KEY, options=ClientOptions(httpx_client=_supabase_httpx))
+        elif "http_client" in init_params:
+            supabase = create_client(SUPABASE_URL, SUPABASE_KEY, options=ClientOptions(http_client=_supabase_httpx))
     except Exception:
-        options = None
-
-    if options is not None:
-        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY, options=options)
-    else:
-        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-else:
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        supabase = None
+if supabase is None:
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ── Resend email ──────────────────────────────────────────────
 resend.api_key  = os.environ.get("RESEND_API_KEY", "")
@@ -504,20 +510,72 @@ def get_supabase() -> Client:
     """Return the shared Supabase client used by route handlers."""
     return supabase
 
+# Limits concurrent Supabase calls — asyncio.gather firing many parallel
+# queries over one connection caused connection exhaustion errors.
+_supabase_sem = asyncio.Semaphore(3)
+
 async def run(fn):
-    """Run a synchronous supabase call in a thread pool."""
-    return await asyncio.to_thread(fn)
+    """Run a synchronous supabase call in a thread pool.
+    Semaphore limits concurrency; transient connection drops are retried.
+
+    Supabase closes idle connections — the first request after a quiet period
+    can fail with httpx.RemoteProtocolError ("Server disconnected") before the
+    server processed anything, so retrying is safe. postgrest's built-in retry
+    only covers HTTP 503/520, not transport errors, hence this wrapper.
+    """
+    async with _supabase_sem:
+        attempts = 0
+        while True:
+            try:
+                return await asyncio.to_thread(fn)
+            except (httpx.RemoteProtocolError, httpx.ConnectError, httpx.ReadError) as exc:
+                attempts += 1
+                if attempts >= 3:
+                    raise
+                logger.warning(f"[supabase] transient connection error (attempt {attempts}/3), retrying: {exc}")
+                await asyncio.sleep(0.3 * attempts)
 
 async def safe_single(fn):
-    """Run a .single() query safely — returns None on 0 rows (PGRST116) instead of crashing."""
-    try:
-        res = await asyncio.to_thread(fn)
-        return res.data
-    except Exception as e:
-        err = str(e)
-        if "PGRST116" in err or "0 rows" in err or "406" in err:
-            return None
-        raise
+    """Run a .single() query safely — returns None on 0 rows (PGRST116) instead of crashing.
+    Retries transient connection drops like run()."""
+    attempts = 0
+    while True:
+        try:
+            res = await asyncio.to_thread(fn)
+            return res.data
+        except (httpx.RemoteProtocolError, httpx.ConnectError, httpx.ReadError) as exc:
+            attempts += 1
+            if attempts >= 3:
+                raise
+            logger.warning(f"[supabase] transient connection error (attempt {attempts}/3), retrying: {exc}")
+            await asyncio.sleep(0.3 * attempts)
+        except Exception as e:
+            err = str(e)
+            if "PGRST116" in err or "0 rows" in err or "406" in err:
+                return None
+            raise
+
+async def fetch_all_rows(table: str, select: str = "*", query_fn=None, page_size: int = 1000, max_rows: int = 20000):
+    """Fetch ALL rows from a table, paginating past Supabase's 1000-row response cap.
+
+    query_fn: optional callable(query) -> query to add filters/ordering before pagination.
+    Returns a plain list of row dicts.
+    """
+    all_rows: list = []
+    offset = 0
+    while offset < max_rows:
+        def _page(off=offset):
+            q = sb(table).select(select)
+            if query_fn is not None:
+                q = query_fn(q)
+            return q.range(off, off + page_size - 1).execute()
+        res = await run(_page)
+        rows = res.data or []
+        all_rows.extend(rows)
+        if len(rows) < page_size:
+            break
+        offset += page_size
+    return all_rows
 
 
 
@@ -1451,12 +1509,13 @@ async def get_bulk_email_recipients(request: Request):
     user = await get_current_user(request)
     _require_module(user, "sales")
 
-    leads_res = await run(lambda: sb("leads").select(
+    # fetch_all_rows paginates past Supabase's 1000-row cap — a plain select
+    # silently truncated the recipient list to the first 1000 leads.
+    leads = await fetch_all_rows("leads",
         "id,company,full_name,email,hq_location,"
         "contact_person_2_name,contact_person_2_email,"
         "contact_person_3_name,contact_person_3_email"
-    ).execute())
-    leads = leads_res.data or []
+    )
 
     # Collect all unique non-empty addresses, including hq_location
     recipients: dict = {}  # email -> {name, company, lead_id, hq_location}
@@ -1471,10 +1530,12 @@ async def get_bulk_email_recipients(request: Request):
         _add(l.get("contact_person_2_email"), l.get("contact_person_2_name"), l.get("company"), l["id"])
         _add(l.get("contact_person_3_email"), l.get("contact_person_3_name"), l.get("company"), l["id"])
 
-    # Check which have already received a welcome email
-    sent_res = await run(lambda: sb("email_sends").select("sent_to").eq("email_type", "welcome").execute())
+    # Check which have already received a welcome email — also paginated,
+    # since this table exceeds 1000 rows after the first large send.
+    sent_rows = await fetch_all_rows("email_sends", "sent_to",
+        query_fn=lambda q: q.eq("email_type", "welcome"))
     sent_set = set()
-    for row in (sent_res.data or []):
+    for row in sent_rows:
         sent_to = row.get("sent_to") if isinstance(row, dict) else None
         if isinstance(sent_to, str) and sent_to.strip():
             sent_set.add(sent_to.strip().lower())
@@ -1604,7 +1665,7 @@ async def get_sent_bulk_emails(request: Request):
     user = await get_current_user(request)
     _require_module(user, "sales")
     res = await run(lambda: sb("email_sends")
-        .select("*").eq("email_type", "welcome").order("sent_at", desc=True).limit(500).execute())
+        .select("*").eq("email_type", "welcome").order("sent_at", desc=True).limit(1000).execute())
     return {"sent": res.data or []}
 
 
@@ -2193,9 +2254,10 @@ async def sales_dashboard(request: Request):
     today = datetime.now(timezone.utc).date().isoformat()
 
     # Fetch all leads once — derive stats + pipeline in Python (1 query instead of N+2)
-    # Fire all independent queries in parallel
-    leads_all_res, tasks_today, overdue_tasks, followups, recent_leads, reminders, await_feedback, subs_pending = await asyncio.gather(
-        run(lambda: sb("leads").select("id,status,deal_value,next_follow_up,full_name,company,created_at").execute()),
+    # Fire all independent queries in parallel; the full-table scan is paginated
+    # past Supabase's 1000-row cap so stats stay accurate as leads grow.
+    leads_all, tasks_today, overdue_tasks, followups, recent_leads, reminders, await_feedback, subs_pending = await asyncio.gather(
+        fetch_all_rows("leads", "id,status,deal_value,next_follow_up,full_name,company,created_at"),
         run(lambda uid=user["id"]: sb("tasks").select("*").eq("assigned_to", uid).eq("due_date", today).eq("completed", False).execute()),
         run(lambda uid=user["id"]: sb("tasks").select("*").eq("assigned_to", uid).lt("due_date", today).eq("completed", False).execute()),
         run(lambda: sb("leads").select("*").eq("next_follow_up", today).execute()),
@@ -2204,7 +2266,7 @@ async def sales_dashboard(request: Request):
         run(lambda: sb("interviews").select("id,interview_type,scheduled_at,candidate:candidate_id(full_name),job:job_id(title)").eq("completed", True).is_("rating", "null").order("scheduled_at", desc=True).limit(10).execute()),
         run(lambda: sb("candidate_submissions").select("*, candidate:candidate_id(full_name), lead:lead_id(full_name,company)").eq("status", "submitted").order("created_at", desc=True).limit(10).execute()),
     )
-    all_leads = leads_all_res.data or []
+    all_leads = leads_all or []
     # Build lead_stats from the already-fetched data (no extra queries)
     lead_stats = {s.value: 0 for s in LeadStatus}
     for l in all_leads:
@@ -2551,14 +2613,15 @@ async def ceo_dashboard(request: Request):
 
     # Pipeline value (non-closed leads) — fire independent queries in parallel
     closed_statuses = ["closed", "completed", "rejected", "lost"]
-    active_leads_res, total_cands, submissions_res, acts_res, recent_audit = await asyncio.gather(
-        run(lambda: sb("leads").select("id,full_name,company,status,deal_value,next_follow_up,created_at").execute()),
+    active_leads_rows, total_cands, submissions_res, acts_rows, recent_audit = await asyncio.gather(
+        fetch_all_rows("leads", "id,full_name,company,status,deal_value,next_follow_up,created_at"),
         run(lambda: sb("candidates").select("id", count="exact").execute()),
         run(lambda: sb("candidate_submissions").select("id,status,created_at").gte("created_at", month_ago + "T00:00:00Z").execute()),
-        run(lambda: sb("activities").select("lead_id,created_at").order("created_at", desc=True).execute()),
+        fetch_all_rows("activities", "lead_id,created_at",
+            query_fn=lambda q: q.order("created_at", desc=True)),
         run(lambda: sb("audit_logs").select("*").order("created_at", desc=True).limit(20).execute()),
     )
-    all_leads = active_leads_res.data or []
+    all_leads = active_leads_rows or []
     pipeline_leads = [l for l in all_leads if l.get("status") not in closed_statuses]
     closed_leads   = [l for l in all_leads if l.get("status") in ["closed", "completed"]]
     pipeline_value = sum(float(l.get("deal_value") or 0) for l in pipeline_leads)
@@ -2571,7 +2634,7 @@ async def ceo_dashboard(request: Request):
         stage_counts[s] = stage_counts.get(s, 0) + 1
 
     submissions = submissions_res.data or []
-    acts = acts_res.data or []
+    acts = acts_rows or []
     last_act = {}
     for a in acts:
         lid = a["lead_id"]

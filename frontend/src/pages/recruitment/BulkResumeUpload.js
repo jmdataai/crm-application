@@ -30,15 +30,32 @@ export default function BulkResumeUpload() {
   const [error, setError]         = useState('');
   const pollRef = useRef(null);
 
+  const failCount = useRef(0);
+
   const poll = useCallback(async (id) => {
     try {
       const res = await candidatesAPI.bulkUploadStatus(id);
+      failCount.current = 0;
       const state = res.data;
       setProgress(state);
       if (state.status === 'done' || state.status === 'error') {
         clearInterval(pollRef.current);
       }
-    } catch (_) {}
+    } catch (e) {
+      // 404 = job lost (server restarted mid-upload) — stop immediately.
+      if (e?.response?.status === 404) {
+        clearInterval(pollRef.current);
+        setError('The server restarted during processing and this job was lost. Candidates processed before the restart were saved — check the Candidates list, then re-upload the ZIP (existing candidates are updated by email, not duplicated).');
+        setProgress(p => p ? { ...p, status: 'error' } : { status: 'error', total: 0, processed: 0, created: 0, errors: 0, results: [] });
+        return;
+      }
+      // Transient 500s: tolerate a few, then stop instead of spinning forever.
+      failCount.current += 1;
+      if (failCount.current >= 8) {
+        clearInterval(pollRef.current);
+        setError('Lost connection to the server while checking progress. Processing may still be running in the background — refresh the Candidates list in a minute to see results.');
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -205,6 +222,17 @@ export default function BulkResumeUpload() {
             )}
           </div>
 
+          {/* Google Drive credential failure warning */}
+          {(progress?.drive_warning || (progress?.drive_failures || 0) > 0) && (
+            <div style={{ display:'flex', gap:'0.5rem', padding:'0.75rem 1rem', borderRadius:'0.625rem', background:'rgba(234,179,8,0.08)', border:'1px solid rgba(234,179,8,0.35)', marginBottom:'1rem' }}>
+              <Icon name="warning" style={{ fontSize:'1rem', color:'#a16207', flexShrink:0, marginTop:2 }} />
+              <div style={{ fontSize:'0.8125rem', color:'var(--on-surface)', lineHeight:1.6 }}>
+                <strong>Google Drive upload failed for {progress?.drive_failures || 0} resume(s).</strong>{' '}
+                {progress?.drive_warning || 'Candidates were still created, but without resume links.'}
+              </div>
+            </div>
+          )}
+
           {/* Per-file results */}
           {(progress?.results || []).length > 0 && (
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -224,6 +252,7 @@ export default function BulkResumeUpload() {
                   <div style={{ overflow: 'hidden' }}>
                     <p style={{ fontSize: '0.875rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.filename}>{r.filename}</p>
                     {r.error && <p style={{ fontSize: '0.75rem', color: 'var(--error)' }}>{r.error}</p>}
+                    {r.drive_error && <p style={{ fontSize: '0.75rem', color: '#a16207' }}>Drive upload failed — saved without resume link</p>}
                   </div>
                   {!isMobile && <span style={{ fontSize: '0.8125rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.full_name || '—'}</span>}
                   {!isMobile && <span style={{ fontSize: '0.8125rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.candidate_role || '—'}</span>}

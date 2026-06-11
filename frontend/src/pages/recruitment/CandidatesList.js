@@ -639,7 +639,7 @@ export default function CandidatesList() {
   const fetchCandidates = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const res = await candidatesAPI.getAll({ limit: 500 });
+      const res = await candidatesAPI.getAllBatched({ limit: 5000 });
       const data = Array.isArray(res.data) ? res.data : Array.isArray(res.data?.candidates) ? res.data.candidates : Array.isArray(res.data?.data) ? res.data.data : [];
       setCandidates(data.map(normalise));
     } catch { setError('Failed to load candidates.'); }

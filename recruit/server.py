@@ -75,23 +75,30 @@ logger = logging.getLogger(__name__)
 # ── Supabase client ───────────────────────────────────────────
 SUPABASE_URL: str = os.environ["SUPABASE_URL"]
 SUPABASE_KEY: str = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+# Force HTTP/1.1 for all PostgREST traffic.
+# supabase-py's default httpx client uses http2=True; Supabase's HTTP/2 server
+# sends GOAWAY / terminates idle connections, which surfaces as
+# httpx.RemoteProtocolError ("Server disconnected" / ConnectionTerminated)
+# and 500s on the next request. HTTP/1.1 + keepalive limits avoids this class
+# of failure entirely; the retry in run()/safe_single() below covers the rest.
+_supabase_httpx = httpx.Client(
+    http2=False,
+    timeout=httpx.Timeout(30.0, connect=10.0),
+    limits=httpx.Limits(max_keepalive_connections=10, max_connections=20, keepalive_expiry=20.0),
+)
+supabase: Client = None
 if ClientOptions:
-    _supabase_httpx = httpx.Client(http2=False)
-    options = None
     try:
-        init_sig = inspect.signature(ClientOptions.__init__)
-        if "http_client" in init_sig.parameters:
-            options = ClientOptions(http_client=_supabase_httpx)
-        else:
-            options = ClientOptions()
+        init_params = inspect.signature(ClientOptions.__init__).parameters
+        # Param was renamed across supabase-py versions — support both.
+        if "httpx_client" in init_params:
+            supabase = create_client(SUPABASE_URL, SUPABASE_KEY, options=ClientOptions(httpx_client=_supabase_httpx))
+        elif "http_client" in init_params:
+            supabase = create_client(SUPABASE_URL, SUPABASE_KEY, options=ClientOptions(http_client=_supabase_httpx))
     except Exception:
-        options = None
-    if options is not None:
-        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY, options=options)
-    else:
-        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-else:
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        supabase = None
+if supabase is None:
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ── Resend email ──────────────────────────────────────────────
 resend.api_key  = os.environ.get("RESEND_API_KEY", "")
@@ -375,21 +382,66 @@ def get_supabase() -> Client:
 
 async def run(fn):
     """Run a synchronous supabase call in a thread pool.
-    Semaphore limits concurrency to prevent HTTP/2 stream exhaustion.
+    Semaphore limits concurrency; transient connection drops are retried.
+
+    Supabase closes idle connections — the first request after a quiet period
+    can fail with httpx.RemoteProtocolError ("Server disconnected") before the
+    server processed anything, so retrying is safe. postgrest's built-in retry
+    only covers HTTP 503/520, not transport errors, hence this wrapper.
     """
     async with _supabase_sem:
-        return await asyncio.to_thread(fn)
+        attempts = 0
+        while True:
+            try:
+                return await asyncio.to_thread(fn)
+            except (httpx.RemoteProtocolError, httpx.ConnectError, httpx.ReadError) as exc:
+                attempts += 1
+                if attempts >= 3:
+                    raise
+                logger.warning(f"[supabase] transient connection error (attempt {attempts}/3), retrying: {exc}")
+                await asyncio.sleep(0.3 * attempts)
 
 async def safe_single(fn):
-    """Run a .single() query safely — returns None on 0 rows (PGRST116) instead of crashing."""
-    try:
-        res = await asyncio.to_thread(fn)
-        return res.data
-    except Exception as e:
-        err = str(e)
-        if "PGRST116" in err or "0 rows" in err or "406" in err:
-            return None
-        raise
+    """Run a .single() query safely — returns None on 0 rows (PGRST116) instead of crashing.
+    Retries transient connection drops like run()."""
+    attempts = 0
+    while True:
+        try:
+            res = await asyncio.to_thread(fn)
+            return res.data
+        except (httpx.RemoteProtocolError, httpx.ConnectError, httpx.ReadError) as exc:
+            attempts += 1
+            if attempts >= 3:
+                raise
+            logger.warning(f"[supabase] transient connection error (attempt {attempts}/3), retrying: {exc}")
+            await asyncio.sleep(0.3 * attempts)
+        except Exception as e:
+            err = str(e)
+            if "PGRST116" in err or "0 rows" in err or "406" in err:
+                return None
+            raise
+
+async def fetch_all_rows(table: str, select: str = "*", query_fn=None, page_size: int = 1000, max_rows: int = 20000):
+    """Fetch ALL rows from a table, paginating past Supabase's 1000-row response cap.
+
+    query_fn: optional callable(query) -> query to add filters/ordering before pagination.
+    Returns a plain list of row dicts.
+    """
+    all_rows: list = []
+    offset = 0
+    while offset < max_rows:
+        def _page(off=offset):
+            q = sb(table).select(select)
+            if query_fn is not None:
+                q = query_fn(q)
+            return q.range(off, off + page_size - 1).execute()
+        res = await run(_page)
+        rows = res.data or []
+        all_rows.extend(rows)
+        if len(rows) < page_size:
+            break
+        offset += page_size
+    return all_rows
 
 
 
@@ -487,10 +539,15 @@ async def get_jobs(request: Request, is_active: Optional[bool] = None, search: O
     res = await run(lambda: q.execute())
     jobs = res.data or []
 
-    # Attach candidate count
-    for job in jobs:
-        cnt = await run(lambda jid=job["id"]: sb("candidates").select("id", count="exact").eq("job_id", jid).execute())
-        job["candidate_count"] = cnt.count or 0
+    # Attach candidate count — single paginated fetch + count in Python.
+    # The previous version ran one count query per job (N+1): with ~11 jobs
+    # that was 11 sequential round-trips (~3s) on every jobs-list load.
+    if jobs:
+        from collections import Counter
+        cand_rows = await fetch_all_rows("candidates", "job_id")
+        counts = Counter(r.get("job_id") for r in cand_rows if r.get("job_id"))
+        for job in jobs:
+            job["candidate_count"] = counts.get(job["id"], 0)
     return jobs
 
 
@@ -1313,8 +1370,9 @@ async def _process_bulk_zip(job_id: str, zip_bytes: bytes, user: dict):
         try:
             file_bytes = zf.read(name)
 
-            # 1. Extract text
-            resume_text = _extract_resume_text(file_bytes, mime)
+            # 1. Extract text — CPU-bound (PyMuPDF/pdfplumber); run in a thread
+            #    so it never blocks the event loop (single-worker Space).
+            resume_text = await asyncio.to_thread(_extract_resume_text, file_bytes, mime)
             if not resume_text.strip():
                 result_entry["status"] = "skipped"
                 result_entry["error"]  = "Could not extract text"
@@ -1326,7 +1384,7 @@ async def _process_bulk_zip(job_id: str, zip_bytes: bytes, user: dict):
 
             # 3. Upload to Google Drive — upload_resume returns dict {file_id, preview_url, view_url}
             drive_url = None
-            if upload_resume is not None:
+            if upload_resume is not None and not state.get("drive_disabled"):
                 try:
                     _loop = asyncio.get_running_loop()
                     drive_result = await _loop.run_in_executor(
@@ -1337,7 +1395,21 @@ async def _process_bulk_zip(job_id: str, zip_bytes: bytes, user: dict):
                     elif isinstance(drive_result, str):
                         drive_url = drive_result
                 except Exception as de:
+                    de_str = str(de)
                     logging.getLogger(__name__).warning(f"[bulk] Drive upload failed for {fname}: {de}")
+                    result_entry["drive_error"] = de_str[:200]
+                    state["drive_failures"] = state.get("drive_failures", 0) + 1
+                    # Credential errors will fail for EVERY file — stop retrying Drive,
+                    # keep creating candidates, and tell the UI what to fix.
+                    if "invalid_client" in de_str or "invalid_grant" in de_str:
+                        state["drive_disabled"] = True
+                        state["drive_warning"]  = (
+                            "Google Drive rejected the credentials (invalid_client). "
+                            "Candidates were created WITHOUT resume links. "
+                            "Fix GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN in the Recruit Space "
+                            "secrets, restart the Space, then re-upload this ZIP — existing "
+                            "candidates will be updated by email, not duplicated."
+                        )
 
             # 4. Insert candidate (upsert by email if available)
             row = {
@@ -1356,21 +1428,23 @@ async def _process_bulk_zip(job_id: str, zip_bytes: bytes, user: dict):
                 "created_by":       user.get("id"),
             }
 
-            sb_client = get_supabase()
-            # Upsert by email if available, else plain insert
+            # All DB calls go through run() — threaded + semaphored + retried.
+            # Previously these were direct sync .execute() calls, which blocked
+            # the event loop and froze status polling / the whole UI.
             if row["email"]:
-                existing = sb_client.table("candidates").select("id").eq("email", row["email"]).execute()
+                existing = await run(lambda em=row["email"]: sb("candidates").select("id").eq("email", em).execute())
                 if existing.data:
                     cid = existing.data[0]["id"]
-                    sb_client.table("candidates").update({k: v for k, v in row.items() if v is not None}).eq("id", cid).execute()
+                    upd = {k: v for k, v in row.items() if v is not None}
+                    await run(lambda c=cid, u=upd: sb("candidates").update(u).eq("id", c).execute())
                     result_entry["candidate_id"] = cid
                     result_entry["action"] = "updated"
                 else:
-                    ins = sb_client.table("candidates").insert(row).execute()
+                    ins = await run(lambda r=row: sb("candidates").insert(r).execute())
                     result_entry["candidate_id"] = ins.data[0]["id"] if ins.data else None
                     result_entry["action"] = "created"
             else:
-                ins = sb_client.table("candidates").insert(row).execute()
+                ins = await run(lambda r=row: sb("candidates").insert(r).execute())
                 result_entry["candidate_id"] = ins.data[0]["id"] if ins.data else None
                 result_entry["action"] = "created"
 
@@ -1415,7 +1489,7 @@ async def bulk_upload_zip(
     job_id = str(_uuid.uuid4())
     _bulk_jobs[job_id] = {
         "status": "running", "total": 0, "processed": 0,
-        "created": 0, "errors": 0, "results": [],
+        "created": 0, "errors": 0, "drive_failures": 0, "results": [],
     }
 
     background_tasks.add_task(_process_bulk_zip, job_id, raw, user)
@@ -1714,9 +1788,11 @@ async def recruitment_dashboard(request: Request):
     _require_module(user, "recruitment")
     today = datetime.now(timezone.utc).date().isoformat()
 
-    # Fire all independent queries in parallel
-    cands_all_res, active_jobs, upcoming_ivs, tasks_today, recent_cands = await asyncio.gather(
-        run(lambda: sb("candidates").select("id,status").execute()),
+    # Fire all independent queries in parallel.
+    # candidates stats use fetch_all_rows — a plain select is capped at 1000 rows
+    # by Supabase, which silently undercounts once the table grows past that.
+    cands_all, active_jobs, upcoming_ivs, tasks_today, recent_cands = await asyncio.gather(
+        fetch_all_rows("candidates", "id,status"),
         run(lambda: sb("jobs").select("id", count="exact").eq("is_active", True).execute()),
         run(lambda: sb("interviews").select("*, candidate:candidate_id(full_name), job:job_id(title)").gte("scheduled_at", today).eq("completed", False).order("scheduled_at").limit(10).execute()),
         run(lambda uid=user["id"]: sb("tasks").select("*").eq("assigned_to", uid).eq("due_date", today).eq("completed", False).execute()),
@@ -1724,11 +1800,11 @@ async def recruitment_dashboard(request: Request):
     )
     # Build cand_stats from already-fetched data (no extra queries)
     cand_stats = {s.value: 0 for s in CandidateStatus}
-    for c in (cands_all_res.data or []):
+    for c in cands_all:
         st = c.get("status")
         if st in cand_stats:
             cand_stats[st] += 1
-    total_cands_count = len(cands_all_res.data or [])
+    total_cands_count = len(cands_all)
 
     return {
         "candidate_stats":    cand_stats,
@@ -2194,6 +2270,36 @@ async def strip_trailing_slash(request: Request, call_next):
 # ============================================================
 # WIRE UP
 # ============================================================
+
+@app.on_event("startup")
+async def _validate_drive_credentials():
+    """Verify the Google OAuth credentials actually work (token refresh),
+    not just that the env vars exist. Runs in a thread, never blocks or
+    crashes startup — only logs a loud, actionable error if invalid.
+    """
+    if not _GDRIVE_OK:
+        return
+    def _check():
+        try:
+            from google.oauth2.credentials import Credentials
+            from google.auth.transport.requests import Request as _GReq
+            creds = Credentials(
+                token=None,
+                refresh_token=os.environ.get("GOOGLE_REFRESH_TOKEN", "").strip(),
+                client_id=os.environ.get("GOOGLE_CLIENT_ID", "").strip(),
+                client_secret=os.environ.get("GOOGLE_CLIENT_SECRET", "").strip(),
+                token_uri="https://oauth2.googleapis.com/token",
+            )
+            creds.refresh(_GReq())
+            logger.info("  Google Drive : credentials VERIFIED (token refresh ok)")
+        except Exception as e:
+            logger.error(
+                "  Google Drive : CREDENTIALS INVALID — resume uploads WILL FAIL. "
+                f"Fix GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN in Space secrets. Error: {e}"
+            )
+    asyncio.get_running_loop().run_in_executor(None, _check)
+
+
 app.include_router(api_router)
 app.add_middleware(GZipMiddleware, minimum_size=512)
 app.add_middleware(

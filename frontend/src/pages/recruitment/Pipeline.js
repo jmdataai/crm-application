@@ -31,7 +31,7 @@ export default function Pipeline() {
   const fetchPipeline = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await candidatesAPI.getAll({ limit: 500 });
+      const res = await candidatesAPI.getAllBatched({ limit: 5000 });
       const data = Array.isArray(res.data) ? res.data
         : Array.isArray(res.data?.candidates) ? res.data.candidates
         : Array.isArray(res.data?.data) ? res.data.data : [];

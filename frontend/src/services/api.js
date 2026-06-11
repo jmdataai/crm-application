@@ -142,6 +142,33 @@ export const jobsAPI = {
 // Candidates APIs
 export const candidatesAPI = {
   getAll: (params) => api.get('/candidates', { params }),
+  // Fetch large candidate lists in batches — Supabase caps every response at
+  // 1000 rows, so a single limit=5000 request would silently return only 1000.
+  getAllBatched: async (params = {}, batchSize = 1000) => {
+    const allCandidates = [];
+    let skip = Number(params.skip) || 0;
+    const requestedLimit = params.limit == null ? Infinity : Math.max(Number(params.limit) || 0, 0);
+    let total = null;
+
+    while (allCandidates.length < requestedLimit) {
+      const nextLimit = requestedLimit === Infinity
+        ? batchSize
+        : Math.min(batchSize, requestedLimit - allCandidates.length);
+      const res = await api.get('/candidates', {
+        params: { ...params, skip, limit: nextLimit }
+      });
+      const candidates = Array.isArray(res.data?.candidates) ? res.data.candidates : [];
+      total = Number.isFinite(res.data?.total) ? res.data.total : total;
+      allCandidates.push(...candidates);
+
+      if (!candidates.length) break;
+      skip += candidates.length;
+      if (total != null && allCandidates.length >= total) break;
+      if (candidates.length < nextLimit) break;
+    }
+
+    return { data: { ...(typeof total === 'number' ? { total } : {}), candidates: allCandidates } };
+  },
   getOne: (id) => api.get(`/candidates/${id}`),
   create: (data) => api.post('/candidates', data),
   update: (id, data) => api.put(`/candidates/${id}`, data),
