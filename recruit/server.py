@@ -679,15 +679,17 @@ async def create_candidate(candidate: CandidateCreate, request: Request):
     if candidate.tech_stack is not None: doc_c["tech_stack"] = candidate.tech_stack
     while True:
         try:
-            res = await run(lambda: sb("candidates").insert(doc_c).execute())
+            res = await run(lambda: sb("candidates").insert(doc_c).select().execute())
             break
         except Exception as e:
             if _strip_missing_column_from_postgrest_error(doc_c, e, "create_candidate"):
                 continue
             raise
+    if not res or not res.data:
+        raise HTTPException(status_code=500, detail="Candidate insert returned no data — check DB logs")
     candidate_id = res.data[0]["id"]
     await _log_activity(candidate_id=candidate_id, user=user, atype="note",
-                        desc=f"Candidate added by {user['name']}")
+                        desc=f"Candidate added by {user.get('name', user.get('full_name', 'Recruiter'))}")
     asyncio.create_task(_audit("create", user=user, entity_type="candidate", entity_id=candidate_id,
                                 entity_name=res.data[0].get("full_name"),
                                 new_value={"role": res.data[0].get("candidate_role"), "source": res.data[0].get("source"), "status": res.data[0].get("status")},
