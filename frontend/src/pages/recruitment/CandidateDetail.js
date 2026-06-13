@@ -1,6 +1,6 @@
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { candidatesAPI, activitiesAPI, interviewsAPI, emailAPI } from '../../services/api';
+import { candidatesAPI, activitiesAPI, interviewsAPI, emailAPI, onboardingAPI } from '../../services/api';
 import { useParams, useNavigate } from 'react-router-dom';
 
 const Icon = ({ name, style = {} }) => (
@@ -280,40 +280,92 @@ const ResumeCard = ({ candidateId, candidateName, initialUrl, onSaved }) => {
 };
 
 /* ── Schedule Interview Modal ───────────────────────── */
+/* ── Schedule Interview Modal (Feature 6 upgrade) ───────── */
+const INTERVIEW_TYPES = ['Technical Round','HR Round','Final Round','Research Panel','Culture Fit'];
+const DURATIONS = [{ label:'30 min', mins:30 },{ label:'45 min', mins:45 },{ label:'1 hr', mins:60 }];
+
 const ScheduleModal = ({ onClose, onAdd }) => {
   const { isMobile } = useBreakpoint();
-  const [form, setForm] = useState({ type:'Technical Round', date:'', time:'10:00', interviewer:'', notes:'' });
+  const [form, setForm] = useState({
+    type:'Technical Round', date:'', time:'10:00', duration:60, interviewer:'', notes:'',
+    sendCandidateInvite: false, sendInterviewerInvite: false, generateLink: false,
+  });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
   const submit = () => {
     if (!form.date) return;
     onAdd({ ...form, id:`iv${Date.now()}`, rating:null, feedback:'', completed:false });
     onClose();
   };
+
   return (
     <div className="modal-overlay scale-in" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.5rem' }}>
-          <h2 style={{ fontSize:'1.125rem', fontWeight:700 }}>Schedule Interview</h2>
+      <div className="modal modal-lg" style={{ maxHeight:'90vh', overflowY:'auto' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.5rem', position:'sticky', top:0, background:'var(--surface-container-lowest)', paddingBottom:'0.875rem', borderBottom:'1px solid var(--outline-variant)', zIndex:2 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'0.625rem' }}>
+            <div style={{ width:36, height:36, borderRadius:'0.625rem', background:'rgba(0,98,67,0.1)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <Icon name="event" style={{ fontSize:'1.125rem', color:'var(--tertiary)' }} />
+            </div>
+            <h2 style={{ fontSize:'1.0625rem', fontWeight:700 }}>Schedule Interview</h2>
+          </div>
           <button className="btn-icon" onClick={onClose}><Icon name="close" /></button>
         </div>
+
         <div style={{ display:'flex', flexDirection:'column', gap:'1rem' }}>
+          {/* Type */}
           <div>
             <label className="label">Interview Type</label>
             <select className="select" value={form.type} onChange={e => set('type', e.target.value)}>
-              {['Technical Round','HR Round','Final Round','Research Panel','Culture Fit'].map(t => <option key={t}>{t}</option>)}
+              {INTERVIEW_TYPES.map(t => <option key={t}>{t}</option>)}
             </select>
           </div>
+
+          {/* Date + Time */}
           <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:'1rem' }}>
-            <div><label className="label">Date</label><input className="input" type="date" value={form.date} onChange={e => set('date', e.target.value)} /></div>
+            <div><label className="label">Date *</label><input className="input" type="date" value={form.date} onChange={e => set('date', e.target.value)} /></div>
             <div><label className="label">Time</label><input className="input" type="time" value={form.time} onChange={e => set('time', e.target.value)} /></div>
           </div>
+
+          {/* Duration */}
+          <div>
+            <label className="label" style={{ display:'block', marginBottom:'0.375rem' }}>Duration</label>
+            <div style={{ display:'flex', gap:'0.5rem' }}>
+              {DURATIONS.map(d => (
+                <button key={d.mins} type="button" onClick={() => set('duration', d.mins)} style={{ flex:1, padding:'0.5rem', borderRadius:'0.5rem', border:`1.5px solid ${form.duration===d.mins?'var(--tertiary)':'var(--outline-variant)'}`, background: form.duration===d.mins?'rgba(0,98,67,0.1)':'transparent', color: form.duration===d.mins?'var(--tertiary)':'var(--on-surface-variant)', fontWeight:600, fontSize:'0.8125rem', cursor:'pointer', fontFamily:'var(--font-display)' }}>
+                  {d.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Interviewer */}
           <div><label className="label">Interviewer</label><input className="input" placeholder="Name of interviewer" value={form.interviewer} onChange={e => set('interviewer', e.target.value)} /></div>
-          <div><label className="label">Notes</label><textarea className="textarea" rows={2} placeholder="Focus areas…" value={form.notes} onChange={e => set('notes', e.target.value)} /></div>
+
+          {/* Notes */}
+          <div><label className="label">Notes / Focus Areas</label><textarea className="textarea" rows={2} placeholder="Areas to focus on, relevant background…" value={form.notes} onChange={e => set('notes', e.target.value)} /></div>
+
+          {/* Toggles */}
+          <div style={{ padding:'0.875rem', background:'var(--surface-container-low)', borderRadius:'0.75rem', display:'flex', flexDirection:'column', gap:'0.625rem' }}>
+            <p style={{ fontSize:'0.75rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', color:'var(--on-surface-variant)', marginBottom:'0.25rem' }}>Options</p>
+            {[
+              { k:'sendCandidateInvite',  label:'Send calendar invite to candidate',  icon:'person' },
+              { k:'sendInterviewerInvite',label:'Send calendar invite to interviewer', icon:'manage_accounts' },
+            ].map(({ k, label, icon }) => (
+              <label key={k} style={{ display:'flex', alignItems:'center', gap:'0.75rem', cursor:'pointer' }}>
+                <div onClick={() => set(k, !form[k])} style={{ width:40, height:22, borderRadius:11, background: form[k]?'var(--tertiary)':'var(--surface-container)', transition:'background 0.2s', position:'relative', flexShrink:0 }}>
+                  <div style={{ position:'absolute', top:3, left: form[k]?20:3, width:16, height:16, borderRadius:'50%', background:'#fff', transition:'left 0.2s', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }} />
+                </div>
+                <Icon name={icon} style={{ fontSize:'1rem', color:'var(--on-surface-variant)' }} />
+                <span style={{ fontSize:'0.8125rem', color:'var(--on-surface)' }}>{label}</span>
+              </label>
+            ))}
+          </div>
         </div>
+
         <div style={{ display:'flex', gap:'0.75rem', justifyContent:'flex-end', marginTop:'1.5rem' }}>
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button onClick={submit} style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1.25rem', borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none', cursor:'pointer', background:'linear-gradient(135deg,var(--tertiary),#009966)' }}>
-            <Icon name="event" style={{ fontSize:'1rem', color:'#fff' }} /> Schedule
+          <button onClick={submit} disabled={!form.date} style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1.25rem', borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none', cursor: form.date?'pointer':'not-allowed', background: form.date?'linear-gradient(135deg,var(--tertiary),#009966)':'var(--outline-variant)', opacity: form.date?1:0.7 }}>
+            <Icon name="event" style={{ fontSize:'1rem', color:'#fff' }} /> Schedule Interview
           </button>
         </div>
       </div>
@@ -331,6 +383,19 @@ export default function CandidateDetail() {
   const [interviews, setInterviews] = useState([]);
   const [loading, setLoading]       = useState(true);
   const [activeTab, setTab]         = useState('activity');
+
+  // ── Feature 4: Timeline ───────────────────────────────────────
+  const [timelineLogs, setTimelineLogs]     = useState([]);
+  const [tlLoading, setTlLoading]           = useState(false);
+  const [tlType, setTlType]                 = useState('note');
+  const [tlContent, setTlContent]           = useState('');
+  const [tlSubmitting, setTlSubmitting]     = useState(false);
+
+  // ── Feature 15: Onboarding ────────────────────────────────────
+  const [onboarding, setOnboarding]         = useState(null);
+  const [clLoading, setClLoading]           = useState(false);
+  const [clStarting, setClStarting]         = useState(false);
+  const [clSaving, setClSaving]             = useState(null); // step index currently saving
   const [showSchedule, setSchedule] = useState(false);
   const [editing, setEditing]       = useState(false);
   const [editForm, setEditForm]     = useState({});
@@ -398,6 +463,25 @@ export default function CandidateDetail() {
   }, [id, navigate]);
 
   useEffect(() => { fetchCandidate(); }, [fetchCandidate]);
+
+  // ── Feature 4 + 15: load data when tabs become active ────────
+  useEffect(() => {
+    if (!id) return;
+    if (activeTab === 'timeline') {
+      setTlLoading(true);
+      activitiesAPI.getAll({ candidate_id: id })
+        .then(res => setTimelineLogs(Array.isArray(res.data) ? res.data : []))
+        .catch(() => setTimelineLogs([]))
+        .finally(() => setTlLoading(false));
+    }
+    if (activeTab === 'onboarding') {
+      setClLoading(true);
+      onboardingAPI.getChecklist(id)
+        .then(res => setOnboarding(res.data))
+        .catch(() => setOnboarding(null))
+        .finally(() => setClLoading(false));
+    }
+  }, [activeTab, id]);
 
   const moveStage = async (newStage) => {
     const prev = candidate.status;
@@ -537,6 +621,8 @@ export default function CandidateDetail() {
     { key:'activity',   label:'Activity',   icon:'history' },
     { key:'interviews', label:'Interviews', icon:'video_call' },
     { key:'notes',      label:'Notes',      icon:'sticky_note_2' },
+    { key:'timeline',   label:'Timeline',   icon:'timeline' },
+    { key:'onboarding', label:'Onboarding', icon:'checklist' },
   ];
 
   return (
@@ -779,6 +865,198 @@ export default function CandidateDetail() {
                   {noteSaving ? 'Saving…' : 'Save Note'}
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* ══ Feature 4: Timeline Tab ════════════════════════════ */}
+          {activeTab === 'timeline' && (
+            <div className="card slide-in" style={{ padding:'1.5rem' }}>
+              {/* Stats bar */}
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'0.625rem', marginBottom:'1.5rem' }}>
+                {[
+                  { label:'Total Interactions', value: timelineLogs.length },
+                  { label:'Last Contact', value: timelineLogs.length ? new Date(timelineLogs[0].created_at).toLocaleDateString('en-IE',{day:'2-digit',month:'short'}) : '—' },
+                  { label:'CV Submissions', value: timelineLogs.filter(l => l.description?.toLowerCase().includes('cv') || l.activity_type === 'interview').length },
+                ].map(s => (
+                  <div key={s.label} style={{ padding:'0.75rem', background:'var(--surface-container-low)', borderRadius:'0.625rem', textAlign:'center' }}>
+                    <p style={{ fontSize:'1.125rem', fontWeight:800, color:'var(--primary)', lineHeight:1 }}>{s.value}</p>
+                    <p style={{ fontSize:'0.6875rem', color:'var(--on-surface-variant)', marginTop:'0.25rem' }}>{s.label}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Timeline feed */}
+              {tlLoading ? (
+                <div style={{ textAlign:'center', padding:'2rem', color:'var(--on-surface-variant)' }}>
+                  <Icon name="progress_activity" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.5rem' }} />Loading timeline…
+                </div>
+              ) : timelineLogs.length === 0 ? (
+                <div style={{ textAlign:'center', padding:'2rem', color:'var(--on-surface-variant)' }}>
+                  <Icon name="timeline" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.5rem', opacity:0.25 }} />
+                  <p style={{ fontSize:'0.875rem' }}>No interactions logged yet. Log one below.</p>
+                </div>
+              ) : (
+                <div style={{ position:'relative', paddingLeft:'1.5rem', marginBottom:'1.5rem' }}>
+                  <div style={{ position:'absolute', left:'0.625rem', top:0, bottom:0, width:2, background:'var(--surface-container)', borderRadius:2 }} />
+                  {timelineLogs.map((log, i) => {
+                    const TYPE_META = {
+                      call:          { icon:'phone_in_talk',   color:'#4468B0', label:'Call' },
+                      email:         { icon:'mail',            color:'#8b5cf6', label:'Email' },
+                      meeting:       { icon:'groups',          color:'#10b981', label:'Meeting' },
+                      interview:     { icon:'video_call',      color:'#f59e0b', label:'Interview' },
+                      status_change: { icon:'swap_horiz',      color:'#6b7280', label:'Status' },
+                      note:          { icon:'sticky_note_2',   color:'#6b7280', label:'Note' },
+                    };
+                    const meta = TYPE_META[log.activity_type] || TYPE_META.note;
+                    return (
+                      <div key={log.id || i} style={{ display:'flex', gap:'0.875rem', marginBottom: i < timelineLogs.length-1 ? '1.25rem' : 0, position:'relative' }}>
+                        <div style={{ position:'absolute', left:'-1.1875rem', top:'0.25rem', width:14, height:14, borderRadius:'50%', background:meta.color, border:'2px solid var(--surface-container-lowest)', flexShrink:0 }} />
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'0.5rem', flexWrap:'wrap' }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:'0.375rem' }}>
+                              <span style={{ fontSize:'0.75rem', fontWeight:700, padding:'0.1rem 0.4rem', borderRadius:9999, background:`${meta.color}18`, color:meta.color }}>{meta.label}</span>
+                              <p style={{ fontWeight:600, fontSize:'0.875rem', color:'var(--on-surface)' }}>{log.description}</p>
+                            </div>
+                            <span style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', whiteSpace:'nowrap', flexShrink:0 }}>
+                              {new Date(log.created_at).toLocaleDateString('en-IE',{day:'2-digit',month:'short',year:'numeric'})}
+                            </span>
+                          </div>
+                          <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', marginTop:'0.125rem' }}>by {log.user_name || '—'}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Log new activity */}
+              <div style={{ borderTop:'1px solid var(--outline-variant)', paddingTop:'1.25rem' }}>
+                <p style={{ fontSize:'0.75rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', color:'var(--on-surface-variant)', marginBottom:'0.875rem' }}>Log Activity</p>
+                <div style={{ display:'flex', gap:'0.5rem', marginBottom:'0.875rem', flexWrap:'wrap' }}>
+                  {[
+                    { type:'note',      icon:'sticky_note_2',  label:'Note',     color:'#6b7280' },
+                    { type:'call',      icon:'phone_in_talk',  label:'Call',     color:'#4468B0' },
+                    { type:'email',     icon:'mail',           label:'Email',    color:'#8b5cf6' },
+                    { type:'meeting',   icon:'groups',         label:'Meeting',  color:'#10b981' },
+                    { type:'interview', icon:'video_call',     label:'Interview',color:'#f59e0b' },
+                  ].map(t => (
+                    <button key={t.type} type="button" onClick={() => setTlType(t.type)} style={{ display:'flex', alignItems:'center', gap:'0.375rem', padding:'0.375rem 0.75rem', borderRadius:9999, border:`1.5px solid ${tlType===t.type ? t.color : 'var(--outline-variant)'}`, background: tlType===t.type ? `${t.color}14` : 'transparent', color: tlType===t.type ? t.color : 'var(--on-surface-variant)', cursor:'pointer', fontSize:'0.8125rem', fontWeight: tlType===t.type ? 700 : 400, transition:'all 0.15s' }}>
+                      <Icon name={t.icon} style={{ fontSize:'0.9rem' }} />{t.label}
+                    </button>
+                  ))}
+                </div>
+                <textarea className="textarea" rows={2} value={tlContent} onChange={e => setTlContent(e.target.value)} placeholder={`Add a ${tlType} note about this candidate…`} style={{ width:'100%', resize:'none', marginBottom:'0.75rem' }} />
+                <button
+                  disabled={tlSubmitting || !tlContent.trim()}
+                  onClick={async () => {
+                    if (!tlContent.trim()) return;
+                    setTlSubmitting(true);
+                    try {
+                      await activitiesAPI.create({ candidate_id: cand.id, activity_type: tlType, description: tlContent.trim() });
+                      setTlContent('');
+                      // Refresh timeline
+                      const res = await activitiesAPI.getAll({ candidate_id: cand.id });
+                      setTimelineLogs(Array.isArray(res.data) ? res.data : []);
+                    } catch {}
+                    finally { setTlSubmitting(false); }
+                  }}
+                  style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1.25rem', borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none', cursor: tlSubmitting||!tlContent.trim() ? 'not-allowed' : 'pointer', background: tlSubmitting||!tlContent.trim() ? 'var(--outline-variant)' : 'linear-gradient(135deg,var(--tertiary),#009966)', opacity: tlSubmitting||!tlContent.trim() ? 0.65 : 1 }}
+                >
+                  <Icon name={tlSubmitting ? 'progress_activity' : 'add'} style={{ fontSize:'1rem', color:'#fff' }} />
+                  {tlSubmitting ? 'Saving…' : 'Log Activity'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ══ Feature 15: Onboarding Tab ═══════════════════════ */}
+          {activeTab === 'onboarding' && (
+            <div className="card slide-in" style={{ padding:'1.5rem' }}>
+              {clLoading ? (
+                <div style={{ textAlign:'center', padding:'3rem', color:'var(--on-surface-variant)' }}>
+                  <Icon name="progress_activity" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.75rem' }} />
+                  Loading onboarding checklist…
+                </div>
+              ) : !onboarding ? (
+                <div style={{ textAlign:'center', padding:'3rem' }}>
+                  <Icon name="checklist" style={{ fontSize:'3rem', display:'block', margin:'0 auto 0.75rem', opacity:0.25, color:'var(--tertiary)' }} />
+                  <p style={{ fontWeight:700, marginBottom:'0.5rem' }}>No onboarding started</p>
+                  <p style={{ fontSize:'0.875rem', color:'var(--on-surface-variant)', marginBottom:'1.5rem' }}>Start the onboarding checklist once this candidate is placed.</p>
+                  <button
+                    disabled={clStarting}
+                    onClick={async () => {
+                      setClStarting(true);
+                      try {
+                        await onboardingAPI.createChecklist(cand.id);
+                        const res = await onboardingAPI.getChecklist(cand.id);
+                        setOnboarding(res.data);
+                      } catch {}
+                      finally { setClStarting(false); }
+                    }}
+                    style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.625rem 1.5rem', borderRadius:'0.625rem', border:'none', background:'linear-gradient(135deg,var(--tertiary),#009966)', color:'#fff', fontWeight:700, fontSize:'0.875rem', cursor: clStarting ? 'not-allowed' : 'pointer', fontFamily:'var(--font-display)' }}
+                  >
+                    <Icon name="rocket_launch" style={{ fontSize:'1rem', color:'#fff' }} />
+                    {clStarting ? 'Starting…' : 'Start Onboarding'}
+                  </button>
+                </div>
+              ) : (() => {
+                const steps      = onboarding.steps || [];
+                const completed  = onboarding.completed_steps || [];
+                const doneCount  = completed.length;
+                const totalCount = steps.length;
+                const pct        = totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
+                const ringColor  = pct === 100 ? '#006243' : pct >= 50 ? '#B45309' : 'var(--primary)';
+                return (
+                  <>
+                    {/* Progress bar */}
+                    <div style={{ marginBottom:'1.5rem' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.625rem' }}>
+                        <p style={{ fontWeight:700, fontSize:'0.9375rem' }}>
+                          {pct === 100 ? '✅ Onboarding Complete!' : `${doneCount} of ${totalCount} steps complete`}
+                        </p>
+                        <span style={{ fontSize:'0.875rem', fontWeight:800, color:ringColor }}>{pct}%</span>
+                      </div>
+                      <div style={{ height:10, background:'var(--surface-container)', borderRadius:9999, overflow:'hidden' }}>
+                        <div style={{ height:'100%', width:`${pct}%`, background: pct===100 ? '#006243' : pct>=50 ? '#B45309' : 'var(--primary)', borderRadius:9999, transition:'width 0.5s ease' }} />
+                      </div>
+                    </div>
+
+                    {/* Checklist */}
+                    <div style={{ display:'flex', flexDirection:'column', gap:'0.625rem' }}>
+                      {steps.map((step, i) => {
+                        const done = completed.includes(i);
+                        const saving = clSaving === i;
+                        return (
+                          <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:'0.875rem', padding:'0.875rem 1rem', borderRadius:'0.75rem', background: done ? 'rgba(0,98,67,0.05)' : 'var(--surface-container-low)', border:`1px solid ${done ? 'rgba(0,98,67,0.2)' : 'var(--outline-variant)'}`, transition:'all 0.2s' }}>
+                            <button
+                              disabled={saving}
+                              onClick={async () => {
+                                setClSaving(i);
+                                try {
+                                  const res = await onboardingAPI.updateStep(cand.id, i, !done);
+                                  setOnboarding(prev => ({ ...prev, completed_steps: res.data.completed_steps }));
+                                } catch {}
+                                finally { setClSaving(null); }
+                              }}
+                              style={{ width:22, height:22, borderRadius:'50%', border:`2px solid ${done?'var(--tertiary)':'var(--outline-variant)'}`, background: done?'var(--tertiary)':'transparent', display:'flex', alignItems:'center', justifyContent:'center', cursor: saving?'not-allowed':'pointer', flexShrink:0, marginTop:2, transition:'all 0.2s' }}
+                            >
+                              {saving
+                                ? <Icon name="progress_activity" style={{ fontSize:'0.75rem', color: done?'#fff':'var(--on-surface-variant)' }} />
+                                : done ? <Icon name="check" style={{ fontSize:'0.875rem', color:'#fff' }} /> : null}
+                            </button>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <p style={{ fontWeight:600, fontSize:'0.875rem', color: done?'var(--tertiary)':'var(--on-surface)', textDecoration: done?'line-through':'none', opacity: done?0.75:1 }}>{step.name}</p>
+                              {step.description && <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', marginTop:'0.125rem' }}>{step.description}</p>}
+                            </div>
+                            <span style={{ fontSize:'0.6875rem', fontWeight:600, color:'var(--on-surface-variant)', background:'var(--surface-container)', padding:'0.15rem 0.5rem', borderRadius:9999, flexShrink:0 }}>{step.owner}</span>
+                            {done && <Icon name="check_circle" style={{ fontSize:'1rem', color:'var(--tertiary)', flexShrink:0 }} />}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           )}
         </div>{/* end RIGHT */}

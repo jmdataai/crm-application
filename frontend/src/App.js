@@ -18,6 +18,8 @@ import SalesReminders  from './pages/sales/SalesReminders';
 import SalesActivityLog    from './pages/sales/SalesActivityLog';
 import BulkEmail           from './pages/sales/BulkEmail';
 import SalesTrackerDashboard from './pages/sales/SalesTrackerDashboard';
+import PipelineKanban        from './pages/sales/PipelineKanban';
+import SequencesManager      from './pages/sales/SequencesManager';
 
 // Recruitment
 import RecruitmentDashboard from './pages/recruitment/RecruitmentDashboard';
@@ -89,6 +91,8 @@ function AppRoutes() {
       <Route path="/sales/activity-log"  element={<Page module="sales"><SalesActivityLog /></Page>} />
       <Route path="/sales/bulk-email"    element={<Page module="sales"><BulkEmail /></Page>} />
       <Route path="/sales/tracker"        element={<Page module="sales"><SalesTrackerDashboard /></Page>} />
+      <Route path="/sales/pipeline"       element={<Page module="sales"><PipelineKanban /></Page>} />
+      <Route path="/sales/sequences"      element={<Page module="sales"><SequencesManager /></Page>} />
 
       {/* ── Recruitment — admin, sales, viewer only ── */}
       <Route path="/recruitment"                   element={<Page module="recruitment"><RecruitmentDashboard /></Page>} />

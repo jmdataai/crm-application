@@ -1813,6 +1813,38 @@ class SalesMonthlyRollupCreate(BaseModel):
     competitor_names:     Optional[str] = None
 
 
+
+
+# ── NEW MODELS: Email Replies + Sequences (Batches 3 & 4) ──────
+
+class EmailReplyUpdate(BaseModel):
+    handled: Optional[bool] = None
+
+
+class SequenceCreate(BaseModel):
+    name:        str
+    description: Optional[str] = None
+    steps:       list          = []
+    is_active:   bool          = True
+
+
+class SequenceUpdate(BaseModel):
+    name:        Optional[str]  = None
+    description: Optional[str]  = None
+    steps:       Optional[list]  = None
+    is_active:   Optional[bool]  = None
+
+
+class SequenceEnrollCreate(BaseModel):
+    company_id:    str
+    company_name:  Optional[str] = None
+    company_email: Optional[str] = None
+    sequence_id:   str
+
+
+class SequenceEnrollUpdate(BaseModel):
+    status: Optional[str] = None   # active | paused | completed | replied
+
 # ── Endpoints ──────────────────────────────────────────────────
 
 @api_router.get("/sales/tracker/users")
@@ -3809,6 +3841,385 @@ async def delete_expense(expense_id: str, request: Request):
  
     return {"success": True, "deleted": expense_id, "message": "Expense deleted successfully."}
 
+
+# ============================================================
+# BATCH 3: Email Tracking + Reply Sync Routes
+# ============================================================
+
+@api_router.get("/email-events/stats")
+async def get_email_events_stats(request: Request):
+    """Return open/click stats + hot leads (opened 3+ times)."""
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    sb_client = get_supabase()
+    events_res = await run(lambda: sb_client.table("email_events")
+        .select("*").order("created_at", desc=True).execute())
+    events = events_res.data or []
+    email_opens = {}
+    email_clicks = {}
+    for ev in events:
+        email = ev.get("email_address", "").lower()
+        if not email:
+            continue
+        if ev.get("event_type") == "open":
+            email_opens[email]  = email_opens.get(email, 0) + 1
+        if ev.get("event_type") == "click":
+            email_clicks[email] = email_clicks.get(email, 0) + 1
+    hot_leads = [
+        {
+            "email":       email,
+            "open_count":  count,
+            "last_opened": max((ev["created_at"] for ev in events
+                                if ev.get("email_address","").lower() == email
+                                and ev.get("event_type") == "open"), default=None),
+            "subject":     next((ev.get("subject") for ev in events
+                                 if ev.get("email_address","").lower() == email), None),
+        }
+        for email, count in email_opens.items()
+        if count >= 3
+    ]
+    hot_leads.sort(key=lambda x: x["open_count"], reverse=True)
+    return {"events": events, "hot_leads": hot_leads, "email_opens": email_opens}
+
+
+@api_router.get("/email-events/map")
+async def get_email_events_map(request: Request):
+    """Return { email: { open_count, last_opened, click_count } } map."""
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    sb_client = get_supabase()
+    events_res = await run(lambda: sb_client.table("email_events")
+        .select("email_address,event_type,created_at").execute())
+    events = events_res.data or []
+    result = {}
+    for ev in events:
+        email = ev.get("email_address", "").lower()
+        if not email:
+            continue
+        if email not in result:
+            result[email] = {"open_count": 0, "click_count": 0, "last_opened": None}
+        if ev.get("event_type") == "open":
+            result[email]["open_count"] += 1
+            ts = ev.get("created_at")
+            if ts and (not result[email]["last_opened"] or ts > result[email]["last_opened"]):
+                result[email]["last_opened"] = ts
+        if ev.get("event_type") == "click":
+            result[email]["click_count"] += 1
+    return result
+
+
+@api_router.post("/email-webhook")
+async def email_tracking_webhook(request: Request):
+    """Resend webhook — receives open/click events. Register in Resend dashboard."""
+    payload = await request.json()
+    sb_client = get_supabase()
+    events_to_log = []
+    raw_events = payload if isinstance(payload, list) else [payload]
+    for event in raw_events:
+        event_type = event.get("type", "")
+        data       = event.get("data", {})
+        email_addr = data.get("to", [None])[0] if isinstance(data.get("to"), list) else data.get("email", "")
+        subject    = data.get("subject", "")
+        email_id   = data.get("email_id") or event.get("email_id")
+        if not email_addr:
+            continue
+        mapped_type = None
+        if "open"  in event_type: mapped_type = "open"
+        if "click" in event_type: mapped_type = "click"
+        if not mapped_type:
+            continue
+        events_to_log.append({
+            "email_address":   email_addr.lower(),
+            "event_type":      mapped_type,
+            "subject":         subject,
+            "resend_email_id": email_id,
+        })
+    if events_to_log:
+        try:
+            await run(lambda: sb_client.table("email_events").insert(events_to_log).execute())
+        except Exception as e:
+            logger.warning(f"[email-webhook] insert failed: {e}")
+    return {"received": len(events_to_log)}
+
+
+@api_router.get("/email-replies")
+async def get_email_replies(request: Request):
+    """Return replies synced from MS Graph inbox."""
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    sb_client = get_supabase()
+    res = await run(lambda: sb_client.table("email_replies")
+        .select("*").order("received_at", desc=True).limit(100).execute())
+    return res.data or []
+
+
+@api_router.patch("/email-replies/{reply_id}")
+async def update_email_reply(reply_id: str, body: EmailReplyUpdate, request: Request):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    sb_client = get_supabase()
+    patch = {k: v for k, v in body.model_dump().items() if v is not None}
+    await run(lambda: sb_client.table("email_replies").update(patch).eq("id", reply_id).execute())
+    return {"message": "Updated"}
+
+
+@api_router.post("/email-replies/sync")
+async def trigger_reply_sync(request: Request):
+    """Manually trigger inbox sync."""
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    synced = await _sync_email_replies()
+    return {"synced": synced}
+
+
+async def _sync_email_replies() -> int:
+    """Poll MS Graph inbox for replies. Runs every 15 min via APScheduler."""
+    try:
+        token = _get_graph_token()
+        if not token:
+            logger.info("[reply-sync] No MS Graph token — skipping")
+            return 0
+        sb_client    = get_supabase()
+        last_res     = await run(lambda: sb_client.table("email_reply_sync_log")
+            .select("synced_at").order("synced_at", desc=True).limit(1).execute())
+        last_sync    = (last_res.data or [{}])[0].get("synced_at")
+        params       = {"$top": 50, "$select": "id,subject,from,receivedDateTime,bodyPreview"}
+        if last_sync:
+            params["$filter"] = f"receivedDateTime ge {last_sync}"
+        admin_email = os.environ.get("SENDER_EMAIL", "")
+        if not admin_email:
+            return 0
+        graph_url = f"https://graph.microsoft.com/v1.0/users/{admin_email}/mailFolders/inbox/messages"
+        import httpx as _httpx
+        async with _httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(graph_url, headers={"Authorization": f"Bearer {token}"}, params=params)
+        if resp.status_code != 200:
+            logger.warning(f"[reply-sync] Graph inbox fetch failed: {resp.status_code}")
+            return 0
+        messages    = resp.json().get("value", [])
+        new_replies = []
+        for msg in messages:
+            from_email = msg.get("from", {}).get("emailAddress", {}).get("address", "")
+            from_name  = msg.get("from", {}).get("emailAddress", {}).get("name", "")
+            if not from_email:
+                continue
+            new_replies.append({
+                "message_id":   msg.get("id"),
+                "from_email":   from_email.lower(),
+                "from_name":    from_name,
+                "subject":      msg.get("subject", ""),
+                "body_preview": msg.get("bodyPreview", "")[:500],
+                "received_at":  msg.get("receivedDateTime"),
+                "handled":      False,
+            })
+        if new_replies:
+            await run(lambda: sb_client.table("email_replies")
+                .upsert(new_replies, on_conflict="message_id").execute())
+        await run(lambda: sb_client.table("email_reply_sync_log")
+            .insert({"synced_at": datetime.now(timezone.utc).isoformat(), "count": len(new_replies)}).execute())
+        return len(new_replies)
+    except Exception as e:
+        logger.warning(f"[reply-sync] error: {e}")
+        return 0
+
+
+# ============================================================
+# BATCH 4: Sequences + Enrollments Routes
+# ============================================================
+
+@api_router.get("/sequences")
+async def get_sequences(request: Request):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    sb_client = get_supabase()
+    res = await run(lambda: sb_client.table("sequences")
+        .select("*").order("created_at", desc=True).execute())
+    return res.data or []
+
+
+@api_router.get("/sequences/{sequence_id}")
+async def get_sequence(sequence_id: str, request: Request):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    sb_client = get_supabase()
+    res = await safe_single(lambda: sb_client.table("sequences")
+        .select("*").eq("id", sequence_id).single().execute())
+    if not res:
+        raise HTTPException(404, "Sequence not found")
+    return res
+
+
+@api_router.post("/sequences")
+async def create_sequence(body: SequenceCreate, request: Request):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    sb_client = get_supabase()
+    row = {
+        "name":        body.name,
+        "description": body.description,
+        "steps":       body.steps,
+        "is_active":   body.is_active,
+        "created_by":  user["id"],
+    }
+    res = await run(lambda: sb_client.table("sequences").insert(row).execute())
+    await _audit("create", user=user, entity_type="sequence", entity_name=body.name,
+                 entity_id=res.data[0]["id"] if res.data else None,
+                 ip=_get_ip(request), ua=request.headers.get("user-agent",""))
+    return res.data[0] if res.data else {}
+
+
+@api_router.patch("/sequences/{sequence_id}")
+async def update_sequence(sequence_id: str, body: SequenceUpdate, request: Request):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    sb_client = get_supabase()
+    patch = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not patch:
+        raise HTTPException(400, "No fields to update")
+    await run(lambda: sb_client.table("sequences").update(patch).eq("id", sequence_id).execute())
+    return {"message": "Updated"}
+
+
+@api_router.delete("/sequences/{sequence_id}")
+async def delete_sequence(sequence_id: str, request: Request):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    sb_client = get_supabase()
+    await run(lambda: sb_client.table("sequences").delete().eq("id", sequence_id).execute())
+    return {"message": "Deleted"}
+
+
+@api_router.get("/sequence-enrollments")
+async def get_enrollments(
+    request: Request,
+    company_id:  Optional[str] = None,
+    sequence_id: Optional[str] = None,
+):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    sb_client = get_supabase()
+    q = sb_client.table("sequence_enrollments").select("*")
+    if company_id:  q = q.eq("company_id", company_id)
+    if sequence_id: q = q.eq("sequence_id", sequence_id)
+    res = await run(lambda: q.order("enrolled_at", desc=True).execute())
+    return res.data or []
+
+
+@api_router.post("/sequence-enrollments")
+async def enroll_in_sequence(body: SequenceEnrollCreate, request: Request):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    sb_client = get_supabase()
+    existing = await run(lambda: sb_client.table("sequence_enrollments")
+        .select("id,status")
+        .eq("company_id", body.company_id)
+        .eq("sequence_id", body.sequence_id)
+        .limit(1).execute())
+    if existing.data and existing.data[0].get("status") == "active":
+        raise HTTPException(400, "Already enrolled and active in this sequence")
+    seq_res = await safe_single(lambda: sb_client.table("sequences")
+        .select("*").eq("id", body.sequence_id).single().execute())
+    if not seq_res:
+        raise HTTPException(404, "Sequence not found")
+    steps       = seq_res.get("steps", [])
+    first_delay = steps[0].get("delay_days", 0) if steps else 0
+    next_at     = (datetime.now(timezone.utc) + timedelta(days=first_delay)).isoformat()
+    row = {
+        "company_id":    body.company_id,
+        "company_name":  body.company_name,
+        "company_email": body.company_email,
+        "sequence_id":   body.sequence_id,
+        "current_step":  0,
+        "total_steps":   len(steps),
+        "status":        "active",
+        "enrolled_by":   user["id"],
+        "next_step_at":  next_at,
+    }
+    res = await run(lambda: sb_client.table("sequence_enrollments").insert(row).execute())
+    return res.data[0] if res.data else {}
+
+
+@api_router.patch("/sequence-enrollments/{enrollment_id}")
+async def update_enrollment(enrollment_id: str, body: SequenceEnrollUpdate, request: Request):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    sb_client = get_supabase()
+    patch = {k: v for k, v in body.model_dump().items() if v is not None}
+    await run(lambda: sb_client.table("sequence_enrollments").update(patch).eq("id", enrollment_id).execute())
+    return {"message": "Updated"}
+
+
+@api_router.delete("/sequence-enrollments/{enrollment_id}")
+async def unenroll(enrollment_id: str, request: Request):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    sb_client = get_supabase()
+    await run(lambda: sb_client.table("sequence_enrollments").delete().eq("id", enrollment_id).execute())
+    return {"message": "Unenrolled"}
+
+
+async def _process_sequences():
+    """Hourly APScheduler job — sends drip emails for active sequence enrollments."""
+    try:
+        sb_client = get_supabase()
+        now_iso   = datetime.now(timezone.utc).isoformat()
+        due_res   = await run(lambda: sb_client.table("sequence_enrollments")
+            .select("*").eq("status", "active").lte("next_step_at", now_iso).limit(50).execute())
+        due = due_res.data or []
+        if not due:
+            return
+        for enrollment in due:
+            try:
+                seq_res = await safe_single(lambda: sb_client.table("sequences")
+                    .select("*").eq("id", enrollment["sequence_id"]).single().execute())
+                if not seq_res or not seq_res.get("is_active"):
+                    continue
+                steps    = seq_res.get("steps", [])
+                step_idx = enrollment.get("current_step", 0)
+                if step_idx >= len(steps):
+                    await run(lambda: sb_client.table("sequence_enrollments")
+                        .update({"status": "completed"}).eq("id", enrollment["id"]).execute())
+                    continue
+                step = steps[step_idx]
+                if step.get("type") == "email":
+                    company_name  = enrollment.get("company_name", "")
+                    company_email = enrollment.get("company_email", "")
+                    if company_email:
+                        subject   = (step.get("subject") or "").replace("{company}", company_name)
+                        body_html = (step.get("body_template") or "").replace("{company}", company_name).replace("{name}", company_name)
+                        try:
+                            await asyncio.get_running_loop().run_in_executor(
+                                None,
+                                lambda: resend.Emails.send({
+                                    "from":    SENDER_EMAIL,
+                                    "to":      [company_email],
+                                    "subject": subject,
+                                    "html":    body_html or f"<p>{body_html}</p>",
+                                })
+                            )
+                            await run(lambda: sb_client.table("email_sends").upsert({
+                                "sent_to": company_email, "subject": subject,
+                                "email_type": "sequence", "sent_at": now_iso,
+                            }, on_conflict="sent_to,email_type").execute())
+                        except Exception as send_err:
+                            logger.warning(f"[sequences] send failed for {company_email}: {send_err}")
+                next_step_idx = step_idx + 1
+                if next_step_idx >= len(steps):
+                    await run(lambda: sb_client.table("sequence_enrollments")
+                        .update({"status": "completed", "current_step": next_step_idx})
+                        .eq("id", enrollment["id"]).execute())
+                else:
+                    next_delay = steps[next_step_idx].get("delay_days", 3)
+                    next_at    = (datetime.now(timezone.utc) + timedelta(days=next_delay)).isoformat()
+                    await run(lambda: sb_client.table("sequence_enrollments")
+                        .update({"current_step": next_step_idx, "next_step_at": next_at})
+                        .eq("id", enrollment["id"]).execute())
+            except Exception as step_err:
+                logger.warning(f"[sequences] enrollment {enrollment.get('id')} error: {step_err}")
+    except Exception as e:
+        logger.error(f"[_process_sequences] fatal: {e}")
+
+
 @app.on_event("startup")
 async def startup():
     # Start daily digest scheduler
@@ -3818,6 +4229,8 @@ async def startup():
     scheduler.add_job(cleanup_audit_logs, CronTrigger(hour=3, minute=0), id="audit_cleanup", replace_existing=True)
     scheduler.add_job(send_timesheet_reminder, CronTrigger(day_of_week="fri", hour=17, minute=0), id="timesheet_reminder", replace_existing=True)
     scheduler.add_job(send_draft_timesheet_reminder, CronTrigger(day_of_week="mon", hour=9, minute=0), id="draft_timesheet_reminder", replace_existing=True)
+    scheduler.add_job(lambda: asyncio.create_task(_sync_email_replies()), trigger="interval", minutes=15, id="email_reply_sync", replace_existing=True)
+    scheduler.add_job(lambda: asyncio.create_task(_process_sequences()),   trigger="interval", hours=1,   id="sequence_processor",  replace_existing=True)
     scheduler.start()
     logger.info("[scheduler] Audit log cleanup scheduled at 03:00 daily (keeps 180 days)")
     logger.info(f"[scheduler] Daily digest scheduled at {digest_time}")
