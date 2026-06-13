@@ -171,7 +171,7 @@ class T:
     def jobs(self):
         self.sec("JOBS")
         self.req("GET","jobs",        label="GET /jobs")
-        self.req("GET","public/jobs", label="GET /public/jobs — no auth")
+        # self.req("GET","public/jobs"  # → recruit server (recruit_test.py), label="GET /public/jobs — no auth")
 
         r = self.req("POST","jobs",[200,201], label="POST /jobs — create",
                      json={"title":"PW Test Role","location":"Dublin",
@@ -316,7 +316,7 @@ class T:
         self.sec("OTHER ENDPOINTS")
         self.req("GET","audit-logs",  label="GET /audit-logs")
         self.req("GET","tutorials",   label="GET /tutorials")
-        self.req("GET","public/jobs", label="GET /public/jobs — no auth")
+        # self.req("GET","public/jobs"  # → recruit server (recruit_test.py), label="GET /public/jobs — no auth")
 
     # ── CLEANUP ───────────────────────────────────────────────────────────────
 

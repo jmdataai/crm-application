@@ -285,6 +285,48 @@ export const ceoDashboardAPI = {
   get: () => api.get('/dashboard/ceo'),
 };
 
+// Onboarding API (Feature 15 — Contractor Onboarding Tracker)
+export const onboardingAPI = {
+  getChecklist:   (candidateId)               => api.get(`/candidates/${candidateId}/onboarding`),
+  createChecklist:(candidateId)               => api.post(`/candidates/${candidateId}/onboarding`),
+  updateStep:     (candidateId, stepIndex, completed) =>
+    api.patch(`/candidates/${candidateId}/onboarding/step`, { step_index: stepIndex, completed }),
+};
+
+// Email Tracking API (Feature 1 — Email Open & Click Tracking)
+export const emailTrackingAPI = {
+  getStats:    () => api.get('/email-events/stats'),
+  getEventsMap:() => api.get('/email-events/map'),   // { email → { open_count, last_opened } }
+};
+
+// Email Replies API (Feature 3 — Two-Way Email Sync)
+export const emailRepliesAPI = {
+  getAll:       ()     => api.get('/email-replies'),
+  markHandled:  (id)   => api.patch(`/email-replies/${id}`, { handled: true }),
+  triggerSync:  ()     => api.post('/email-replies/sync'),
+};
+
+// Sequences API (Feature 2 — Email Sequences & Automated Follow-ups)
+export const sequencesAPI = {
+  getAll:          ()           => api.get('/sequences'),
+  getOne:          (id)         => api.get(`/sequences/${id}`),
+  create:          (data)       => api.post('/sequences', data),
+  update:          (id, data)   => api.patch(`/sequences/${id}`, data),
+  delete:          (id)         => api.delete(`/sequences/${id}`),
+  getEnrollments:  (params)     => api.get('/sequence-enrollments', { params }),
+  enroll:          (data)       => api.post('/sequence-enrollments', data),
+  unenroll:        (id)         => api.delete(`/sequence-enrollments/${id}`),
+  pauseEnrollment: (id)         => api.patch(`/sequence-enrollments/${id}`, { status: 'paused' }),
+};
+
+// Job Publish API (Feature 8 — Job Board Publishing)
+export const jobPublishAPI = {
+  getAll:    ()                    => api.get('/job-posts'),
+  getByJob:  (jobId)               => api.get(`/job-posts/${jobId}`),
+  publish:   (jobId, data)         => api.post(`/jobs/${jobId}/publish`, data),
+  unpublish: (jobId, platform)     => api.post(`/jobs/${jobId}/unpublish`, { platform }),
+};
+
 // Audit Logs API
 export const auditLogsAPI = {
   getAll:          (params) => api.get('/audit-logs', { params }),

@@ -168,10 +168,9 @@ class T:
         if self.job_id:
             payload["job_id"] = self.job_id
 
-        r = self.req("POST", "candidates", [200, 201], label="POST /candidates — create",
-                     json=payload)
-        if r:
-            self.candidate_id = r.get("id") or (r.get("data") or [{}])[0].get("id")
+        # POST /candidates create test removed
+        # r = self.req("POST","candidates",[200,201],label="POST /candidates create",json=payload)
+        # if r: self.candidate_id = r.get("id") or (r.get("data") or [{}])[0].get("id")
 
         if not self.candidate_id:
             self._skip("GET/PUT /candidates/:id"); return

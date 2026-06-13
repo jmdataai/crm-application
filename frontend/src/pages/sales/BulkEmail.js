@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { bulkEmailAPI } from '../../services/api';
+import { bulkEmailAPI, emailTrackingAPI } from '../../services/api';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
@@ -88,6 +89,7 @@ const parseEmailInput = (value) =>
     .filter(e => e && e.includes('@'));
 
 export default function BulkEmail() {
+  const { isMobile } = useBreakpoint();
   const [recipients, setRecipients] = useState([]);
   const [loading, setLoading]       = useState(true);
   const [subject, setSubject]       = useState(DEFAULT_SUBJECT);
@@ -118,6 +120,11 @@ export default function BulkEmail() {
   const [tab, setTab]             = useState('compose');
   const [history, setHistory]     = useState([]);
   const [histLoading, setHistLoading] = useState(false);
+
+  // ── Feature 1: Email Analytics state ─────────────────────────
+  const [analytics, setAnalytics]       = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [detailDrawer, setDetailDrawer]   = useState(null); // campaign subject for details drawer
 
   // Manually skipped emails (✕ button) — only excluded for this send session
   const [excluded, setExcluded] = useState(new Set());
@@ -151,7 +158,44 @@ export default function BulkEmail() {
   }, []);
 
   useEffect(() => { loadRecipients(); }, [loadRecipients]);
-  useEffect(() => { if (tab === 'history') loadHistory(); }, [tab, loadHistory]);
+  useEffect(() => { if (tab === 'history')   loadHistory(); }, [tab, loadHistory]);
+
+  // ── Feature 1: load analytics when tab switches ───────────────
+  useEffect(() => {
+    if (tab !== 'analytics') return;
+    setAnalyticsLoading(true);
+    Promise.allSettled([
+      bulkEmailAPI.getSent(),
+      emailTrackingAPI.getStats().catch(() => ({ data: null })),
+    ]).then(([sentRes, statsRes]) => {
+      const sent  = sentRes.status  === 'fulfilled' ? (sentRes.value?.data  || []) : [];
+      const stats = statsRes.status === 'fulfilled' ? (statsRes.value?.data || null) : null;
+      // Build campaigns from sent history — group by subject
+      const campaignMap = {};
+      for (const s of sent) {
+        const key = s.subject || '(no subject)';
+        if (!campaignMap[key]) campaignMap[key] = { subject: key, date: s.sent_at, recipients: 0, opens: 0, clicks: 0, rows: [] };
+        campaignMap[key].recipients++;
+        campaignMap[key].rows.push(s);
+        if (s.sent_at > campaignMap[key].date) campaignMap[key].date = s.sent_at;
+      }
+      // Merge events data if available
+      const events = stats?.events || [];
+      for (const ev of events) {
+        const key = ev.subject || '(no subject)';
+        if (campaignMap[key]) {
+          if (ev.event_type === 'open')  campaignMap[key].opens++;
+          if (ev.event_type === 'click') campaignMap[key].clicks++;
+        }
+      }
+      const campaigns = Object.values(campaignMap).sort((a, b) => (b.date||'').localeCompare(a.date||''));
+      const hotLeads  = stats?.hot_leads || [];
+      const totalSent = sent.length;
+      const totalOpens= events.filter(e => e.event_type === 'open').length;
+      const totalClicks = events.filter(e => e.event_type === 'click').length;
+      setAnalytics({ campaigns, hotLeads, totalSent, totalOpens, totalClicks, sent });
+    }).finally(() => setAnalyticsLoading(false));
+  }, [tab]);
 
   // Close company dropdown on outside click
   useEffect(() => {
@@ -352,7 +396,7 @@ export default function BulkEmail() {
 
       {/* ── Tab switcher ── */}
       <div style={{ display:'flex', gap:0, marginBottom:'1.25rem', background:'var(--surface-container-high)', padding:4, borderRadius:'0.875rem', width:'fit-content' }}>
-        {[{id:'compose',label:'Compose & Send'},{id:'history',label:'Sent History'}].map(t => (
+        {[{id:'compose',label:'Compose & Send'},{id:'history',label:'Sent History'},{id:'analytics',label:'📊 Analytics'}].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{
             padding:'0.5rem 1.25rem', borderRadius:'0.625rem', border:'none', cursor:'pointer',
             fontFamily:'var(--font-display)', fontSize:'0.875rem', fontWeight:tab===t.id?600:500,
@@ -678,6 +722,146 @@ export default function BulkEmail() {
                 </tbody>
               </table>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ══ Feature 1: Analytics Tab ═══════════════════════════ */}
+      {tab === 'analytics' && (
+        <div>
+          {analyticsLoading ? (
+            <div style={{ textAlign:'center', padding:'4rem', color:'var(--on-surface-variant)' }}>
+              <Icon name="progress_activity" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.75rem' }} />
+              Loading analytics…
+            </div>
+          ) : !analytics ? null : (
+            <>
+              {/* Summary cards */}
+              <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(5,1fr)', gap:'0.875rem', marginBottom:'1.5rem' }}>
+                {[
+                  { label:'Emails Sent',    value: analytics.totalSent,                            icon:'send',          color:'var(--primary)' },
+                  { label:'Total Opens',    value: analytics.totalOpens,                           icon:'mark_email_read',color:'#8b5cf6' },
+                  { label:'Total Clicks',   value: analytics.totalClicks,                          icon:'ads_click',      color:'#f59e0b' },
+                  { label:'Open Rate',      value: analytics.totalSent ? `${Math.round((analytics.totalOpens/analytics.totalSent)*100)}%` : '—', icon:'percent', color:'#10b981' },
+                  { label:'Hot Leads 🔥',   value: analytics.hotLeads.length,                     icon:'local_fire_department', color:'#ef4444' },
+                ].map(k => (
+                  <div key={k.label} className="card" style={{ padding:'1rem', position:'relative', overflow:'hidden' }}>
+                    <div style={{ position:'absolute', top:8, right:10, opacity:0.07 }}>
+                      <Icon name={k.icon} style={{ fontSize:'2.5rem', color:k.color }} />
+                    </div>
+                    <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', fontWeight:600, marginBottom:'0.25rem' }}>{k.label}</p>
+                    <p style={{ fontSize:'1.5rem', fontWeight:800, color:k.color, lineHeight:1 }}>{k.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Hot leads */}
+              {analytics.hotLeads.length > 0 && (
+                <div className="card" style={{ marginBottom:'1.25rem', padding:0, overflow:'hidden' }}>
+                  <div style={{ padding:'0.875rem 1.25rem', borderBottom:'1px solid var(--outline-variant)', display:'flex', alignItems:'center', gap:'0.5rem' }}>
+                    <span style={{ fontSize:'1.125rem' }}>🔥</span>
+                    <h3 style={{ fontWeight:700, fontSize:'0.9375rem' }}>Hot Leads — Opened 3+ Times</h3>
+                  </div>
+                  <div style={{ overflowX:'auto' }}>
+                    <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.8125rem' }}>
+                      <thead style={{ background:'var(--surface-container-low)' }}>
+                        <tr>{['Company / Email','Opens','Last Opened','Subject'].map(h => <th key={h} style={{ padding:'0.5rem 1rem', textAlign:'left', fontSize:'0.7rem', fontWeight:700, textTransform:'uppercase', color:'var(--on-surface-variant)', borderBottom:'1px solid var(--outline-variant)' }}>{h}</th>)}</tr>
+                      </thead>
+                      <tbody>
+                        {analytics.hotLeads.map((h, i) => (
+                          <tr key={i} style={{ borderBottom:'1px solid var(--surface-container)', background:'rgba(239,68,68,0.03)' }}>
+                            <td style={{ padding:'0.625rem 1rem', fontWeight:600 }}>{h.email}</td>
+                            <td style={{ padding:'0.625rem 1rem' }}><span style={{ fontWeight:800, color:'#ef4444', padding:'0.15rem 0.5rem', background:'rgba(239,68,68,0.1)', borderRadius:9999 }}>{h.open_count}×</span></td>
+                            <td style={{ padding:'0.625rem 1rem', color:'var(--on-surface-variant)' }}>{h.last_opened ? new Date(h.last_opened).toLocaleDateString('en-IE',{day:'2-digit',month:'short'}) : '—'}</td>
+                            <td style={{ padding:'0.625rem 1rem', color:'var(--on-surface-variant)', maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{h.subject||'—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Campaigns table */}
+              <div className="card" style={{ padding:0, overflow:'hidden' }}>
+                <div style={{ padding:'0.875rem 1.25rem', borderBottom:'1px solid var(--outline-variant)' }}>
+                  <h3 style={{ fontWeight:700, fontSize:'0.9375rem' }}>Sent Campaigns</h3>
+                </div>
+                {analytics.campaigns.length === 0 ? (
+                  <div style={{ textAlign:'center', padding:'3rem', color:'var(--on-surface-variant)' }}>
+                    <Icon name="mark_email_unread" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.5rem', opacity:0.3 }} />
+                    No campaigns yet. Send some emails first.
+                  </div>
+                ) : (
+                  <div style={{ overflowX:'auto' }}>
+                    <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.8125rem' }}>
+                      <thead style={{ background:'var(--surface-container-low)' }}>
+                        <tr>{['Subject','Date','Recipients','Opened','Clicked','Open Rate',''].map(h => <th key={h} style={{ padding:'0.5rem 1rem', textAlign:'left', fontSize:'0.7rem', fontWeight:700, textTransform:'uppercase', color:'var(--on-surface-variant)', borderBottom:'1px solid var(--outline-variant)', whiteSpace:'nowrap' }}>{h}</th>)}</tr>
+                      </thead>
+                      <tbody>
+                        {analytics.campaigns.map((c, i) => {
+                          const openRate = c.recipients ? Math.round((c.opens / c.recipients) * 100) : 0;
+                          return (
+                            <tr key={i} style={{ borderBottom:'1px solid var(--surface-container)' }}>
+                              <td style={{ padding:'0.625rem 1rem', fontWeight:600, maxWidth:220, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.subject}</td>
+                              <td style={{ padding:'0.625rem 1rem', color:'var(--on-surface-variant)', whiteSpace:'nowrap' }}>{c.date ? new Date(c.date).toLocaleDateString('en-IE',{day:'2-digit',month:'short',year:'numeric'}) : '—'}</td>
+                              <td style={{ padding:'0.625rem 1rem', fontWeight:600, textAlign:'center' }}>{c.recipients}</td>
+                              <td style={{ padding:'0.625rem 1rem', textAlign:'center' }}><span style={{ color:'#8b5cf6', fontWeight:700 }}>{c.opens}</span></td>
+                              <td style={{ padding:'0.625rem 1rem', textAlign:'center' }}><span style={{ color:'#f59e0b', fontWeight:700 }}>{c.clicks}</span></td>
+                              <td style={{ padding:'0.625rem 1rem', textAlign:'center' }}>
+                                <div style={{ display:'inline-flex', alignItems:'center', gap:'0.375rem' }}>
+                                  <div style={{ width:48, height:5, background:'var(--surface-container)', borderRadius:9999, overflow:'hidden' }}>
+                                    <div style={{ height:'100%', width:`${openRate}%`, background:openRate>30?'#006243':openRate>10?'#B45309':'#BA1A1A', borderRadius:9999 }} />
+                                  </div>
+                                  <span style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--on-surface-variant)' }}>{openRate}%</span>
+                                </div>
+                              </td>
+                              <td style={{ padding:'0.625rem 1rem' }}>
+                                <button onClick={() => setDetailDrawer(c)} style={{ fontSize:'0.75rem', color:'var(--primary)', fontWeight:600, background:'none', border:'none', cursor:'pointer' }}>Details →</button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Campaign details drawer */}
+              {detailDrawer && (
+                <div style={{ position:'fixed', inset:0, zIndex:300, display:'flex' }}>
+                  <div onClick={() => setDetailDrawer(null)} style={{ flex:1, background:'rgba(12,22,42,0.4)' }} />
+                  <div style={{ width:Math.min(440,window.innerWidth-32), background:'var(--surface-container-lowest)', borderLeft:'1px solid var(--outline-variant)', display:'flex', flexDirection:'column', overflowY:'auto' }}>
+                    <div style={{ padding:'1.25rem 1.5rem', borderBottom:'1px solid var(--outline-variant)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+                      <h3 style={{ fontWeight:700, fontSize:'0.9375rem', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginRight:'1rem' }}>{detailDrawer.subject}</h3>
+                      <button onClick={() => setDetailDrawer(null)} style={{ background:'none', border:'none', cursor:'pointer' }}><Icon name="close" /></button>
+                    </div>
+                    <div style={{ padding:'1.25rem 1.5rem', flex:1 }}>
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0.75rem', marginBottom:'1.25rem' }}>
+                        {[
+                          { l:'Recipients', v: detailDrawer.recipients },
+                          { l:'Opened',     v: detailDrawer.opens,  c:'#8b5cf6' },
+                          { l:'Clicked',    v: detailDrawer.clicks, c:'#f59e0b' },
+                        ].map(k => (
+                          <div key={k.l} style={{ padding:'0.75rem', background:'var(--surface-container-low)', borderRadius:'0.625rem', textAlign:'center' }}>
+                            <p style={{ fontSize:'1.25rem', fontWeight:800, color:k.c||'var(--primary)', lineHeight:1 }}>{k.v}</p>
+                            <p style={{ fontSize:'0.7rem', color:'var(--on-surface-variant)', marginTop:'0.25rem' }}>{k.l}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <p style={{ fontSize:'0.75rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', color:'var(--on-surface-variant)', marginBottom:'0.75rem' }}>Recipients</p>
+                      {detailDrawer.rows.map((r, i) => (
+                        <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0.5rem 0', borderBottom:'1px solid var(--surface-container)' }}>
+                          <p style={{ fontSize:'0.8125rem', fontWeight:500 }}>{r.sent_to}</p>
+                          <span style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>{r.sent_at ? new Date(r.sent_at).toLocaleDateString('en-IE',{day:'2-digit',month:'short'}) : '—'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

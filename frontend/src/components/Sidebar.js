@@ -10,6 +10,8 @@ const Icon = ({ name }) => (
 const salesNavBase = [
   { path: '/sales',               icon: 'dashboard',    label: 'Dashboard',    exact: true, hideForViewer: true },
   { path: '/sales/tracker',       icon: 'analytics',    label: 'Sales Tracker',              showForAll: true },
+  { path: '/sales/pipeline',      icon: 'view_kanban',  label: 'Pipeline',                   showForAll: true },
+  { path: '/sales/sequences',     icon: 'schedule_send', label: 'Sequences',                  hideForViewer: true },
   { path: '/sales/activity-log',  icon: 'edit_note',    label: 'Daily Log',                  hideForViewer: true },
   { path: '/sales/bulk-email',    icon: 'forward_to_inbox', label: 'Bulk Email',               hideForViewer: true },
   { path: '/sales/leads',         icon: 'group',         label: 'Leads',                     hideForViewer: true },

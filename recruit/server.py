@@ -380,6 +380,25 @@ def get_supabase() -> Client:
     """Return the shared Supabase client used by route handlers."""
     return supabase
 
+def _strip_missing_column_from_postgrest_error(payload: dict, err: Exception, context: str) -> bool:
+    """Remove one missing column reported by PostgREST. Returns True if payload changed."""
+    err_str = str(err)
+    if "PGRST204" not in err_str:
+        return False
+
+    import re as _re
+    col_match = _re.search(r"Could not find the '(\w+)' column", err_str)
+    if not col_match:
+        return False
+
+    bad_col = col_match.group(1)
+    if bad_col not in payload:
+        return False
+
+    logger.warning(f"[{context}] Column '{bad_col}' missing - skipping field for compatibility.")
+    payload.pop(bad_col, None)
+    return True
+
 async def run(fn):
     """Run a synchronous supabase call in a thread pool.
     Semaphore limits concurrency; transient connection drops are retried.
@@ -658,25 +677,19 @@ async def create_candidate(candidate: CandidateCreate, request: Request):
     doc_c = {k: v for k, v in doc_c.items() if v is not None and v != [] }
     if candidate.skills: doc_c["skills"] = candidate.skills
     if candidate.tech_stack is not None: doc_c["tech_stack"] = candidate.tech_stack
-    try:
-        res = await run(lambda: sb("candidates").insert(doc_c).execute())
-    except Exception as e:
-        err_str = str(e)
-        if "PGRST204" in err_str:
-            import re as _re
-            col_match = _re.search(r"Could not find the '(\w+)' column", err_str)
-            if col_match:
-                bad_col = col_match.group(1)
-                logger.warning(f"[create_candidate] Column '{bad_col}' missing — skipping. Run add_features_v3.sql.")
-                doc_c.pop(bad_col, None)
-                res = await run(lambda: sb("candidates").insert(doc_c).execute())
-            else:
-                raise
-        else:
+    while True:
+        try:
+            res = await run(lambda: sb("candidates").insert(doc_c).select().execute())
+            break
+        except Exception as e:
+            if _strip_missing_column_from_postgrest_error(doc_c, e, "create_candidate"):
+                continue
             raise
+    if not res or not res.data:
+        raise HTTPException(status_code=500, detail="Candidate insert returned no data — check DB logs")
     candidate_id = res.data[0]["id"]
     await _log_activity(candidate_id=candidate_id, user=user, atype="note",
-                        desc=f"Candidate added by {user['name']}")
+                        desc=f"Candidate added by {user.get('name', user.get('full_name', 'Recruiter'))}")
     asyncio.create_task(_audit("create", user=user, entity_type="candidate", entity_id=candidate_id,
                                 entity_name=res.data[0].get("full_name"),
                                 new_value={"role": res.data[0].get("candidate_role"), "source": res.data[0].get("source"), "status": res.data[0].get("status")},
@@ -780,7 +793,14 @@ async def update_candidate(candidate_id: str, candidate: CandidateUpdate, reques
 
     old_cand = await run(lambda: sb("candidates").select("full_name").eq("id", candidate_id).execute())
     cand_name = (old_cand.data or [{}])[0].get("full_name") or candidate_id
-    await run(lambda: sb("candidates").update(patch).eq("id", candidate_id).execute())
+    while True:
+        try:
+            await run(lambda: sb("candidates").update(patch).eq("id", candidate_id).execute())
+            break
+        except Exception as e:
+            if _strip_missing_column_from_postgrest_error(patch, e, "update_candidate"):
+                continue
+            raise
     asyncio.create_task(_audit("update", user=user, entity_type="candidate", entity_id=candidate_id,
                                 entity_name=cand_name, new_value=patch,
                                 ip=_get_ip(request), ua=request.headers.get("user-agent","")))
@@ -1707,6 +1727,266 @@ async def score_resume_upload(
 
 # INTERVIEWS
 # ============================================================
+
+# ── Job Publish Model ─────────────────────────────────────────
+class JobPublishRequest(BaseModel):
+    platforms:        List[str] = []          # ["linkedin", "indeed", "website", "crm"]
+    post_to_linkedin: bool      = False
+
+
+# ── Job Publish Routes ────────────────────────────────────────
+
+@api_router.get("/job-posts")
+async def get_job_posts(request: Request):
+    """Return all platform publish records for all jobs."""
+    user = await get_current_user(request)
+    _require_module(user, "recruitment")
+    sb_client = get_supabase()
+    res = await run(lambda: sb_client.table("job_posts")
+        .select("*").order("published_at", desc=True).execute())
+    return res.data or []
+
+
+@api_router.get("/job-posts/{job_id}")
+async def get_job_posts_for_job(job_id: str, request: Request):
+    """Return platform publish records for a specific job."""
+    user = await get_current_user(request)
+    _require_module(user, "recruitment")
+    sb_client = get_supabase()
+    res = await run(lambda: sb_client.table("job_posts")
+        .select("*").eq("job_id", job_id).execute())
+    return res.data or []
+
+
+@api_router.post("/jobs/{job_id}/publish")
+async def publish_job(job_id: str, body: JobPublishRequest, request: Request):
+    """
+    Publish a job to one or more platforms.
+    Currently supports: linkedin (via existing _post_job_to_linkedin),
+    website, crm (immediate — just a flag), indeed (stub for future API).
+    """
+    user = await get_current_user(request)
+    _require_module(user, "recruitment")
+    sb_client = get_supabase()
+
+    # Fetch the job
+    job_res = await safe_single(lambda: sb_client.table("jobs")
+        .select("*").eq("id", job_id).single().execute())
+    if not job_res:
+        raise HTTPException(404, "Job not found")
+
+    results  = {}
+    now_iso  = datetime.now(timezone.utc).isoformat()
+    rows_to_upsert = []
+
+    for platform in body.platforms:
+        success      = True
+        external_id  = None
+        error_detail = None
+
+        if platform == "linkedin" and body.post_to_linkedin:
+            # Reuse existing LinkedIn posting logic
+            try:
+                apply_url = f"https://jmdata-crm-application.jmdatatalent.com/apply?key={job_res.get('apply_key', '')}"
+                li_result = await _post_job_to_linkedin(job_res, apply_url)
+                success     = li_result.get("success", False)
+                external_id = li_result.get("post_id")
+                if not success:
+                    error_detail = li_result.get("error", "LinkedIn post failed")
+            except Exception as e:
+                success      = False
+                error_detail = str(e)
+
+        elif platform in ("website", "crm", "indeed"):
+            # website/crm: instant (no external API needed for now)
+            # indeed: stub — returns success=True, no external API call
+            success = True
+
+        rows_to_upsert.append({
+            "job_id":       job_id,
+            "platform":     platform,
+            "external_id":  external_id,
+            "status":       "live" if success else "failed",
+            "published_at": now_iso if success else None,
+            "error":        error_detail,
+            "published_by": user["id"],
+        })
+        results[platform] = {"success": success, "error": error_detail}
+
+    if rows_to_upsert:
+        try:
+            await run(lambda: sb_client.table("job_posts")
+                .upsert(rows_to_upsert, on_conflict="job_id,platform").execute())
+        except Exception as e:
+            logger.warning(f"[publish-job] upsert failed: {e}")
+
+    asyncio.create_task(_audit(
+        "update", user=user,
+        entity_type="job",
+        entity_id=job_id,
+        entity_name=job_res.get("title"),
+        new_value={"published_to": body.platforms, "results": results},
+        ip=_get_ip(request),
+        ua=request.headers.get("user-agent", ""),
+    ))
+
+    failed_platforms = [p for p, r in results.items() if not r["success"]]
+    return {
+        "success":  len(failed_platforms) == 0,
+        "results":  results,
+        "message":  f"Published to {len(results)-len(failed_platforms)} platform(s)"
+                    + (f". Failed: {', '.join(failed_platforms)}" if failed_platforms else ""),
+    }
+
+
+@api_router.post("/jobs/{job_id}/unpublish")
+async def unpublish_job(job_id: str, request: Request, platform: str = None):
+    """Mark a job as unpublished on one or all platforms."""
+    user = await get_current_user(request)
+    _require_module(user, "recruitment")
+    sb_client = get_supabase()
+
+    q = sb_client.table("job_posts").update({"status": "closed"}).eq("job_id", job_id)
+    if platform:
+        q = q.eq("platform", platform)
+    await run(lambda: q.execute())
+    return {"message": "Unpublished"}
+
+
+# ── _log_activity helper (was missing — add near other helpers) ──
+async def _log_activity(
+    user: dict,
+    atype: str,
+    desc: str,
+    candidate_id: str = None,
+    lead_id: str = None,
+):
+    """Insert a row into the activities table. Never raises — fire-and-forget."""
+    VALID_TYPES = {"call", "email", "meeting", "note", "status_change", "interview"}
+    try:
+        await run(lambda: sb("activities").insert({
+            "candidate_id":  candidate_id,
+            "lead_id":       lead_id,
+            "user_id":       user.get("id"),
+            "user_name":     user.get("name", ""),
+            "activity_type": atype if atype in VALID_TYPES else "note",
+            "description":   desc,
+        }).execute())
+    except Exception as e:
+        logger.warning(f"[_log_activity] failed: {e}")
+
+
+# ── Onboarding Pydantic model ─────────────────────────────────
+class OnboardingStepUpdate(BaseModel):
+    step_index: int
+    completed:  bool
+
+
+DEFAULT_ONBOARDING_STEPS = [
+    {"name": "Contract Sent",                "owner": "Recruiter", "description": "Send offer letter/contract to candidate"},
+    {"name": "Contract Signed",              "owner": "Candidate", "description": "Signed contract received back"},
+    {"name": "Right to Work Verified",       "owner": "HR",        "description": "Verify passport, visa, or relevant documents"},
+    {"name": "IR35 Determination",           "owner": "Recruiter", "description": "IR35 status confirmed and documented"},
+    {"name": "Bank Details Collected",       "owner": "Finance",   "description": "Candidate bank account details received"},
+    {"name": "Client Intro Email Sent",      "owner": "Recruiter", "description": "Introduction email sent to client manager"},
+    {"name": "Equipment / Access Requested", "owner": "IT",        "description": "Laptop, access cards, system access requested"},
+    {"name": "Day 1 Confirmed",              "owner": "Recruiter", "description": "Start date and location confirmed with all parties"},
+]
+
+
+# ── Onboarding Routes ─────────────────────────────────────────
+
+@api_router.get("/candidates/{candidate_id}/onboarding")
+async def get_onboarding_checklist(candidate_id: str, request: Request):
+    user = await get_current_user(request)
+    _require_module(user, "recruitment")
+    sb_client = get_supabase()
+    res = await run(lambda: sb_client.table("onboarding_checklists")
+        .select("*")
+        .eq("candidate_id", candidate_id)
+        .limit(1)
+        .execute())
+    rows = res.data or []
+    if not rows:
+        return {
+            "exists": False,
+            "steps": DEFAULT_ONBOARDING_STEPS,
+            "completed_steps": [],
+        }
+    row = rows[0]
+    row["exists"] = True
+    return row
+
+
+@api_router.post("/candidates/{candidate_id}/onboarding")
+async def create_onboarding_checklist(candidate_id: str, request: Request):
+    user = await get_current_user(request)
+    _require_module(user, "recruitment")
+    sb_client = get_supabase()
+
+    # Idempotent — return existing if already created
+    existing = await run(lambda: sb_client.table("onboarding_checklists")
+        .select("id")
+        .eq("candidate_id", candidate_id)
+        .limit(1)
+        .execute())
+    if existing.data:
+        return {"message": "Checklist already exists", "id": existing.data[0]["id"]}
+
+    row = {
+        "candidate_id":    candidate_id,
+        "steps":           DEFAULT_ONBOARDING_STEPS,
+        "completed_steps": [],
+        "created_by":      user["id"],
+    }
+    res = await run(lambda: sb_client.table("onboarding_checklists").insert(row).execute())
+    created = res.data[0] if res.data else {}
+    created["exists"] = True
+    return created
+
+
+@api_router.patch("/candidates/{candidate_id}/onboarding/step")
+async def update_onboarding_step(
+    candidate_id: str,
+    body: OnboardingStepUpdate,
+    request: Request,
+):
+    user = await get_current_user(request)
+    _require_module(user, "recruitment")
+    sb_client = get_supabase()
+
+    res = await run(lambda: sb_client.table("onboarding_checklists")
+        .select("id,completed_steps,steps")
+        .eq("candidate_id", candidate_id)
+        .limit(1)
+        .execute())
+    if not res.data:
+        raise HTTPException(404, "Onboarding checklist not found for this candidate")
+
+    record    = res.data[0]
+    completed = list(record.get("completed_steps") or [])
+
+    if body.completed and body.step_index not in completed:
+        completed.append(body.step_index)
+    elif not body.completed and body.step_index in completed:
+        completed.remove(body.step_index)
+
+    await run(lambda: sb_client.table("onboarding_checklists")
+        .update({"completed_steps": completed})
+        .eq("candidate_id", candidate_id)
+        .execute())
+
+    asyncio.create_task(_audit(
+        "update", user=user,
+        entity_type="onboarding",
+        entity_id=candidate_id,
+        new_value={"step": body.step_index, "completed": body.completed},
+        ip=_get_ip(request),
+        ua=request.headers.get("user-agent", ""),
+    ))
+    return {"completed_steps": completed}
+
+
 @api_router.post("/interviews")
 async def create_interview(interview: InterviewCreate, request: Request):
     user = await get_current_user(request)

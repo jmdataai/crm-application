@@ -1,6 +1,6 @@
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { jobsAPI, candidatesAPI } from '../../services/api';
+import { jobsAPI, candidatesAPI, jobPublishAPI } from '../../services/api';
 import { useNavigate } from 'react-router-dom';
 
 const Icon = ({ name, style = {} }) => (
@@ -515,9 +515,18 @@ export default function JobsList() {
   const [jobs, setJobs]       = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd]   = useState(false);
-  const [showEdit, setShowEdit] = useState(null);  // job being edited, or null
+  const [showEdit, setShowEdit] = useState(null);
   const [selected, setSelected] = useState(null);
-  const [candidateCounts, setCandidateCounts] = useState({}); // {job_id: count}
+  const [candidateCounts, setCandidateCounts] = useState({});
+
+  // ── Feature 8: Job Board Publishing state ─────────────────────
+  const [publishingJob, setPublishingJob]   = useState(null); // job object for publish drawer
+  const [publishPlatforms, setPublishPlatforms] = useState({
+    linkedin: true, indeed: false, website: true, crm: true,
+  });
+  const [publishing, setPublishing]         = useState(false);
+  const [publishResult, setPublishResult]   = useState(null); // { success, message }
+  const [jobPostsMap, setJobPostsMap]       = useState({});   // { job_id: [posts] }
 
   const fetchJobs = useCallback(async () => {
     setLoading(true);
@@ -547,6 +556,19 @@ export default function JobsList() {
   }, []);
 
   useEffect(() => { fetchJobs(); fetchCandidateCounts(); }, [fetchJobs, fetchCandidateCounts]);
+
+  // ── Feature 8: load existing job publish status (non-blocking) ─
+  useEffect(() => {
+    jobPublishAPI.getAll().then(res => {
+      const posts = Array.isArray(res.data) ? res.data : [];
+      const map   = {};
+      for (const p of posts) {
+        if (!map[p.job_id]) map[p.job_id] = [];
+        map[p.job_id].push(p);
+      }
+      setJobPostsMap(map);
+    }).catch(() => {});
+  }, []);
 
   const viewApplicants = (jobId, e) => {
     e?.stopPropagation();
@@ -699,6 +721,17 @@ export default function JobsList() {
                   <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.15rem 0.5rem', borderRadius:9999, background: job.active?'rgba(0,98,67,0.1)':'var(--surface-container)', color: job.active?'var(--tertiary)':'var(--on-surface-variant)' }}>
                     {job.active ? '● Active' : '○ Closed'}
                   </span>
+                  {/* Feature 8: live badge */}
+                  {(() => {
+                    const posts = jobPostsMap[job.id] || [];
+                    const livePosts = posts.filter(p => p.status === 'live');
+                    if (livePosts.length === 0) return null;
+                    return (
+                      <span style={{ fontSize:'0.6875rem', fontWeight:700, padding:'0.15rem 0.5rem', borderRadius:9999, background:'rgba(68,104,176,0.1)', color:'var(--primary)' }}>
+                        Live · {livePosts.length} platform{livePosts.length!==1?'s':''}
+                      </span>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -724,7 +757,16 @@ export default function JobsList() {
                   <span style={{ fontWeight:700, fontSize:'0.9375rem' }}>{candidateCounts[job.id] || 0}</span>
                   <span style={{ fontSize:'0.75rem' }}>applicants</span>
                 </button>
-                <span style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>{job.posted}</span>
+                <div style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
+                  {/* Feature 8: Publish button on card */}
+                  <button
+                    onClick={e => { e.stopPropagation(); setPublishResult(null); setPublishPlatforms({linkedin:true,indeed:false,website:true,crm:true}); setPublishingJob(job); }}
+                    style={{ display:'flex', alignItems:'center', gap:'0.25rem', padding:'0.25rem 0.625rem', borderRadius:'0.5rem', border:'1px solid rgba(68,104,176,0.35)', background:'rgba(68,104,176,0.06)', color:'var(--primary)', fontSize:'0.75rem', fontWeight:600, cursor:'pointer' }}
+                  >
+                    <Icon name="publish" style={{ fontSize:'0.875rem' }} /> Publish
+                  </button>
+                  <span style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>{job.posted}</span>
+                </div>
               </div>
             </div>
           ))}
@@ -799,6 +841,127 @@ export default function JobsList() {
 
       {showAdd && <AddJobModal onClose={() => setShowAdd(false)} onAdd={addJob} />}
       {showEdit && <EditJobModal job={showEdit} onClose={() => setShowEdit(null)} onSave={saveEditedJob} />}
+
+      {/* ══ Feature 8: Publish Drawer ═══════════════════════════ */}
+      {publishingJob && (
+        <div style={{ position:'fixed', inset:0, zIndex:300, display:'flex' }}>
+          <div onClick={() => { setPublishingJob(null); setPublishResult(null); }} style={{ flex:1, background:'rgba(12,22,42,0.4)' }} />
+          <div style={{ width:Math.min(420, window.innerWidth - 32), background:'var(--surface-container-lowest)', borderLeft:'1px solid var(--outline-variant)', display:'flex', flexDirection:'column', overflowY:'auto' }}>
+
+            {/* Header */}
+            <div style={{ padding:'1.25rem 1.5rem', borderBottom:'1px solid var(--outline-variant)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+              <div>
+                <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', marginBottom:'0.125rem' }}>Publish Job</p>
+                <h2 style={{ fontWeight:700, fontSize:'1rem', color:'var(--on-surface)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:280 }}>{publishingJob.title}</h2>
+              </div>
+              <button onClick={() => { setPublishingJob(null); setPublishResult(null); }} style={{ background:'none', border:'none', cursor:'pointer' }}>
+                <Icon name="close" />
+              </button>
+            </div>
+
+            <div style={{ padding:'1.25rem 1.5rem', flex:1, display:'flex', flexDirection:'column', gap:'1rem' }}>
+
+              {/* Success / error result */}
+              {publishResult && (
+                <div style={{ padding:'0.875rem 1rem', borderRadius:'0.625rem', background: publishResult.success ? 'rgba(0,98,67,0.08)' : 'var(--error-container)', border:`1px solid ${publishResult.success ? 'rgba(0,98,67,0.25)' : 'var(--error)'}` }}>
+                  <p style={{ fontWeight:700, fontSize:'0.875rem', color: publishResult.success ? 'var(--tertiary)' : 'var(--error)' }}>
+                    {publishResult.success ? '✅ ' : '⚠ '}{publishResult.message}
+                  </p>
+                </div>
+              )}
+
+              {/* JD preview */}
+              <div style={{ padding:'0.875rem', background:'var(--surface-container-low)', borderRadius:'0.625rem' }}>
+                <p style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--on-surface-variant)', marginBottom:'0.375rem', textTransform:'uppercase', letterSpacing:'0.05em' }}>Job Description Preview</p>
+                <p style={{ fontSize:'0.875rem', fontWeight:600, color:'var(--on-surface)', marginBottom:'0.25rem' }}>{publishingJob.title}</p>
+                <p style={{ fontSize:'0.8125rem', color:'var(--on-surface-variant)', marginBottom:'0.25rem' }}>{publishingJob.dept} · {publishingJob.location} · {publishingJob.employment_type}</p>
+                {publishingJob.description && (
+                  <p style={{ fontSize:'0.8125rem', color:'var(--on-surface-variant)', lineHeight:1.5, display:'-webkit-box', WebkitLineClamp:3, WebkitBoxOrient:'vertical', overflow:'hidden' }}>
+                    {publishingJob.description}
+                  </p>
+                )}
+              </div>
+
+              {/* Platform toggles */}
+              <div>
+                <p style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--on-surface-variant)', marginBottom:'0.75rem', textTransform:'uppercase', letterSpacing:'0.05em' }}>Select Platforms</p>
+                <div style={{ display:'flex', flexDirection:'column', gap:'0.625rem' }}>
+                  {[
+                    { k:'linkedin', label:'LinkedIn Jobs', icon:'work', color:'#0077B5', reach:'~5,000 IT professionals' },
+                    { k:'indeed',   label:'Indeed',        icon:'search', color:'#003A9B', reach:'~12,000 job seekers' },
+                    { k:'website',  label:'Company Website', icon:'language', color:'#006243', reach:'Direct applicants' },
+                    { k:'crm',      label:'CRM Jobs Tab',  icon:'business_center', color:'#4468B0', reach:'Public job board' },
+                  ].map(p => {
+                    const posts     = jobPostsMap[publishingJob.id] || [];
+                    const existing  = posts.find(pp => pp.platform === p.k);
+                    const isLive    = existing?.status === 'live';
+                    return (
+                      <div key={p.k} style={{ display:'flex', alignItems:'center', gap:'0.875rem', padding:'0.875rem 1rem', borderRadius:'0.75rem', border:`1.5px solid ${publishPlatforms[p.k] ? p.color+'40' : 'var(--outline-variant)'}`, background: publishPlatforms[p.k] ? `${p.color}08` : 'transparent', cursor:'pointer', transition:'all 0.15s' }}
+                        onClick={() => setPublishPlatforms(prev => ({ ...prev, [p.k]: !prev[p.k] }))}>
+                        <Icon name={p.icon} style={{ fontSize:'1.25rem', color: p.color, flexShrink:0 }} />
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:'0.375rem' }}>
+                            <p style={{ fontWeight:600, fontSize:'0.875rem', color:'var(--on-surface)' }}>{p.label}</p>
+                            {isLive && <span style={{ fontSize:'0.625rem', fontWeight:700, padding:'0.1rem 0.375rem', borderRadius:9999, background:'rgba(0,98,67,0.1)', color:'#006243' }}>LIVE</span>}
+                          </div>
+                          <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>{p.reach}</p>
+                        </div>
+                        <div style={{ width:22, height:22, borderRadius:'50%', border:`2px solid ${publishPlatforms[p.k] ? p.color : 'var(--outline-variant)'}`, background: publishPlatforms[p.k] ? p.color : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all 0.2s' }}>
+                          {publishPlatforms[p.k] && <Icon name="check" style={{ fontSize:'0.875rem', color:'#fff' }} />}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Note for LinkedIn */}
+              {publishPlatforms.linkedin && (
+                <div style={{ padding:'0.625rem 0.875rem', background:'rgba(0,119,181,0.06)', borderRadius:'0.5rem', border:'1px solid rgba(0,119,181,0.2)' }}>
+                  <p style={{ fontSize:'0.75rem', color:'#0077B5' }}>
+                    <strong>LinkedIn:</strong> Posts to Jayant's profile. Organization page posting pending API approval.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding:'1rem 1.5rem', borderTop:'1px solid var(--outline-variant)', flexShrink:0 }}>
+              {(() => {
+                const selectedCount = Object.values(publishPlatforms).filter(Boolean).length;
+                return (
+                  <button
+                    disabled={publishing || selectedCount === 0}
+                    onClick={async () => {
+                      setPublishing(true);
+                      setPublishResult(null);
+                      try {
+                        const res = await jobPublishAPI.publish(publishingJob.id, {
+                          platforms: Object.entries(publishPlatforms).filter(([,v])=>v).map(([k])=>k),
+                          post_to_linkedin: publishPlatforms.linkedin,
+                        });
+                        setPublishResult({ success: true, message: `Published to ${selectedCount} platform${selectedCount!==1?'s':''}` });
+                        // Refresh job posts map
+                        const postsRes = await jobPublishAPI.getAll();
+                        const posts    = Array.isArray(postsRes.data) ? postsRes.data : [];
+                        const map      = {};
+                        for (const p of posts) { if (!map[p.job_id]) map[p.job_id]=[]; map[p.job_id].push(p); }
+                        setJobPostsMap(map);
+                      } catch (e) {
+                        setPublishResult({ success: false, message: e?.response?.data?.detail || 'Publish failed. Check LinkedIn credentials.' });
+                      } finally { setPublishing(false); }
+                    }}
+                    style={{ width:'100%', padding:'0.75rem', borderRadius:'0.625rem', border:'none', background: publishing||selectedCount===0 ? 'var(--outline-variant)' : 'var(--primary)', color:'#fff', fontWeight:700, fontSize:'0.9375rem', cursor: publishing||selectedCount===0 ? 'not-allowed' : 'pointer', fontFamily:'var(--font-display)', display:'flex', alignItems:'center', justifyContent:'center', gap:'0.5rem' }}
+                  >
+                    <Icon name={publishing ? 'progress_activity' : 'publish'} style={{ fontSize:'1.125rem', color:'#fff' }} />
+                    {publishing ? 'Publishing…' : `Publish to ${selectedCount} Platform${selectedCount!==1?'s':''} →`}
+                  </button>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

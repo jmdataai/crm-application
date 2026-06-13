@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { leadsAPI } from '../../services/api';
+import { leadsAPI, bulkEmailAPI, emailTrackingAPI, emailRepliesAPI, sequencesAPI } from '../../services/api';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 
 const STATUS_VALUES = ['new','contacted','called','interested','follow_up_needed','closed','completed','rejected','lost'];
@@ -188,6 +188,22 @@ export default function SalesDashboard() {
   const [locationFilter, setLocationFilter] = useState(new Set());
   const [locationDropOpen, setLocationDropOpen] = useState(false);
 
+  // ── Feature 1: Email tracking data ────────────────────────────
+  // emailSentMap: { email → { subject, sent_at } }
+  // emailEventsMap: { email → { open_count, last_opened } }
+  const [emailSentMap, setEmailSentMap]   = useState({});
+  const [emailEventsMap, setEmailEventsMap] = useState({});
+
+  // ── Feature 3: Replies drawer ──────────────────────────────────
+  const [repliesOpen, setRepliesOpen]   = useState(false);
+  const [replies, setReplies]           = useState([]);
+  const [repliesLoading, setRepliesLoading] = useState(false);
+
+  // ── Feature 2: Sequences ───────────────────────────────────────
+  const [sequences, setSequences]         = useState([]);
+  const [enrollmentMap, setEnrollmentMap] = useState({}); // { company_id → enrollment }
+  const [enrollTarget, setEnrollTarget]   = useState(null); // lead being enrolled
+
   const fetchLeads = useCallback(async () => {
     setLoading(true);
     try {
@@ -201,6 +217,52 @@ export default function SalesDashboard() {
   }, []);
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
+
+  // ── Feature 1 + 3: load email sent/events data (non-blocking) ─
+  useEffect(() => {
+    // Sent emails map — uses existing bulkEmailAPI endpoint
+    bulkEmailAPI.getSent().then(res => {
+      const sent = Array.isArray(res.data) ? res.data : [];
+      const map  = {};
+      for (const s of sent) {
+        const email = (s.sent_to || '').toLowerCase();
+        if (email && (!map[email] || s.sent_at > map[email].sent_at)) {
+          map[email] = { subject: s.subject, sent_at: s.sent_at };
+        }
+      }
+      setEmailSentMap(map);
+    }).catch(() => {});
+
+    // Email events map — uses new emailTrackingAPI (graceful if 404)
+    emailTrackingAPI.getEventsMap().then(res => {
+      setEmailEventsMap(res.data || {});
+    }).catch(() => {});
+
+    // Feature 2: load sequences + enrollments (non-blocking)
+    Promise.allSettled([
+      sequencesAPI.getAll(),
+      sequencesAPI.getEnrollments(),
+    ]).then(([seqRes, enrollRes]) => {
+      if (seqRes.status   === 'fulfilled') setSequences(Array.isArray(seqRes.value?.data) ? seqRes.value.data : []);
+      if (enrollRes.status=== 'fulfilled') {
+        const enrolls = Array.isArray(enrollRes.value?.data) ? enrollRes.value.data : [];
+        const map = {};
+        for (const e of enrolls) {
+          if (!map[e.company_id]) map[e.company_id] = e; // keep most recent
+        }
+        setEnrollmentMap(map);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // ── Feature 3: load replies when drawer opens ──────────────────
+  useEffect(() => {
+    if (!repliesOpen) return;
+    setRepliesLoading(true);
+    emailRepliesAPI.getAll().then(res => {
+      setReplies(Array.isArray(res.data) ? res.data : []);
+    }).catch(() => setReplies([])).finally(() => setRepliesLoading(false));
+  }, [repliesOpen]);
 
   // Close location dropdown on outside click
   useEffect(() => {
@@ -326,6 +388,16 @@ export default function SalesDashboard() {
           <p style={{ fontSize:'0.8125rem', color:'var(--on-surface-variant)', marginTop:'0.25rem' }}>{new Date().toLocaleDateString('en-IN', {weekday:'long',day:'numeric',month:'long',year:'numeric'})}</p>
         </div>
         <div style={{ display:'flex', gap:'0.625rem' }}>
+          {/* Feature 3: Replies button */}
+          <button onClick={() => setRepliesOpen(true)} style={{ display:'inline-flex', alignItems:'center', gap:'0.375rem', padding:'0.5rem 0.875rem', borderRadius:'0.625rem', border:`1px solid ${replies.filter(r=>!r.handled).length > 0 ? 'var(--primary)' : 'var(--outline-variant)'}`, background: replies.filter(r=>!r.handled).length > 0 ? 'rgba(68,104,176,0.07)' : 'transparent', cursor:'pointer', fontSize:'0.8125rem', fontWeight:600, color: replies.filter(r=>!r.handled).length > 0 ? 'var(--primary)' : 'var(--on-surface-variant)', fontFamily:'var(--font-display)' }}>
+            <Icon name="forum" style={{ fontSize:'1rem' }} />
+            Replies
+            {replies.filter(r=>!r.handled).length > 0 && (
+              <span style={{ fontSize:'0.6875rem', fontWeight:800, padding:'0.1rem 0.375rem', borderRadius:9999, background:'var(--primary)', color:'#fff', minWidth:16, textAlign:'center' }}>
+                {replies.filter(r=>!r.handled).length}
+              </span>
+            )}
+          </button>
           <a href="/sales/import" className="btn-secondary"><Icon name="upload_file" style={{fontSize:'1rem'}}/> Import</a>
           <a href="/sales/leads" className="btn-secondary"><Icon name="table_rows" style={{fontSize:'1rem'}}/> All Leads</a>
           <button onClick={() => setShowAdd(true)} className="btn-primary">
@@ -459,6 +531,10 @@ export default function SalesDashboard() {
                   <SortTh col="remark"     label="Remark"           w="160px"/>
                   <SortTh col="follow_up"  label="Follow Up"        w="120px"/>
                   <SortTh col="source_file"label="Source File"      w="130px"/>
+                  {/* Feature 1 + 3: email tracking columns */}
+                  <th style={{ padding:'0.5rem 0.625rem', minWidth:110, background:'var(--surface-container-low)', borderRight:'1px solid var(--outline-variant)', fontSize:'0.68rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase', letterSpacing:'0.06em', whiteSpace:'nowrap' }}>Last Email</th>
+                  <th style={{ padding:'0.5rem 0.625rem', minWidth:110, background:'var(--surface-container-low)', borderRight:'1px solid var(--outline-variant)', fontSize:'0.68rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase', letterSpacing:'0.06em', whiteSpace:'nowrap' }}>Last Reply</th>
+                  <th style={{ padding:'0.5rem 0.625rem', minWidth:110, background:'var(--surface-container-low)', borderRight:'1px solid var(--outline-variant)', fontSize:'0.68rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase', letterSpacing:'0.06em', whiteSpace:'nowrap' }}>Sequence</th>
                   <th style={{ padding:'0.5rem 0.625rem', minWidth:80, background:'var(--surface-container-low)', position:'sticky', right:0, zIndex:2, textAlign:'right', fontSize:'0.68rem', fontWeight:700, color:'var(--on-surface-variant)', textTransform:'uppercase' }}>Actions</th>
                 </tr>
                 {/* ── Per-column search row ── */}
@@ -504,6 +580,9 @@ export default function SalesDashboard() {
                   <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}>{colInput('remark','Remark…')}</th>
                   <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}>{colInput('follow_up','YYYY-MM-DD')}</th>
                   <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}>{colInput('source_file','File…')}</th>
+                  <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}/>
+                  <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}/>
+                  <th style={{ padding:'0.3rem 0.375rem', borderRight:'1px solid var(--outline-variant)' }}/>
                   <th style={{ padding:'0.3rem 0.375rem' }}/>
                 </tr>
               </thead>
@@ -579,6 +658,81 @@ export default function SalesDashboard() {
                       <td style={{ padding:'0.5rem 0.625rem', borderRight:'1px solid var(--surface-container)', maxWidth:130 }}>
                         <span style={{ fontSize:'0.68rem', color:'var(--on-surface-variant)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'block' }} title={l.source_file}>{l.source_file||'—'}</span>
                       </td>
+                      {/* Feature 1: Last Email column */}
+                      {(() => {
+                        const email    = (l.email||'').toLowerCase();
+                        const sent     = email ? emailSentMap[email] : null;
+                        const evData   = email ? emailEventsMap[email] : null;
+                        const openCnt  = evData?.open_count || 0;
+                        const isHot    = openCnt >= 3;
+                        return (
+                          <td style={{ padding:'0.5rem 0.625rem', borderRight:'1px solid var(--surface-container)', whiteSpace:'nowrap' }}>
+                            {sent ? (
+                              <div>
+                                <div style={{ display:'flex', alignItems:'center', gap:'0.25rem', flexWrap:'nowrap' }}>
+                                  {isHot && <span title="Hot lead — opened 3+ times" style={{ fontSize:'0.875rem', cursor:'default' }}>🔥</span>}
+                                  <span style={{ fontSize:'0.7rem', color: sent ? 'var(--tertiary)' : 'var(--on-surface-variant)', fontWeight:sent?600:400 }}>
+                                    {sent.sent_at ? new Date(sent.sent_at).toLocaleDateString('en-IE',{day:'2-digit',month:'short'}) : '—'}
+                                  </span>
+                                </div>
+                                {openCnt > 0 && (
+                                  <div style={{ fontSize:'0.6rem', color:'#8b5cf6', fontWeight:600 }}>
+                                    {openCnt} open{openCnt!==1?'s':''}
+                                  </div>
+                                )}
+                              </div>
+                            ) : <span style={{ fontSize:'0.7rem', color:'var(--on-surface-variant)', opacity:0.5 }}>—</span>}
+                          </td>
+                        );
+                      })()}
+                      {/* Feature 3: Last Reply column */}
+                      {(() => {
+                        const email = (l.email||'').toLowerCase();
+                        const reply = replies.find(r => (r.from_email||'').toLowerCase() === email || (r.from_email||'').toLowerCase().endsWith('@' + (l.website||'').replace(/^https?:\/\//, '').replace(/^www\./,'')));
+                        return (
+                          <td style={{ padding:'0.5rem 0.625rem', borderRight:'1px solid var(--surface-container)', whiteSpace:'nowrap' }}>
+                            {reply ? (
+                              <div>
+                                <span style={{ fontSize:'0.7rem', color:'#006243', fontWeight:700 }}>
+                                  Replied {reply.received_at ? new Date(reply.received_at).toLocaleDateString('en-IE',{day:'2-digit',month:'short'}) : ''}
+                                </span>
+                                <p style={{ fontSize:'0.6rem', color:'var(--on-surface-variant)', maxWidth:90, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', margin:0 }}>{reply.subject||''}</p>
+                              </div>
+                            ) : <span style={{ fontSize:'0.7rem', color:'var(--on-surface-variant)', opacity:0.5 }}>—</span>}
+                          </td>
+                        );
+                      })()}
+                      {/* Feature 2: Sequence column */}
+                      {(() => {
+                        const enrollment = enrollmentMap[l.id];
+                        const STATUS_COLORS = {
+                          active:    { color:'#4468B0', bg:'rgba(68,104,176,0.1)' },
+                          completed: { color:'#006243', bg:'rgba(0,98,67,0.1)' },
+                          replied:   { color:'#006243', bg:'rgba(0,98,67,0.1)' },
+                          paused:    { color:'#B45309', bg:'rgba(180,83,9,0.09)' },
+                        };
+                        const seqName = enrollment ? sequences.find(s => s.id === enrollment.sequence_id)?.name : null;
+                        const meta    = enrollment ? (STATUS_COLORS[enrollment.status] || STATUS_COLORS.active) : null;
+                        return (
+                          <td style={{ padding:'0.5rem 0.625rem', borderRight:'1px solid var(--surface-container)', whiteSpace:'nowrap' }} onClick={e => e.stopPropagation()}>
+                            {enrollment ? (
+                              <div>
+                                <span style={{ fontSize:'0.7rem', fontWeight:700, padding:'0.1rem 0.4rem', borderRadius:9999, background:meta.bg, color:meta.color, display:'inline-block', marginBottom:2 }}>
+                                  {enrollment.status === 'active' ? `Step ${(enrollment.current_step||0)+1}` : enrollment.status}
+                                </span>
+                                {seqName && <p style={{ fontSize:'0.6rem', color:'var(--on-surface-variant)', maxWidth:90, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', margin:0 }}>{seqName}</p>}
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => setEnrollTarget(l)}
+                                style={{ fontSize:'0.7rem', fontWeight:600, padding:'0.1rem 0.45rem', borderRadius:9999, border:'1px dashed var(--outline-variant)', background:'transparent', color:'var(--on-surface-variant)', cursor:'pointer', whiteSpace:'nowrap' }}
+                              >
+                                + Enroll
+                              </button>
+                            )}
+                          </td>
+                        );
+                      })()}
                       {/* Actions */}
                       <td style={{ padding:'0.5rem 0.625rem', textAlign:'right', whiteSpace:'nowrap', position:'sticky', right:0, background:rowBg }} onClick={e=>e.stopPropagation()}>
                         <button className="btn-icon" title="Open" onClick={()=>navigate(`/sales/leads/${l.id}`)}><Icon name="open_in_new" style={{fontSize:'1rem'}}/></button>
@@ -614,6 +768,157 @@ export default function SalesDashboard() {
         onClose={() => setShowAdd(false)}
         onAdd={(lead) => setLeads(prev => [lead, ...prev])}
       />
+    )}
+
+    {/* ══ Feature 2: Enroll in Sequence Modal ════════════════════ */}
+    {enrollTarget && (
+      <div className="modal-overlay scale-in" onClick={e => e.target === e.currentTarget && setEnrollTarget(null)}>
+        <div className="modal">
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.5rem' }}>
+            <div>
+              <h2 style={{ fontSize:'1.0625rem', fontWeight:700 }}>Enroll in Sequence</h2>
+              <p style={{ fontSize:'0.8125rem', color:'var(--on-surface-variant)', marginTop:'0.25rem' }}>
+                {enrollTarget.company_name || enrollTarget.full_name}
+              </p>
+            </div>
+            <button className="btn-icon" onClick={() => setEnrollTarget(null)}><Icon name="close" /></button>
+          </div>
+          {sequences.filter(s => s.is_active).length === 0 ? (
+            <div style={{ textAlign:'center', padding:'1.5rem' }}>
+              <Icon name="schedule_send" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.5rem', opacity:0.3 }} />
+              <p style={{ fontSize:'0.875rem', color:'var(--on-surface-variant)', marginBottom:'1rem' }}>No active sequences. Create one first.</p>
+              <a href="/sales/sequences" style={{ color:'var(--primary)', fontWeight:600, fontSize:'0.875rem' }}>Go to Sequences →</a>
+            </div>
+          ) : (
+            <div style={{ display:'flex', flexDirection:'column', gap:'0.625rem', marginBottom:'1.5rem' }}>
+              {sequences.filter(s => s.is_active).map(seq => (
+                <button
+                  key={seq.id}
+                  onClick={async () => {
+                    try {
+                      const res = await sequencesAPI.enroll({
+                        company_id:   enrollTarget.id,
+                        company_name: enrollTarget.company_name || enrollTarget.full_name,
+                        company_email:enrollTarget.email || '',
+                        sequence_id:  seq.id,
+                      });
+                      setEnrollmentMap(prev => ({ ...prev, [enrollTarget.id]: res.data }));
+                      setEnrollTarget(null);
+                    } catch {}
+                  }}
+                  style={{ display:'flex', alignItems:'center', gap:'0.75rem', padding:'0.875rem 1rem', borderRadius:'0.75rem', border:'1.5px solid var(--outline-variant)', background:'transparent', cursor:'pointer', textAlign:'left', transition:'all 0.15s' }}
+                >
+                  <Icon name="schedule_send" style={{ fontSize:'1.25rem', color:'var(--primary)', flexShrink:0 }} />
+                  <div style={{ flex:1 }}>
+                    <p style={{ fontWeight:600, fontSize:'0.875rem', color:'var(--on-surface)' }}>{seq.name}</p>
+                    <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>{(seq.steps||[]).length} steps · starts immediately</p>
+                  </div>
+                  <Icon name="chevron_right" style={{ fontSize:'1rem', color:'var(--on-surface-variant)' }} />
+                </button>
+              ))}
+            </div>
+          )}
+          <button onClick={() => setEnrollTarget(null)} className="btn-secondary" style={{ width:'100%' }}>Cancel</button>
+        </div>
+      </div>
+    )}
+
+    {/* ══ Feature 3: Replies Drawer ═════════════════════════════ */}
+    {repliesOpen && (
+      <div style={{ position:'fixed', inset:0, zIndex:300, display:'flex' }}>
+        <div onClick={() => setRepliesOpen(false)} style={{ flex:1, background:'rgba(12,22,42,0.35)' }} />
+        <div style={{ width:Math.min(420, window.innerWidth - 32), background:'var(--surface-container-lowest)', borderLeft:'1px solid var(--outline-variant)', display:'flex', flexDirection:'column', overflowY:'auto' }}>
+          {/* Header */}
+          <div style={{ padding:'1.25rem 1.5rem', borderBottom:'1px solid var(--outline-variant)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:'0.625rem' }}>
+              <Icon name="forum" style={{ color:'var(--primary)' }} />
+              <h2 style={{ fontSize:'1rem', fontWeight:700 }}>
+                Replies Inbox
+                {replies.filter(r => !r.handled).length > 0 && (
+                  <span style={{ marginLeft:'0.5rem', fontSize:'0.75rem', fontWeight:800, padding:'0.125rem 0.5rem', borderRadius:9999, background:'var(--primary)', color:'#fff' }}>
+                    {replies.filter(r => !r.handled).length} new
+                  </span>
+                )}
+              </h2>
+            </div>
+            <button onClick={() => setRepliesOpen(false)} style={{ background:'none', border:'none', cursor:'pointer' }}>
+              <Icon name="close" />
+            </button>
+          </div>
+
+          {/* Body */}
+          <div style={{ flex:1, padding:'1rem 0' }}>
+            {repliesLoading ? (
+              <div style={{ textAlign:'center', padding:'3rem', color:'var(--on-surface-variant)' }}>
+                <Icon name="progress_activity" style={{ fontSize:'2rem', display:'block', margin:'0 auto 0.75rem' }} />
+                Checking inbox…
+              </div>
+            ) : replies.length === 0 ? (
+              <div style={{ textAlign:'center', padding:'3rem', color:'var(--on-surface-variant)' }}>
+                <Icon name="mark_email_read" style={{ fontSize:'2.5rem', display:'block', margin:'0 auto 0.75rem', opacity:0.25 }} />
+                <p style={{ fontWeight:600, marginBottom:'0.5rem' }}>No replies yet</p>
+                <p style={{ fontSize:'0.8125rem', opacity:0.7 }}>Replies from leads will appear here once email sync is active.</p>
+              </div>
+            ) : (
+              replies.map((r, i) => (
+                <div key={r.id || i} style={{ padding:'1rem 1.5rem', borderBottom:'1px solid var(--surface-container)', background: r.handled ? 'transparent' : 'rgba(68,104,176,0.03)' }}>
+                  <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:'0.75rem', marginBottom:'0.5rem' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', flex:1, minWidth:0 }}>
+                      {!r.handled && <div style={{ width:8, height:8, borderRadius:'50%', background:'var(--primary)', flexShrink:0 }} />}
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <p style={{ fontWeight:700, fontSize:'0.875rem', color:'var(--on-surface)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                          {r.from_name || r.from_email || 'Unknown'}
+                        </p>
+                        <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                          {r.from_email}
+                        </p>
+                      </div>
+                    </div>
+                    <span style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', flexShrink:0 }}>
+                      {r.received_at ? new Date(r.received_at).toLocaleDateString('en-IE',{day:'2-digit',month:'short'}) : '—'}
+                    </span>
+                  </div>
+
+                  {r.subject && (
+                    <p style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--on-surface)', marginBottom:'0.25rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.subject}</p>
+                  )}
+
+                  <p style={{ fontSize:'0.8125rem', color:'var(--on-surface-variant)', lineHeight:1.5, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>
+                    {r.body_preview || r.body || '(No preview)'}
+                  </p>
+
+                  <div style={{ display:'flex', gap:'0.5rem', marginTop:'0.75rem' }}>
+                    {!r.handled && (
+                      <button
+                        onClick={() => {
+                          setReplies(prev => prev.map((x, j) => j === i ? { ...x, handled: true } : x));
+                          emailRepliesAPI.markHandled(r.id).catch(() => {});
+                        }}
+                        style={{ flex:1, padding:'0.375rem', borderRadius:'0.5rem', border:'1px solid var(--outline-variant)', background:'transparent', color:'var(--on-surface-variant)', fontSize:'0.75rem', fontWeight:600, cursor:'pointer', fontFamily:'var(--font-display)' }}
+                      >
+                        ✓ Mark Handled
+                      </button>
+                    )}
+                    <button
+                      onClick={() => window.open(`/sales/leads?email=${encodeURIComponent(r.from_email || '')}`, '_blank')}
+                      style={{ flex:1, padding:'0.375rem', borderRadius:'0.5rem', border:'1px solid var(--primary)', background:'rgba(68,104,176,0.07)', color:'var(--primary)', fontSize:'0.75rem', fontWeight:600, cursor:'pointer', fontFamily:'var(--font-display)' }}
+                    >
+                      View Lead →
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Footer: sync info */}
+          <div style={{ padding:'0.75rem 1.5rem', borderTop:'1px solid var(--outline-variant)', flexShrink:0 }}>
+            <p style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)', textAlign:'center' }}>
+              Auto-syncs via Microsoft Graph · Every 15 min
+            </p>
+          </div>
+        </div>
+      </div>
     )}
     </>
   );
