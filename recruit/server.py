@@ -380,6 +380,25 @@ def get_supabase() -> Client:
     """Return the shared Supabase client used by route handlers."""
     return supabase
 
+def _strip_missing_column_from_postgrest_error(payload: dict, err: Exception, context: str) -> bool:
+    """Remove one missing column reported by PostgREST. Returns True if payload changed."""
+    err_str = str(err)
+    if "PGRST204" not in err_str:
+        return False
+
+    import re as _re
+    col_match = _re.search(r"Could not find the '(\w+)' column", err_str)
+    if not col_match:
+        return False
+
+    bad_col = col_match.group(1)
+    if bad_col not in payload:
+        return False
+
+    logger.warning(f"[{context}] Column '{bad_col}' missing - skipping field for compatibility.")
+    payload.pop(bad_col, None)
+    return True
+
 async def run(fn):
     """Run a synchronous supabase call in a thread pool.
     Semaphore limits concurrency; transient connection drops are retried.
@@ -658,21 +677,13 @@ async def create_candidate(candidate: CandidateCreate, request: Request):
     doc_c = {k: v for k, v in doc_c.items() if v is not None and v != [] }
     if candidate.skills: doc_c["skills"] = candidate.skills
     if candidate.tech_stack is not None: doc_c["tech_stack"] = candidate.tech_stack
-    try:
-        res = await run(lambda: sb("candidates").insert(doc_c).execute())
-    except Exception as e:
-        err_str = str(e)
-        if "PGRST204" in err_str:
-            import re as _re
-            col_match = _re.search(r"Could not find the '(\w+)' column", err_str)
-            if col_match:
-                bad_col = col_match.group(1)
-                logger.warning(f"[create_candidate] Column '{bad_col}' missing — skipping. Run add_features_v3.sql.")
-                doc_c.pop(bad_col, None)
-                res = await run(lambda: sb("candidates").insert(doc_c).execute())
-            else:
-                raise
-        else:
+    while True:
+        try:
+            res = await run(lambda: sb("candidates").insert(doc_c).execute())
+            break
+        except Exception as e:
+            if _strip_missing_column_from_postgrest_error(doc_c, e, "create_candidate"):
+                continue
             raise
     candidate_id = res.data[0]["id"]
     await _log_activity(candidate_id=candidate_id, user=user, atype="note",
@@ -780,7 +791,14 @@ async def update_candidate(candidate_id: str, candidate: CandidateUpdate, reques
 
     old_cand = await run(lambda: sb("candidates").select("full_name").eq("id", candidate_id).execute())
     cand_name = (old_cand.data or [{}])[0].get("full_name") or candidate_id
-    await run(lambda: sb("candidates").update(patch).eq("id", candidate_id).execute())
+    while True:
+        try:
+            await run(lambda: sb("candidates").update(patch).eq("id", candidate_id).execute())
+            break
+        except Exception as e:
+            if _strip_missing_column_from_postgrest_error(patch, e, "update_candidate"):
+                continue
+            raise
     asyncio.create_task(_audit("update", user=user, entity_type="candidate", entity_id=candidate_id,
                                 entity_name=cand_name, new_value=patch,
                                 ip=_get_ip(request), ua=request.headers.get("user-agent","")))

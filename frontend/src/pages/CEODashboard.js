@@ -118,11 +118,11 @@ export default function CEODashboard() {
   useEffect(() => { fetch(); fetchExtra(); }, [fetch, fetchExtra]);
 
   // ── Derived values (existing, untouched) ──────────────────────
-  const pv     = data?.pipeline_value  || 0;
-  const cv     = data?.closed_value    || 0;
-  const stages = data?.stage_counts    || {};
-  const stale  = data?.stale_leads     || [];
-  const audit  = data?.recent_audit    || [];
+  const pv = data?.pipeline_value || 0;
+  const cv = data?.closed_value || 0;
+  const stages = useMemo(() => data?.stage_counts || {}, [data]);
+  const stale = data?.stale_leads || [];
+  const audit = data?.recent_audit || [];
 
   // ── NEW: Team performance derived from today's logs ───────────
   const teamPerf = useMemo(() => {
