@@ -69,6 +69,10 @@ export default function SalesActivityLog() {
   const [teamLogs, setTeamLogs]     = useState([]);
   const [teamLoading, setTeamLoading] = useState(false);
 
+  // ── Date controls for Team View ───────────────────────────────
+  const [leaderboardDate, setLeaderboardDate] = useState(todayISO);
+  const [chartDays, setChartDays]             = useState(30);
+
   const today    = useMemo(() => new Date(), []);
   const todayISO = toISODate(today);
 
@@ -76,18 +80,18 @@ export default function SalesActivityLog() {
   useEffect(() => {
     if (!teamView || !isPrivileged) return;
     setTeamLoading(true);
-    const from = shiftISODate(todayISO, -29);
-    salesTrackerAPI.getLogs({ from_date: from, to_date: todayISO, limit: 500 })
+    const from = shiftISODate(leaderboardDate, -(chartDays - 1));
+    salesTrackerAPI.getLogs({ from_date: from, to_date: leaderboardDate, limit: 500 })
       .then(res => setTeamLogs(Array.isArray(res.data) ? res.data : []))
       .catch(() => setTeamLogs([]))
       .finally(() => setTeamLoading(false));
-  }, [teamView, isPrivileged, todayISO]);
+  }, [teamView, isPrivileged, leaderboardDate, chartDays]);
 
   // ── Derived: today's leaderboard ─────────────────────────────
   const leaderboard = useMemo(() => {
-    const todayOnly = teamLogs.filter(l => l.log_date === todayISO);
+    const dayLogs = teamLogs.filter(l => l.log_date === leaderboardDate);
     const byUser = {};
-    for (const log of todayOnly) {
+    for (const log of dayLogs) {
       const key = log.logged_by_name || log.logged_by || 'Unknown';
       if (!byUser[key]) byUser[key] = { name: key, uid: log.logged_by, emails: 0, linkedin: 0, calls: 0, followups: 0, hours: 0, meetings: 0 };
       byUser[key].emails    += log.emails_sent    || 0;
@@ -102,7 +106,7 @@ export default function SalesActivityLog() {
       const pct    = Math.min(Math.round((actual / DAILY_MIN) * 100), 150);
       return { ...p, pct };
     }).sort((a, b) => b.pct - a.pct);
-  }, [teamLogs, todayISO]);
+  }, [teamLogs, leaderboardDate]);
 
   // ── Derived: 30-day chart series ─────────────────────────────
   const chartData = useMemo(() => {
@@ -143,7 +147,7 @@ export default function SalesActivityLog() {
       result[name] = streak;
     }
     return result;
-  }, [teamLogs, todayISO]);
+  }, [teamLogs, leaderboardDate]);
 
   // ─────────────────────────────────────────────────────────────
   // ── ORIGINAL My Log state (100% untouched) ───────────────────
@@ -409,12 +413,17 @@ export default function SalesActivityLog() {
             <>
               {/* ── Leaderboard table ───────────────────────── */}
               <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: '1.25rem' }}>
-                <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--outline-variant)', display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-                  <Icon name="leaderboard" style={{ color: 'var(--primary)' }} />
-                  <h2 style={{ fontSize: '1rem', fontWeight: 700 }}>Team Leaderboard — Today</h2>
-                  <span style={{ marginLeft: 'auto', fontSize: '0.8125rem', color: 'var(--on-surface-variant)' }}>
-                    {new Date().toLocaleDateString('en-IE', { weekday: 'long', day: '2-digit', month: 'short' })}
-                  </span>
+                <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--outline-variant)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.625rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Icon name="leaderboard" style={{ color: 'var(--primary)' }} />
+                    <h2 style={{ fontSize: '1rem', fontWeight: 700 }}>Team Leaderboard</h2>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    {[{ label: 'Today', date: todayISO }, { label: 'Yesterday', date: shiftISODate(todayISO, -1) }].map(q => (
+                      <button key={q.label} onClick={() => setLeaderboardDate(q.date)} style={{ padding: '0.2rem 0.6rem', borderRadius: 9999, border: `1px solid ${leaderboardDate === q.date ? 'var(--primary)' : 'var(--outline-variant)'}`, background: leaderboardDate === q.date ? 'rgba(68,104,176,0.1)' : 'transparent', color: leaderboardDate === q.date ? 'var(--primary)' : 'var(--on-surface-variant)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-display)' }}>{q.label}</button>
+                    ))}
+                    <input type="date" value={leaderboardDate} max={todayISO} onChange={e => setLeaderboardDate(e.target.value)} className="input" style={{ width: 'auto', minWidth: 140, fontSize: '0.8125rem', padding: '0.2rem 0.5rem' }} />
+                  </div>
                 </div>
 
                 {leaderboard.length === 0 ? (

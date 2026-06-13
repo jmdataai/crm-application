@@ -255,13 +255,24 @@ export default function SalesDashboard() {
     }).catch(() => {});
   }, []);
 
-  // ── Feature 3: load replies when drawer opens ──────────────────
+  // ── Feature 3: load reply count on mount for badge, refresh when drawer opens ─
+  useEffect(() => {
+    const loadReplies = () => {
+      if (typeof emailRepliesAPI === 'undefined' || !emailRepliesAPI?.getAll) return;
+      emailRepliesAPI.getAll()
+        .then(res => setReplies(Array.isArray(res.data) ? res.data : []))
+        .catch(() => {});
+    };
+    loadReplies(); // on mount — so badge count shows immediately
+  }, []);
+
   useEffect(() => {
     if (!repliesOpen) return;
     setRepliesLoading(true);
-    emailRepliesAPI.getAll().then(res => {
-      setReplies(Array.isArray(res.data) ? res.data : []);
-    }).catch(() => setReplies([])).finally(() => setRepliesLoading(false));
+    emailRepliesAPI.getAll()
+      .then(res => setReplies(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setReplies([]))
+      .finally(() => setRepliesLoading(false));
   }, [repliesOpen]);
 
   // Close location dropdown on outside click

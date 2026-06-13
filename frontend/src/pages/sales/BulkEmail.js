@@ -164,11 +164,23 @@ export default function BulkEmail() {
   useEffect(() => {
     if (tab !== 'analytics') return;
     setAnalyticsLoading(true);
+
+    // emailTrackingAPI may not be deployed yet — guard safely
+    const statsPromise = (typeof emailTrackingAPI !== 'undefined' && emailTrackingAPI?.getStats)
+      ? emailTrackingAPI.getStats().catch(() => ({ data: null }))
+      : Promise.resolve({ data: null });
+
     Promise.allSettled([
       bulkEmailAPI.getSent(),
-      emailTrackingAPI.getStats().catch(() => ({ data: null })),
+      statsPromise,
     ]).then(([sentRes, statsRes]) => {
-      const sent  = sentRes.status  === 'fulfilled' ? (sentRes.value?.data  || []) : [];
+      // /bulk-email/sent returns { sent: [...] } — extract the array safely
+      const rawData = sentRes.status === 'fulfilled' ? sentRes.value?.data : null;
+      const sent = Array.isArray(rawData)        ? rawData
+                 : Array.isArray(rawData?.sent)   ? rawData.sent
+                 : Array.isArray(rawData?.emails) ? rawData.emails
+                 : [];
+
       const stats = statsRes.status === 'fulfilled' ? (statsRes.value?.data || null) : null;
       // Build campaigns from sent history — group by subject
       const campaignMap = {};

@@ -87,6 +87,9 @@ export default function CEODashboard() {
 
   const todayISO = new Date().toISOString().slice(0, 10);
 
+  // ── Date selector for performance table ──────────────────────
+  const [perfDate, setPerfDate] = useState(todayISO);
+
   // ── Primary fetch (identical logic to original) ───────────────
   const fetch = useCallback(async () => {
     setLoading(true);
@@ -100,7 +103,7 @@ export default function CEODashboard() {
     setExtraLoading(true);
     try {
       const [logsResult, tasksResult] = await Promise.allSettled([
-        salesTrackerAPI.getLogs({ from_date: todayISO, to_date: todayISO, limit: 100 }),
+        salesTrackerAPI.getLogs({ from_date: perfDate, to_date: perfDate, limit: 100 }),
         tasksAPI.getAll({ status: 'pending' }),
       ]);
       if (logsResult.status === 'fulfilled') {
@@ -113,16 +116,16 @@ export default function CEODashboard() {
       }
     } catch { /* non-blocking */ }
     finally { setExtraLoading(false); }
-  }, [todayISO]);
+  }, [todayISO, perfDate]);
 
   useEffect(() => { fetch(); fetchExtra(); }, [fetch, fetchExtra]);
 
   // ── Derived values (existing, untouched) ──────────────────────
-  const pv = data?.pipeline_value || 0;
-  const cv = data?.closed_value || 0;
-  const stages = useMemo(() => data?.stage_counts || {}, [data]);
-  const stale = data?.stale_leads || [];
-  const audit = data?.recent_audit || [];
+  const pv     = data?.pipeline_value  || 0;
+  const cv     = data?.closed_value    || 0;
+  const stages = data?.stage_counts    || {};
+  const stale  = data?.stale_leads     || [];
+  const audit  = data?.recent_audit    || [];
 
   // ── NEW: Team performance derived from today's logs ───────────
   const teamPerf = useMemo(() => {
@@ -305,12 +308,18 @@ export default function CEODashboard() {
                   NEW: Salesperson Performance Table — Today
               ══════════════════════════════════════════════════ */}
               <div className="card" style={{ marginBottom: '1.25rem', padding: 0, overflow: 'hidden' }}>
-                <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--outline-variant)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--outline-variant)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.625rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
                     <Icon name="leaderboard" style={{ color: 'var(--primary)' }} />
-                    <h2 style={{ fontSize: '1rem', fontWeight: 700 }}>Salesperson Performance — Today</h2>
+                    <h2 style={{ fontSize: '1rem', fontWeight: 700 }}>Salesperson Performance</h2>
                   </div>
-                  {extraLoading && <Icon name="progress_activity" style={{ fontSize: '1rem', color: 'var(--on-surface-variant)' }} />}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    {[{ label: 'Today', date: todayISO }, { label: 'Yesterday', date: (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })() }].map(q => (
+                      <button key={q.label} onClick={() => setPerfDate(q.date)} style={{ padding: '0.2rem 0.6rem', borderRadius: 9999, border: `1px solid ${perfDate === q.date ? 'var(--primary)' : 'var(--outline-variant)'}`, background: perfDate === q.date ? 'rgba(68,104,176,0.1)' : 'transparent', color: perfDate === q.date ? 'var(--primary)' : 'var(--on-surface-variant)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-display)' }}>{q.label}</button>
+                    ))}
+                    <input type="date" value={perfDate} max={todayISO} onChange={e => setPerfDate(e.target.value)} className="input" style={{ width: 'auto', minWidth: 140, fontSize: '0.8125rem', padding: '0.2rem 0.5rem' }} />
+                    {extraLoading && <Icon name="progress_activity" style={{ fontSize: '1rem', color: 'var(--on-surface-variant)' }} />}
+                  </div>
                 </div>
                 {teamPerf.length === 0 ? (
                   <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--on-surface-variant)' }}>
