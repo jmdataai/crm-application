@@ -110,10 +110,10 @@ export default function SalesActivityLog() {
 
   // ── Derived: 30-day chart series ─────────────────────────────
   const chartData = useMemo(() => {
-    // Build map of all dates in range
+    // Build map of all dates in range (30 days ending on leaderboardDate)
     const dateMap = {};
     for (let i = 29; i >= 0; i--) {
-      const d = shiftISODate(todayISO, -i);
+      const d = shiftISODate(leaderboardDate, -i);
       dateMap[d] = { date: d };
     }
     // Aggregate per user per date
@@ -126,7 +126,7 @@ export default function SalesActivityLog() {
       dateMap[d][name] = (dateMap[d][name] || 0) + total;
     }
     return { series: Object.values(dateMap), userNames };
-  }, [teamLogs, todayISO]);
+  }, [teamLogs, leaderboardDate]);
 
   // ── Derived: streak per user (consecutive days ending today with a log) ──
   const streaks = useMemo(() => {
@@ -139,7 +139,7 @@ export default function SalesActivityLog() {
     const result = {};
     for (const [name, days] of Object.entries(loggedByUser)) {
       let streak = 0;
-      let d = todayISO;
+      let d = leaderboardDate;  // streak ending at the selected date
       while (days.has(d)) {
         streak++;
         d = shiftISODate(d, -1);

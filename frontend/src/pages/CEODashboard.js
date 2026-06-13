@@ -123,7 +123,7 @@ export default function CEODashboard() {
   // ── Derived values (existing, untouched) ──────────────────────
   const pv     = data?.pipeline_value  || 0;
   const cv     = data?.closed_value    || 0;
-  const stages = data?.stage_counts    || {};
+  const stages = useMemo(() => data?.stage_counts || {}, [data]);  // memoised — prevents useMemo deps thrashing
   const stale  = data?.stale_leads     || [];
   const audit  = data?.recent_audit    || [];
 

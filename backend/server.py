@@ -4229,8 +4229,10 @@ async def startup():
     scheduler.add_job(cleanup_audit_logs, CronTrigger(hour=3, minute=0), id="audit_cleanup", replace_existing=True)
     scheduler.add_job(send_timesheet_reminder, CronTrigger(day_of_week="fri", hour=17, minute=0), id="timesheet_reminder", replace_existing=True)
     scheduler.add_job(send_draft_timesheet_reminder, CronTrigger(day_of_week="mon", hour=9, minute=0), id="draft_timesheet_reminder", replace_existing=True)
-    scheduler.add_job(lambda: asyncio.create_task(_sync_email_replies()), trigger="interval", minutes=15, id="email_reply_sync", replace_existing=True)
-    scheduler.add_job(lambda: asyncio.create_task(_process_sequences()),   trigger="interval", hours=1,   id="sequence_processor",  replace_existing=True)
+    # Capture the running event loop so APScheduler threads can submit coroutines to it
+    _bg_loop = asyncio.get_event_loop()
+    scheduler.add_job(lambda: asyncio.run_coroutine_threadsafe(_sync_email_replies(), _bg_loop), trigger="interval", minutes=15, id="email_reply_sync", replace_existing=True)
+    scheduler.add_job(lambda: asyncio.run_coroutine_threadsafe(_process_sequences(),   _bg_loop), trigger="interval", hours=1,   id="sequence_processor",  replace_existing=True)
     scheduler.start()
     logger.info("[scheduler] Audit log cleanup scheduled at 03:00 daily (keeps 180 days)")
     logger.info(f"[scheduler] Daily digest scheduled at {digest_time}")
