@@ -623,9 +623,9 @@ async def _audit(
 # ============================================================
 @api_router.post("/auth/register")
 async def register(data: UserCreate, request: Request):
-    # Only logged-in admins can create new users
+    # Only logged-in admins (and CEO/viewer, who has admin-level user management) can create new users
     caller = await get_current_user(request)
-    if caller.get("role") != "admin":
+    if caller.get("role") not in ("admin", "viewer"):
         raise HTTPException(403, "Only admins can create new user accounts")
 
     # Validate role value
@@ -713,7 +713,7 @@ async def get_users(request: Request):
 @api_router.put("/users/{user_id}/role")
 async def update_user_role(user_id: str, body: dict, request: Request):
     caller = await get_current_user(request)
-    if caller.get("role") != "admin":
+    if caller.get("role") not in ("admin", "viewer"):
         raise HTTPException(403, "Only admins can change user roles")
     allowed_roles = {"admin", "sales", "viewer", "worker"}
     role = body.get("role")
@@ -733,7 +733,7 @@ async def update_user_role(user_id: str, body: dict, request: Request):
 @api_router.delete("/users/{user_id}")
 async def delete_user(user_id: str, request: Request):
     caller = await get_current_user(request)
-    if caller.get("role") != "admin":
+    if caller.get("role") not in ("admin", "viewer"):
         raise HTTPException(403, "Only admins can delete users")
     if caller["id"] == user_id:
         raise HTTPException(400, "You cannot delete your own account")

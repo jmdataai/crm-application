@@ -8,13 +8,13 @@ const Icon = ({ name }) => (
 
 // ── Nav definitions ──────────────────────────────────────────
 const salesNavBase = [
-  { path: '/sales',               icon: 'dashboard',    label: 'Dashboard',    exact: true, hideForViewer: true },
+  { path: '/sales',               icon: 'dashboard',    label: 'Dashboard',    exact: true },
   { path: '/sales/tracker',       icon: 'analytics',    label: 'Sales Tracker',              showForAll: true },
   { path: '/sales/pipeline',      icon: 'view_kanban',  label: 'Pipeline',                   showForAll: true },
-  { path: '/sales/sequences',     icon: 'schedule_send', label: 'Sequences',                  hideForViewer: true },
-  { path: '/sales/activity-log',  icon: 'edit_note',    label: 'Daily Log',                  hideForViewer: true },
-  { path: '/sales/bulk-email',    icon: 'forward_to_inbox', label: 'Bulk Email',               hideForViewer: true },
-  { path: '/sales/leads',         icon: 'group',         label: 'Leads',                     hideForViewer: true },
+  { path: '/sales/sequences',     icon: 'schedule_send', label: 'Sequences' },
+  { path: '/sales/activity-log',  icon: 'edit_note',    label: 'Daily Log' },
+  { path: '/sales/bulk-email',    icon: 'forward_to_inbox', label: 'Bulk Email' },
+  { path: '/sales/leads',         icon: 'group',         label: 'Leads' },
   { path: '/sales/import',        icon: 'upload_file',   label: 'Import Leads', requiresPerm: 'canViewImport' },
   { path: '/sales/enrich',        icon: 'auto_fix_high', label: 'Enrich Leads', requiresPerm: 'canViewImport' },
   { path: '/sales/tasks',         icon: 'task_alt',      label: 'Tasks' },
@@ -63,7 +63,7 @@ const RoleBadge = ({ role }) => {
 
 // ── Sidebar ──────────────────────────────────────────────────
 const Sidebar = ({ isOpen, onClose }) => {
-  const { user, logout, hasModule, can, isViewer, isWorker } = useAuth();
+  const { user, logout, hasModule, can, isWorker } = useAuth();
   const location  = useLocation();
   const navigate  = useNavigate();
   const isTimesheet = location.pathname.startsWith('/timesheet');
@@ -94,7 +94,6 @@ const Sidebar = ({ isOpen, onClose }) => {
   const filterNav = (items) =>
     items.filter(item => {
       if (item.requiresPerm && !can(item.requiresPerm)) return false;
-      if (item.hideForViewer && isViewer) return false;
       return true;
     });
 
@@ -153,7 +152,7 @@ const Sidebar = ({ isOpen, onClose }) => {
             flexWrap: 'wrap',
           }}>
             {canSeeSales && (
-              <button onClick={() => navigate(isViewer ? '/sales/tracker' : '/sales')} style={{
+              <button onClick={() => navigate('/sales')} style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 gap: '0.375rem', padding: '0.5rem 0.5rem', borderRadius: '0.625rem',
                 border: 'none', cursor: 'pointer', fontFamily: 'var(--font-ui)',
@@ -181,7 +180,7 @@ const Sidebar = ({ isOpen, onClose }) => {
               </button>
             )}
             {canSeeTimesheet && (
-              <button onClick={() => navigate(isViewer ? '/timesheet/approvals' : '/timesheet')} style={{
+              <button onClick={() => navigate('/timesheet')} style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 gap: '0.375rem', padding: '0.5rem 0.5rem', borderRadius: '0.625rem',
                 border: 'none', cursor: 'pointer', fontFamily: 'var(--font-ui)',
@@ -202,21 +201,6 @@ const Sidebar = ({ isOpen, onClose }) => {
       <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
         {navItems.map(item => <NavItem key={item.path} item={item} />)}
       </nav>
-
-      {/* Read-only banner for viewer */}
-      {isViewer && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: '0.5rem',
-          padding: '0.5rem 0.75rem', marginBottom: '0.75rem',
-          background: 'rgba(255,255,255,0.06)', borderRadius: '0.625rem',
-          border: '1px solid rgba(255,255,255,0.1)',
-        }}>
-          <Icon name="visibility" />
-          <span style={{ fontSize: '0.75rem', color: 'var(--sidebar-text)', fontWeight: 500 }}>
-            View-only access
-          </span>
-        </div>
-      )}
 
       <div className="divider" style={{ margin: '0.75rem 0', background: 'rgba(255,255,255,0.1)' }} />
 

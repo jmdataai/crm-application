@@ -209,7 +209,7 @@ const DealDrawer = ({ deal, onClose, onSave, onDelete, saving }) => {
 export default function PipelineKanban() {
   const { isMobile }          = useBreakpoint();
   const { user }              = useAuth();
-  const canEdit               = user?.role === 'admin' || user?.role === 'sales';
+  const canEdit               = user?.role === 'admin' || user?.role === 'sales' || user?.role === 'viewer';
 
   const [deals, setDeals]     = useState([]);
   const [loading, setLoading] = useState(true);

@@ -58,13 +58,10 @@ const Page = ({ children, module: reqModule, mod, permission }) => (
 const DefaultRedirect = () => {
   const { user } = useAuth();
   if (user?.role === 'worker') return <Navigate to="/timesheet" replace />;
-  if (user?.role === 'viewer') return <Navigate to="/timesheet/approvals" replace />;
   return <Navigate to="/sales" replace />;
 };
 
 const TimesheetRoute = () => {
-  const { user } = useAuth();
-  if (user?.role === 'viewer') return <Navigate to="/timesheet/approvals" replace />;
   return (
     <Page module="timesheet">
       <Timesheet />

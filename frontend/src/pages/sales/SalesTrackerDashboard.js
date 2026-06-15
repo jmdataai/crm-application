@@ -94,7 +94,7 @@ export default function SalesTrackerDashboard() {
   const [trackerUsers, setTrackerUsers]   = useState([]);
   const [selectedUserId, setSelectedUserId] = useState('');  // '' = all users
 
-  const canEditPipeline = isSales || isAdmin;
+  const canEditPipeline = isSales || isAdmin || isViewer;
 
   // Load available users for the picker (admin/viewer only)
   useEffect(() => {

@@ -36,7 +36,6 @@ const AccessDenied = ({ message, homeUrl }) => (
 
 function homeForRole(role) {
   if (role === 'worker') return '/timesheet';
-  if (role === 'viewer') return '/timesheet/approvals';
   return '/sales';
 }
 

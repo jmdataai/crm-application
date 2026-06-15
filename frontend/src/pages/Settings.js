@@ -17,8 +17,8 @@ const ROLE_LABELS = { admin: 'Admin', sales: 'Sales Rep', viewer: 'Viewer (CEO)'
 
 export default function Settings() {
   const { isMobile } = useBreakpoint();
-  const { user: me } = useAuth();
-  const isAdmin = me?.role === 'admin';
+  const { user: me, can } = useAuth();
+  const canManageUsers = can('canManageUsers');
 
   const [users, setUsers]       = useState([]);
   const [loading, setLoading]   = useState(true);
@@ -145,7 +145,7 @@ export default function Settings() {
       {success && <div style={{ background:'#dcfce7', color:'#166534', padding:'0.875rem 1rem', borderRadius:'0.5rem', marginBottom:'1rem', fontSize:'0.875rem' }}>{success}</div>}
 
       {/* ── User Management ── */}
-      {isAdmin && (
+      {canManageUsers && (
         <div style={card}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.25rem' }}>
             <div>
@@ -216,7 +216,7 @@ export default function Settings() {
                     }}
                   >
                     <option value="sales">Sales Rep</option>
-                    <option value="viewer">Viewer (CEO/Read-only)</option>
+                    <option value="viewer">Viewer (CEO)</option>
                     <option value="admin">Admin</option>
                     <option value="worker">Worker (Timesheet only)</option>
                   </select>

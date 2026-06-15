@@ -18,7 +18,6 @@ const Login = () => {
   const getRedirectPath = (userData) => {
     if (!userData?.role) return '/sales';
     if (userData.role === 'worker') return '/timesheet';
-    if (userData.role === 'viewer') return '/timesheet/approvals';
     return '/sales';
   };
 
