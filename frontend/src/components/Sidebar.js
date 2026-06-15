@@ -202,6 +202,7 @@ const Sidebar = ({ isOpen, onClose }) => {
         {navItems.map(item => <NavItem key={item.path} item={item} />)}
       </nav>
 
+
       <div className="divider" style={{ margin: '0.75rem 0', background: 'rgba(255,255,255,0.1)' }} />
 
       {can('viewCEO') && (

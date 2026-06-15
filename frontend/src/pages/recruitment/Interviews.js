@@ -316,6 +316,7 @@ export default function Interviews() {
 
       {/* ── LIST VIEW (existing, unchanged) ─────────────────── */}
       {view === 'list' && (
+      <>
       <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '7fr 5fr', gap:'1.25rem', alignItems:'start' }}>
 
         {/* LEFT */}
@@ -413,9 +414,10 @@ export default function Interviews() {
           </div>
         </div>
       </div>
-      )} {/* end list view */}
 
       {selectedIv && <FeedbackModal interview={selectedIv} onClose={() => setSelectedIv(null)} onSave={saveFeedback} />}
+      </>
+      )} {/* end list view */}
 
       {/* ── CALENDAR VIEW ────────────────────────────────────── */}
       {view === 'calendar' && (() => {

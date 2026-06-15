@@ -27,6 +27,9 @@ from apscheduler.triggers.cron  import CronTrigger
 import pandas as pd
 import io
 import uuid
+import base64
+from fastapi.responses import RedirectResponse
+from urllib.parse import quote as _url_quote
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import List, Optional
@@ -184,7 +187,8 @@ if supabase is None:
 
 # ── Resend email ──────────────────────────────────────────────
 resend.api_key  = os.environ.get("RESEND_API_KEY", "")
-SENDER_EMAIL    = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
+SENDER_EMAIL       = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
+BACKEND_PUBLIC_URL = os.environ.get("BACKEND_PUBLIC_URL", "https://freddy-jmdataai-nexus-crm-backend.hf.space").rstrip("/")
 APIFY_API_KEY   = os.environ.get("APIFY_API_KEY", "")
 APIFY_ACTOR_ID  = "dev_fusion~linkedin-profile-scraper"
 scheduler       = AsyncIOScheduler()
@@ -442,6 +446,62 @@ def create_refresh_token(user_id: str) -> str:
         JWT_SECRET, algorithm=JWT_ALGORITHM
     )
 
+
+# ── Email tracking helpers (Bulk Welcome Email open/click tracking) ──
+
+# 1x1 transparent GIF pixel bytes
+_TRACKING_PIXEL_BYTES = bytes([
+    0x47,0x49,0x46,0x38,0x39,0x61,0x01,0x00,0x01,0x00,0x80,0x00,0x00,
+    0xff,0xff,0xff,0x00,0x00,0x00,0x21,0xf9,0x04,0x00,0x00,0x00,0x00,
+    0x00,0x2c,0x00,0x00,0x00,0x00,0x01,0x00,0x01,0x00,0x00,0x02,0x02,
+    0x44,0x01,0x00,0x3b,
+])
+
+import re as _tracking_re
+_LINK_RE = _tracking_re.compile(r'href=(["\'])(https?://[^"\'> ]+)\1', _tracking_re.IGNORECASE)
+
+
+def _encode_track_token(email: str, subject: str) -> str:
+    import json as _j
+    payload = _j.dumps({"e": email, "s": subject}, separators=(",", ":"))
+    return base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+
+
+def _decode_track_token(token: str) -> dict:
+    import json as _j
+    padded = token + "=" * (-len(token) % 4)
+    return _j.loads(base64.urlsafe_b64decode(padded.encode()).decode())
+
+
+def _instrument_email_html(html: str, email: str, subject: str) -> str:
+    """Inject open-tracking pixel and rewrite links for click tracking."""
+    try:
+        token = _encode_track_token(email, subject)
+        base  = BACKEND_PUBLIC_URL
+
+        def _rewrite(m):
+            qchar    = m.group(1)
+            orig_url = m.group(2)
+            if "/api/track/" in orig_url:
+                return m.group(0)
+            click_url = base + "/api/track/click/" + token + "?url=" + _url_quote(orig_url, safe="")
+            return "href=" + qchar + click_url + qchar
+
+        html  = _LINK_RE.sub(_rewrite, html)
+        pixel = ('<img src="' + base + '/api/track/open/' + token + '.png"'
+                 ' width="1" height="1" style="display:none;border:0;" alt="" />')
+        lower = html.lower()
+        if "</body>" in lower:
+            idx  = lower.rfind("</body>")
+            html = html[:idx] + pixel + html[idx:]
+        else:
+            html += pixel
+    except Exception as _ex:
+        logger.debug(f"[tracking] instrument failed: {_ex}")
+    return html
+
+
+
 async def get_current_user(request: Request) -> dict:
     token = request.cookies.get("access_token")
     if not token:
@@ -623,7 +683,7 @@ async def _audit(
 # ============================================================
 @api_router.post("/auth/register")
 async def register(data: UserCreate, request: Request):
-    # Only logged-in admins (and CEO/viewer, who has admin-level user management) can create new users
+    # Only logged-in admins can create new users
     caller = await get_current_user(request)
     if caller.get("role") not in ("admin", "viewer"):
         raise HTTPException(403, "Only admins can create new user accounts")
@@ -1600,6 +1660,7 @@ async def send_bulk_email(body: BulkEmailSendRequest, request: Request):
             html    = body.html_body.replace("[Client Name]", company).replace("[client name]", company)
             # Replace {name} / {Name} / {NAME} with the contact's first name
             html    = html.replace("{name}", first_name).replace("{Name}", first_name).replace("{NAME}", first_name)
+            html    = _instrument_email_html(html, addr, subject)  # inject pixel + rewrite links
             await _graph_send_mail(from_email, [addr], subject, html)
             sent_ok.append(addr)
         except Exception as exc:
@@ -3906,6 +3967,48 @@ async def get_email_events_map(request: Request):
         if ev.get("event_type") == "click":
             result[email]["click_count"] += 1
     return result
+
+
+
+# ── Public tracking endpoints (no auth — hit directly by email clients) ──
+
+@api_router.get("/track/open/{token}.png", include_in_schema=False)
+async def track_email_open(token: str):
+    """Email client fetches this pixel when email is opened."""
+    try:
+        data = _decode_track_token(token)
+        if data.get("e"):
+            sb_client = get_supabase()
+            asyncio.create_task(run(lambda: sb_client.table("email_events").insert({
+                "email_address": data["e"].lower(),
+                "event_type":    "open",
+                "subject":       data.get("s", ""),
+            }).execute()))
+    except Exception as _ex:
+        logger.debug(f"[track-open] {_ex}")
+    return Response(
+        content=_TRACKING_PIXEL_BYTES,
+        media_type="image/gif",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"},
+    )
+
+
+@api_router.get("/track/click/{token}", include_in_schema=False)
+async def track_email_click(token: str, url: str = ""):
+    """Logs the click then redirects to the original URL."""
+    try:
+        data = _decode_track_token(token)
+        if data.get("e") and url:
+            sb_client = get_supabase()
+            asyncio.create_task(run(lambda: sb_client.table("email_events").insert({
+                "email_address": data["e"].lower(),
+                "event_type":    "click",
+                "subject":       data.get("s", ""),
+            }).execute()))
+    except Exception as _ex:
+        logger.debug(f"[track-click] {_ex}")
+    safe_url = url if url.startswith("http") else "https://" + url
+    return RedirectResponse(url=safe_url, status_code=302)
 
 
 @api_router.post("/email-webhook")
