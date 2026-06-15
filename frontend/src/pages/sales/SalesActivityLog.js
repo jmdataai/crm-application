@@ -64,6 +64,10 @@ export default function SalesActivityLog() {
   // Only admin and viewer (CEO) can see team view
   const isPrivileged = user?.role === 'admin' || user?.role === 'viewer';
 
+  // ── today / todayISO must be declared before any useState that references them ──
+  const today    = useMemo(() => new Date(), []);
+  const todayISO = toISODate(today);
+
   // ── NEW: team view toggle ─────────────────────────────────────
   const [teamView, setTeamView] = useState(false);
   const [teamLogs, setTeamLogs]     = useState([]);
@@ -72,9 +76,6 @@ export default function SalesActivityLog() {
   // ── Date controls for Team View ───────────────────────────────
   const [leaderboardDate, setLeaderboardDate] = useState(todayISO);
   const [chartDays, setChartDays]             = useState(30);
-
-  const today    = useMemo(() => new Date(), []);
-  const todayISO = toISODate(today);
 
   // ── Load 30-day team logs when Team View is activated ─────────
   useEffect(() => {
