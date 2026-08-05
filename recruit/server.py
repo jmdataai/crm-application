@@ -376,6 +376,31 @@ def sb(table: str):
     """Shorthand for supabase.table()"""
     return supabase.table(table)
 
+def _validate_phone(phone: str) -> str:
+    """
+    Validates international phone number.
+    Must start with + and contain 8-15 digits total.
+    Strips spaces, dashes, parentheses before validating.
+    """
+    cleaned = _re.sub(r"[\s\-\(\)\.]", "", phone.strip())
+    if not cleaned.startswith("+"):
+        raise ValueError(
+            "Phone number must start with country code (e.g. +91-9876543210 or +353851234567). "
+            "The + prefix is required."
+        )
+    digit_count = len(_re.sub(r"\D", "", cleaned))
+    if digit_count < 8:
+        raise ValueError(
+            f"Phone number too short ({digit_count} digits). "
+            "Please include your full number with country code."
+        )
+    if digit_count > 15:
+        raise ValueError(
+            f"Phone number too long ({digit_count} digits). "
+            "Maximum 15 digits including country code."
+        )
+    return cleaned
+
 def get_supabase() -> Client:
     """Return the shared Supabase client used by route handlers."""
     return supabase
