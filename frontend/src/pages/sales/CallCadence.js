@@ -174,7 +174,7 @@ export default function CallCadence() {
 
   /* ── derived ── */
 
-  const dispositions = detail?.dispositions || [];
+  const dispositions = useMemo(() => detail?.dispositions || [], [detail]);
   const dispMap = useMemo(
     () => Object.fromEntries(dispositions.map(d => [d.key, d])), [dispositions]);
 
