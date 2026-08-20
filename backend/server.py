@@ -4379,7 +4379,7 @@ async def root_health():
     return {"status": "ok", "service": "Nexus CRM + ATS", "version": "2.0.0"}
 
 from datetime import date as _d, timedelta as _td
-import integrations as _integ
+from . import integrations as _integ
 
 TRACKER_TARGETS_WEEKLY = {
     "emails_sent":           {"min": 50, "max": 75},
