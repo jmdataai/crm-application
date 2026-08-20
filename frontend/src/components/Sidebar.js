@@ -10,15 +10,16 @@ const Icon = ({ name }) => (
 const salesNavBase = [
   { path: '/sales',               icon: 'dashboard',    label: 'Dashboard',    exact: true },
   { path: '/sales/tracker',       icon: 'analytics',    label: 'Sales Tracker',              showForAll: true },
+  { path: '/sales/command-centre', icon: 'hub',         label: 'Command Centre',             showForAll: true },
   { path: '/sales/pipeline',      icon: 'view_kanban',  label: 'Pipeline',                   showForAll: true },
   { path: '/sales/sequences',     icon: 'schedule_send', label: 'Sequences' },
   { path: '/sales/activity-log',  icon: 'edit_note',    label: 'Daily Log' },
   { path: '/sales/bulk-email',    icon: 'forward_to_inbox', label: 'Bulk Email' },
   { path: '/sales/leads',         icon: 'group',         label: 'Leads' },
+  { path: '/sales/call-cadence',  icon: 'phone_in_talk', label: 'Call Cadence' },
   { path: '/sales/import',        icon: 'upload_file',   label: 'Import Leads', requiresPerm: 'canViewImport' },
   { path: '/sales/enrich',        icon: 'auto_fix_high', label: 'Enrich Leads', requiresPerm: 'canViewImport' },
   { path: '/sales/tasks',         icon: 'task_alt',      label: 'Tasks' },
-  { path: '/sales/reminders',     icon: 'notifications', label: 'Reminders' },
 ];
 // salesNav is dynamically filtered by role in the component
 const salesNav = salesNavBase;
@@ -27,13 +28,10 @@ const recruitNav = [
   { path: '/recruitment',                   icon: 'dashboard',     label: 'Dashboard',         exact: true },
   { path: '/recruitment/jobs',              icon: 'work',           label: 'Jobs' },
   { path: '/recruitment/candidates',        icon: 'person_search',  label: 'Candidates' },
-  { path: '/recruitment/import-candidates', icon: 'upload_file',    label: 'Import Candidates', requiresPerm: 'canViewImport' },
   { path: '/recruitment/pipeline',          icon: 'account_tree',   label: 'Pipeline' },
   { path: '/recruitment/interviews',        icon: 'event',          label: 'Interviews' },
+  { path: '/recruitment/resume-hub',        icon: 'description',    label: 'Resume Hub' },
   { path: '/recruitment/tasks',             icon: 'task_alt',       label: 'Tasks' },
-  { path: '/recruitment/ats-match',         icon: 'manage_search',  label: 'ATS Match' },
-  { path: '/recruitment/ats-score',         icon: 'upload_file',    label: 'Resume Score' },
-  { path: '/recruitment/bulk-upload',         icon: 'folder_zip',     label: 'Bulk Upload' },
 ];
 
 const timesheetNav = [

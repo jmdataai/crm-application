@@ -1803,20 +1803,23 @@ def _days_in_stage(stage_updated_date_str):
 # ── Pydantic models ────────────────────────────────────────────
 
 class SalesActivityLogCreate(BaseModel):
-    log_date:          str
-    emails_sent:       int = 0
-    linkedin_sent:     int = 0
-    calls_made:        int = 0
-    replies_received:  int = 0
-    meetings_booked:   int = 0
-    meetings_done:     int = 0
-    proposals_sent:    int = 0
-    followups_done:    int = 0
-    new_leads_added:   int = 0
-    hours_worked:      float = 0.0
-    mood:              Optional[int] = None
-    biggest_win:       Optional[str] = None
-    biggest_blocker:   Optional[str] = None
+    log_date:              str
+    emails_sent:           int = 0
+    linkedin_sent:         int = 0
+    linkedin_invites_sent: int = 0
+    calls_made:            int = 0
+    replies_received:      int = 0
+    meetings_booked:       int = 0
+    meetings_done:         int = 0
+    proposals_sent:        int = 0
+    followups_done:        int = 0
+    new_leads_added:       int = 0
+    job_portal_research:   int = 0
+    hours_worked:          float = 0.0
+    mood:                  Optional[int] = None
+    biggest_win:           Optional[str] = None
+    biggest_blocker:       Optional[str] = None
+    daily_notes:           Optional[str] = None
 
 class SalesPipelineDealCreate(BaseModel):
     client_name:        str
@@ -2107,6 +2110,7 @@ async def submit_sales_log(body: SalesActivityLogCreate, request: Request):
         "day_of_week":      day_name,
         "emails_sent":      body.emails_sent,
         "linkedin_sent":    body.linkedin_sent,
+        "linkedin_invites_sent": body.linkedin_invites_sent,
         "calls_made":       body.calls_made,
         "replies_received": body.replies_received,
         "meetings_booked":  body.meetings_booked,
@@ -2114,10 +2118,12 @@ async def submit_sales_log(body: SalesActivityLogCreate, request: Request):
         "proposals_sent":   body.proposals_sent,
         "followups_done":   body.followups_done,
         "new_leads_added":  body.new_leads_added,
+        "job_portal_research": body.job_portal_research,
         "hours_worked":     body.hours_worked,
         "mood":             body.mood,
         "biggest_win":      body.biggest_win,
         "biggest_blocker":  body.biggest_blocker,
+        "daily_notes":      body.daily_notes,
         "updated_at":       now_ts,
     }
     res = await run(lambda: sb("sales_activity_log").upsert(row, on_conflict="log_date,logged_by").execute())
@@ -4336,6 +4342,11 @@ async def startup():
     _bg_loop = asyncio.get_event_loop()
     scheduler.add_job(lambda: asyncio.run_coroutine_threadsafe(_sync_email_replies(), _bg_loop), trigger="interval", minutes=15, id="email_reply_sync", replace_existing=True)
     scheduler.add_job(lambda: asyncio.run_coroutine_threadsafe(_process_sequences(),   _bg_loop), trigger="interval", hours=1,   id="sequence_processor",  replace_existing=True)
+    scheduler.add_job(lambda: asyncio.run_coroutine_threadsafe(_job_daily_insight(), _bg_loop), CronTrigger(hour=7, minute=0), id="ai_insight_daily", replace_existing=True)
+    scheduler.add_job(lambda: asyncio.run_coroutine_threadsafe(_job_weekly_insight(), _bg_loop), CronTrigger(day_of_week="mon", hour=8, minute=0), id="ai_insight_weekly", replace_existing=True)
+    scheduler.add_job(lambda: asyncio.run_coroutine_threadsafe(_job_monthly_insight(), _bg_loop), CronTrigger(day=1, hour=8, minute=30), id="ai_insight_monthly", replace_existing=True)
+    # 06:15 lands BEFORE the 07:00 AI insight job so coaching can see yesterday's vendor numbers
+    scheduler.add_job(lambda: asyncio.run_coroutine_threadsafe(_sync_integrations(), _bg_loop), CronTrigger(hour=6, minute=15), id="integrations_daily", replace_existing=True)
     scheduler.start()
     logger.info("[scheduler] Audit log cleanup scheduled at 03:00 daily (keeps 180 days)")
     logger.info(f"[scheduler] Daily digest scheduled at {digest_time}")
@@ -4366,6 +4377,721 @@ async def startup():
 @app.api_route("/health", methods=["GET", "HEAD"])
 async def root_health():
     return {"status": "ok", "service": "Nexus CRM + ATS", "version": "2.0.0"}
+
+from datetime import date as _d, timedelta as _td
+import integrations as _integ
+
+TRACKER_TARGETS_WEEKLY = {
+    "emails_sent":           {"min": 50, "max": 75},
+    "linkedin_sent":         {"min": 30, "max": 50},
+    "linkedin_invites_sent": {"min": 40, "max": 60},
+    "calls_made":            {"min": 15, "max": 25},
+    "meetings_booked":       {"min": 8,  "max": 12},
+    "proposals_sent":        {"min": 4,  "max": 6},
+    "job_portal_research":   {"min": 10, "max": 15},
+}
+
+_TRACKER_NUMERIC = [
+    "emails_sent", "linkedin_sent", "linkedin_invites_sent", "calls_made",
+    "replies_received", "meetings_booked", "meetings_done", "proposals_sent",
+    "followups_done", "new_leads_added", "job_portal_research", "hours_worked",
+]
+
+
+def _resolve_period(granularity: str, anchor: str | None):
+    base = _d.fromisoformat(anchor) if anchor else _d.today()
+    if granularity == "day":
+        return base, base
+    if granularity == "week":
+        start = base - _td(days=base.weekday())
+        return start, start + _td(days=4)
+    if granularity == "month":
+        start = base.replace(day=1)
+        next_month = (start.replace(day=28) + _td(days=4)).replace(day=1)
+        return start, next_month - _td(days=1)
+    raise HTTPException(400, "granularity must be day, week or month")
+
+
+def _prior_period(start: _d, end: _d, granularity: str):
+    if granularity == "day":
+        prev = start - _td(days=1)
+        return prev, prev
+    if granularity == "week":
+        return start - _td(days=7), end - _td(days=7)
+    prev_end = start - _td(days=1)
+    prev_start = prev_end.replace(day=1)
+    return prev_start, prev_end
+
+
+async def _fetch_tracker_logs(start: _d, end: _d, user_id: str | None):
+    q = (sb("sales_activity_log").select("*")
+         .gte("log_date", start.isoformat())
+         .lte("log_date", end.isoformat())
+         .order("log_date"))
+    if user_id:
+        q = q.eq("logged_by", user_id)
+    res = await run(lambda: q.execute())
+    return res.data or []
+
+
+def _sum_rows(rows):
+    totals = {k: 0.0 for k in _TRACKER_NUMERIC}
+    for row in rows or []:
+        for key in _TRACKER_NUMERIC:
+            try:
+                totals[key] += float(row.get(key) or 0)
+            except Exception:
+                pass
+    return {k: round(v, 1) for k, v in totals.items()}
+
+
+@api_router.get("/sales/tracker/summary")
+async def get_tracker_summary(
+    request: Request,
+    granularity: str = "week",
+    anchor: Optional[str] = None,
+    user_id: Optional[str] = None,
+):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+
+    start, end = _resolve_period(granularity, anchor)
+    p_start, p_end = _prior_period(start, end, granularity)
+    rows = await _fetch_tracker_logs(start, end, user_id)
+    prior_rows = await _fetch_tracker_logs(p_start, p_end, user_id)
+
+    totals = _sum_rows(rows)
+    prior = _sum_rows(prior_rows)
+
+    series = []
+    for row in rows:
+        item = {"date": row.get("log_date")}
+        for key in _TRACKER_NUMERIC:
+            try:
+                item[key] = round(float(row.get(key) or 0), 1)
+            except Exception:
+                item[key] = 0
+        item["total_touches"] = round(item["emails_sent"] + item["linkedin_sent"] + item["calls_made"], 1)
+        series.append(item)
+
+    by_rep = {}
+    for row in rows:
+        rep_key = row.get("logged_by") or row.get("logged_by_name") or "unknown"
+        rep_name = row.get("logged_by_name") or "Unknown"
+        if rep_key not in by_rep:
+            by_rep[rep_key] = {"user_id": row.get("logged_by"), "name": rep_name, **{k: 0.0 for k in _TRACKER_NUMERIC}}
+        bucket = by_rep[rep_key]
+        for key in _TRACKER_NUMERIC:
+            try:
+                bucket[key] += float(row.get(key) or 0)
+            except Exception:
+                pass
+    for bucket in by_rep.values():
+        for key in _TRACKER_NUMERIC:
+            bucket[key] = round(bucket[key], 1)
+        bucket["total_touches"] = round(bucket["emails_sent"] + bucket["linkedin_sent"] + bucket["calls_made"], 1)
+
+    return {
+        "granularity": granularity,
+        "period_start": start.isoformat(),
+        "period_end": end.isoformat(),
+        "totals": totals,
+        "prior_totals": prior,
+        "series": series,
+        "by_rep": sorted(by_rep.values(), key=lambda x: -x["total_touches"]),
+        "rows": rows,
+        "targets": TRACKER_TARGETS_WEEKLY,
+    }
+
+
+@api_router.get("/sales/tracker/insights")
+async def get_tracker_insights(
+    request: Request,
+    granularity: str = "week",
+    anchor: Optional[str] = None,
+    user_id: Optional[str] = None,
+):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+
+    start, end = _resolve_period(granularity, anchor)
+    q = (sb("ai_insights").select("*")
+         .eq("scope", "tracker")
+         .eq("granularity", granularity)
+         .eq("period_start", start.isoformat())
+         .limit(1))
+    q = q.eq("user_id", user_id) if user_id else q.is_("user_id", "null")
+
+    res = await run(lambda: q.execute())
+    row = (res.data or [None])[0]
+    if not row:
+        return {"cached": False, "went_well": [], "falling_short": [], "do_next": [], "risk_flag": "", "generated_at": None}
+    return {
+        "cached": True,
+        "went_well": row.get("went_well") or [],
+        "falling_short": row.get("falling_short") or [],
+        "do_next": row.get("do_next") or [],
+        "risk_flag": row.get("risk_flag") or "",
+        "generated_at": row.get("generated_at"),
+    }
+
+
+async def _generate_and_store_insight(granularity: str, anchor: str | None, user_id: str | None, scope: str = "tracker"):
+    start, end = _resolve_period(granularity, anchor)
+    p_start, p_end = _prior_period(start, end, granularity)
+    rows = await _fetch_tracker_logs(start, end, user_id)
+    prior_rows = await _fetch_tracker_logs(p_start, p_end, user_id)
+
+    try:
+        from llm_utils import build_tracker_metrics, generate_sales_insights
+    except ImportError as ie:
+        logging.getLogger(__name__).error(f"[ai_insights] llm_utils unavailable: {ie}")
+        raise HTTPException(503, "AI insights are unavailable — LLM module not loaded")
+
+    metrics = build_tracker_metrics(rows, granularity, prior_rows)
+    loop = asyncio.get_running_loop()
+    insight = await loop.run_in_executor(None, generate_sales_insights, metrics, TRACKER_TARGETS_WEEKLY, "")
+
+    row = {
+        "scope": scope,
+        "granularity": granularity,
+        "period_start": start.isoformat(),
+        "period_end": end.isoformat(),
+        "user_id": user_id,
+        "went_well": insight.get("went_well", []),
+        "falling_short": insight.get("falling_short", []),
+        "do_next": insight.get("do_next", []),
+        "risk_flag": insight.get("risk_flag", ""),
+        "metrics": metrics,
+        "model_used": os.environ.get("LLM_PROVIDER", "groq"),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    dq = (sb("ai_insights").delete()
+          .eq("scope", scope).eq("granularity", granularity)
+          .eq("period_start", start.isoformat()))
+    dq = dq.eq("user_id", user_id) if user_id else dq.is_("user_id", "null")
+    await run(lambda: dq.execute())
+    await run(lambda: sb("ai_insights").insert(row).execute())
+    return insight
+
+
+@api_router.post("/sales/tracker/insights/generate")
+async def generate_tracker_insights(
+    request: Request,
+    granularity: str = "week",
+    anchor: Optional[str] = None,
+    user_id: Optional[str] = None,
+):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    if user.get("role") not in ("admin", "viewer"):
+        raise HTTPException(403, "Only admin or CEO can regenerate AI insights")
+
+    insight = await _generate_and_store_insight(granularity, anchor, user_id, "tracker")
+    return {"cached": True, **insight}
+
+
+async def _job_daily_insight():
+    try:
+        y = (_d.today() - _td(days=1)).isoformat()
+        await _generate_and_store_insight("day", y, None, "tracker")
+    except Exception as e:
+        logging.getLogger(__name__).error(f"[ai_insights] daily job failed: {e}")
+
+
+async def _job_weekly_insight():
+    try:
+        last_mon = _d.today() - _td(days=_d.today().weekday() + 7)
+        await _generate_and_store_insight("week", last_mon.isoformat(), None, "tracker")
+    except Exception as e:
+        logging.getLogger(__name__).error(f"[ai_insights] weekly job failed: {e}")
+
+
+async def _job_monthly_insight():
+    try:
+        first_this = _d.today().replace(day=1)
+        last_month = (first_this - _td(days=1)).replace(day=1)
+        await _generate_and_store_insight("month", last_month.isoformat(), None, "tracker")
+    except Exception as e:
+        logging.getLogger(__name__).error(f"[ai_insights] monthly job failed: {e}")
+
+
+async def _sync_integrations():
+    """Nightly pull of yesterday's CloudTalk + Apollo metrics.
+
+    Wrapped so a vendor outage logs and moves on instead of killing the
+    scheduler thread — APScheduler will not restart a job that raises.
+    """
+    try:
+        out = await _integ.sync_all(sb, run)
+        logging.getLogger(__name__).info(f"[integrations] nightly sync: {out}")
+    except Exception as e:
+        logging.getLogger(__name__).error(f"[integrations] nightly sync failed: {e}")
+
+
+class CallListCreate(BaseModel):
+    name:      str
+    segment:   Optional[str] = None
+    list_date: Optional[str] = None
+    notes:     Optional[str] = None
+ 
+ 
+class CallContactIn(BaseModel):
+    first_name:      Optional[str] = None
+    last_name:       Optional[str] = None
+    full_name:       Optional[str] = None
+    title:           Optional[str] = None
+    company:         Optional[str] = None
+    email:           Optional[str] = None
+    phone:           Optional[str] = None
+    mobile_phone:    Optional[str] = None
+    corporate_phone: Optional[str] = None
+    linkedin_url:    Optional[str] = None
+    seniority:       Optional[str] = None
+    industry:        Optional[str] = None
+    country:         Optional[str] = None
+    email_status:    Optional[str] = None
+    email_source:    Optional[str] = None
+    tier:            Optional[str] = None
+    cold_call_pitch: Optional[str] = None
+    do_not_call:     Optional[bool] = False
+ 
+ 
+class CallOutcomeIn(BaseModel):
+    disposition:  Optional[str] = None
+    outcome_note: Optional[str] = None
+    callback_at:  Optional[str] = None       # ISO datetime
+    do_not_call:  Optional[bool] = None
+
+
+# ── Call Cadence ─────────────────────────────────────────────
+# Replaces Call_-Cadence_Data.xlsx. Structured dispositions + real callback_at.
+
+CALL_DISPOSITIONS = {
+    "interested":    ("Interested",     "positive"),
+    "send_info":     ("Send info",      "positive"),
+    "callback":      ("Call back",      "positive"),
+    "not_interested":("Not interested", "negative"),
+    "not_a_fit":     ("Not a fit",      "negative"),
+    "voicemail":     ("Voicemail",      "no_contact"),
+    "no_answer":     ("No answer",      "no_contact"),
+    "gatekeeper":    ("Gatekeeper",     "no_contact"),
+    "hung_up":       ("Hung up",        "negative"),
+    "disconnected":  ("Disconnected",   "bad_data"),
+    "wrong_number":  ("Wrong number",   "bad_data"),
+    "left_company":  ("Left company",   "bad_data"),
+}
+
+_LEGACY_DISPOSITION_MAP = {
+    "vm": "voicemail", "voicemail": "voicemail",
+    "not fit": "not_a_fit", "not a fit": "not_a_fit",
+    "no ring": "no_answer", "no answer": "no_answer",
+    "hung up": "hung_up",
+    "gatekeeper": "gatekeeper", "not allowed": "gatekeeper",
+    "disconnected": "disconnected",
+    "not found": "wrong_number",
+    "no longer in this location": "left_company",
+    "not interested": "not_interested",
+    "sale : interested": "interested", "interested": "interested",
+    "send me an email with the details": "send_info",
+    "support": "send_info",
+}
+
+
+def _normalise_disposition(raw: Optional[str]) -> tuple:
+    """(disposition_key, leftover_note). Casing and spacing insensitive."""
+    if not raw:
+        return None, None
+    s = str(raw).strip()
+    key = _LEGACY_DISPOSITION_MAP.get(s.lower())
+    if key:
+        return key, None
+    low = s.lower()
+    CALLBACK_HINTS = ("call back", "callback", "will call", "will be back",
+                      "back on", "ring back", "try again", "on holiday",
+                      "in a meeting", "busy right now")
+    if any(h in low for h in CALLBACK_HINTS):
+        return "callback", s
+    return None, s
+
+
+@api_router.get("/call-lists")
+async def get_call_lists(
+    request: Request,
+    include_archived: bool = False,
+):
+    """Lists with progress counts, newest first."""
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    def _f(q):
+        q = q.order("list_date", desc=True)
+        if not include_archived:
+            q = q.eq("archived", False)
+        return q
+
+    lists = await fetch_all_rows("call_lists", "*", query_fn=_f)
+    if not lists:
+        return {"lists": []}
+
+    ids = [l["id"] for l in lists]
+    contacts = await fetch_all_rows(
+        "call_contacts", "list_id,disposition,do_not_call,callback_at",
+        query_fn=lambda q: q.in_("list_id", ids),
+    )
+
+    stats: dict = {}
+    for c in contacts:
+        s = stats.setdefault(c["list_id"], {"total": 0, "called": 0, "positive": 0, "dnc": 0})
+        s["total"] += 1
+        d = c.get("disposition")
+        if d:
+            s["called"] += 1
+            if CALL_DISPOSITIONS.get(d, ("", ""))[1] == "positive":
+                s["positive"] += 1
+        if c.get("do_not_call"):
+            s["dnc"] += 1
+
+    for l in lists:
+        s = stats.get(l["id"], {"total": 0, "called": 0, "positive": 0, "dnc": 0})
+        l.update(s)
+        l["progress"] = round(s["called"] / s["total"] * 100) if s["total"] else 0
+
+    return {"lists": lists}
+
+
+@api_router.post("/call-lists")
+async def create_call_list(
+    request: Request,
+    payload: CallListCreate,
+):
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    row = {
+        "name":            payload.name.strip()[:200],
+        "segment":         (payload.segment or "").strip()[:80] or None,
+        "list_date":       payload.list_date or _d.today().isoformat(),
+        "notes":           payload.notes,
+        "created_by":      user.get("id"),
+        "created_by_name": user.get("name") or user.get("email"),
+    }
+    res = await run(lambda: sb("call_lists").insert(row).execute())
+    return (res.data or [{}])[0]
+
+
+@api_router.get("/call-lists/{list_id}")
+async def get_call_list(request: Request, list_id: str):
+    """One list plus every contact in it."""
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    res = await run(lambda: sb("call_lists").select("*").eq("id", list_id).limit(1).execute())
+    if not res.data:
+        raise HTTPException(404, "List not found")
+
+    contacts = await fetch_all_rows(
+        "call_contacts", "*",
+        query_fn=lambda q: q.eq("list_id", list_id).order("sort_order").order("created_at"),
+    )
+    return {"list": res.data[0], "contacts": contacts,
+            "dispositions": [{"key": k, "label": v[0], "bucket": v[1]}
+                             for k, v in CALL_DISPOSITIONS.items()]}
+
+
+@api_router.post("/call-lists/{list_id}/contacts")
+async def add_call_contacts(
+    request: Request,
+    list_id: str,
+    contacts: List[CallContactIn],
+):
+    """Bulk add. Used by the CSV importer and by manual single adds."""
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    if not contacts:
+        return {"inserted": 0}
+    if len(contacts) > 5000:
+        raise HTTPException(400, "Import capped at 5000 contacts per call")
+
+    chk = await run(lambda: sb("call_lists").select("id").eq("id", list_id).limit(1).execute())
+    if not chk.data:
+        raise HTTPException(404, "List not found")
+
+    rows = []
+    for i, c in enumerate(contacts):
+        d = c.model_dump()
+        if not d.get("full_name"):
+            d["full_name"] = " ".join(x for x in [d.get("first_name"), d.get("last_name")] if x) or None
+        d["list_id"] = list_id
+        d["sort_order"] = i
+        rows.append(d)
+
+    inserted = 0
+    for i in range(0, len(rows), 200):
+        chunk = rows[i:i + 200]
+        await run(lambda ch=chunk: sb("call_contacts").insert(ch).execute())
+        inserted += len(chunk)
+
+    return {"inserted": inserted}
+
+
+@api_router.patch("/call-contacts/{contact_id}")
+async def log_call_outcome(
+    request: Request,
+    contact_id: str,
+    payload: CallOutcomeIn,
+):
+    """Log the result of a call. This is the hot path — one tap per contact."""
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    cur = await run(lambda: sb("call_contacts").select("*").eq("id", contact_id).limit(1).execute())
+    if not cur.data:
+        raise HTTPException(404, "Contact not found")
+    existing = cur.data[0]
+
+    if existing.get("do_not_call") and payload.do_not_call is not False:
+        raise HTTPException(400, "This contact is marked Do Not Call")
+
+    upd: dict = {"updated_at": datetime.now(timezone.utc).isoformat()}
+
+    if payload.disposition is not None:
+        if payload.disposition and payload.disposition not in CALL_DISPOSITIONS:
+            raise HTTPException(400, f"Unknown disposition '{payload.disposition}'")
+        upd["disposition"]    = payload.disposition or None
+        upd["called_at"]      = datetime.now(timezone.utc).isoformat()
+        upd["called_by"]      = user.get("id")
+        upd["called_by_name"] = user.get("name") or user.get("email")
+        if payload.disposition:
+            upd["attempts"] = int(existing.get("attempts") or 0) + 1
+
+    if payload.outcome_note is not None:
+        upd["outcome_note"] = payload.outcome_note[:2000] or None
+
+    if payload.callback_at is not None:
+        upd["callback_at"] = payload.callback_at or None
+
+    if payload.do_not_call is not None:
+        upd["do_not_call"] = bool(payload.do_not_call)
+
+    res = await run(lambda: sb("call_contacts").update(upd).eq("id", contact_id).execute())
+    return (res.data or [{}])[0]
+
+
+@api_router.get("/call-lists/callbacks/due")
+async def get_due_callbacks(
+    request: Request,
+    horizon_hours: int = 24,
+):
+    """Callbacks due now or overdue."""
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    horizon = min(max(int(horizon_hours or 24), 1), 24 * 14)
+    until = (datetime.now(timezone.utc) + timedelta(hours=horizon)).isoformat()
+
+    rows = await fetch_all_rows(
+        "call_contacts", "*",
+        query_fn=lambda q: q.eq("disposition", "callback")
+                            .not_.is_("callback_at", "null")
+                            .lte("callback_at", until)
+                            .order("callback_at"),
+    )
+    now = datetime.now(timezone.utc).isoformat()
+    for r in rows:
+        r["overdue"] = bool(r.get("callback_at") and str(r["callback_at"]) < now)
+    return {"callbacks": rows, "count": len(rows)}
+
+
+@api_router.delete("/call-lists/{list_id}")
+async def delete_call_list(request: Request, list_id: str):
+    """Archive by default. Only admins can remove a list."""
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    if user.get("role") not in ("admin", "viewer"):
+        raise HTTPException(403, "Only admins can remove a list")
+    await run(lambda: sb("call_lists").update({"archived": True}).eq("id", list_id).execute())
+    return {"archived": True}
+
+
+@api_router.get("/call-lists/stats/summary")
+async def call_cadence_stats(
+    request: Request,
+    days: int = 30,
+):
+    """Disposition mix and per-rep activity across recent lists."""
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    days  = max(1, min(int(days or 30), 365))
+    since = (_d.today() - timedelta(days=days - 1)).isoformat()
+
+    lists = await fetch_all_rows("call_lists", "id",
+                                 query_fn=lambda q: q.gte("list_date", since))
+    if not lists:
+        return {"dispositions": [], "by_rep": [], "totals": {}}
+
+    ids = [l["id"] for l in lists]
+    rows = await fetch_all_rows(
+        "call_contacts", "disposition,called_by_name,do_not_call",
+        query_fn=lambda q: q.in_("list_id", ids),
+    )
+
+    disp: dict = {}
+    reps: dict = {}
+    total = called = positive = dnc = 0
+
+    for r in rows:
+        total += 1
+        if r.get("do_not_call"):
+            dnc += 1
+        d = r.get("disposition")
+        if not d:
+            continue
+        called += 1
+        disp[d] = disp.get(d, 0) + 1
+        if CALL_DISPOSITIONS.get(d, ("", ""))[1] == "positive":
+            positive += 1
+        who = r.get("called_by_name") or "Unknown"
+        reps.setdefault(who, {"name": who, "calls": 0, "positive": 0})["calls"] += 1
+        if CALL_DISPOSITIONS.get(d, ("", ""))[1] == "positive":
+            reps[who]["positive"] += 1
+
+    return {
+        "totals": {"contacts": total, "called": called, "positive": positive,
+                   "do_not_call": dnc,
+                   "contact_rate": round(called / total * 100, 1) if total else 0,
+                   "positive_rate": round(positive / called * 100, 1) if called else 0},
+        "dispositions": sorted(
+            ({"key": k, "label": CALL_DISPOSITIONS.get(k, (k, ""))[0],
+              "bucket": CALL_DISPOSITIONS.get(k, ("", "other"))[1], "count": v}
+             for k, v in disp.items()), key=lambda x: -x["count"]),
+        "by_rep": sorted(reps.values(), key=lambda r: -r["calls"]),
+    }
+
+
+# ── Integrations: CloudTalk + Apollo (read-only metric sync) ──
+
+def _parse_day(s: Optional[str]) -> _d:
+    """YYYY-MM-DD -> date, defaulting to yesterday. Never raises."""
+    if s:
+        try:
+            return _d.fromisoformat(s[:10])
+        except Exception:
+            pass
+    return _d.today() - _td(days=1)
+
+
+@api_router.get("/integrations/status")
+async def integrations_status(request: Request):
+    """Live connectivity check for both vendors.
+
+    Safe to call from the dashboard on every load: Apollo's /auth/health and
+    CloudTalk's 1-row agent fetch are both free and consume no credits.
+    """
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    apollo, cloudtalk = await asyncio.gather(
+        _integ.check_apollo(), _integ.check_cloudtalk()
+    )
+
+    # Last successful sync per source, so the UI can show staleness
+    res = await run(lambda: sb("integration_metrics")
+                    .select("source,metric_date,synced_at")
+                    .order("synced_at", desc=True).limit(200).execute())
+    last: dict = {}
+    for r in (res.data or []):
+        last.setdefault(r["source"], {"metric_date": r["metric_date"],
+                                      "synced_at": r["synced_at"]})
+
+    return {
+        "apollo":    {**apollo,    "last_sync": last.get("apollo")},
+        "cloudtalk": {**cloudtalk, "last_sync": last.get("cloudtalk")},
+    }
+
+
+@api_router.post("/integrations/sync")
+async def integrations_sync(
+    request: Request,
+    source: str = "all",
+    day: Optional[str] = None,
+):
+    """Manual sync. Admin/viewer only — vendor APIs are rate limited and this
+    is the one button that can burn through those limits."""
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    role = (user or {}).get("role")
+    if role not in ("admin", "viewer"):
+        raise HTTPException(403, "Only admins can trigger a sync")
+
+    d = _parse_day(day)
+    if source == "cloudtalk":
+        return await _integ.sync_cloudtalk(sb, run, d)
+    if source == "apollo":
+        return await _integ.sync_apollo(sb, run, d)
+    return await _integ.sync_all(sb, run, d)
+
+
+@api_router.get("/integrations/dashboard")
+async def integrations_dashboard(
+    request: Request,
+    days: int = 14,
+):
+    """Everything the dashboard needs in ONE round trip.
+
+    Returns headline totals, a daily series per source, an agent leaderboard
+    and a call-disposition breakdown — the last of which replaces the manual
+    'Remarks' column in the call-cadence spreadsheet.
+    """
+    user = await get_current_user(request)
+    _require_module(user, "sales")
+    days  = max(1, min(int(days or 14), 90))          # clamp: no unbounded scans
+    end   = _d.today()
+    start = end - _td(days=days - 1)
+
+    rows = await fetch_all_rows(
+        "integration_metrics", "*",
+        query_fn=lambda q: q.gte("metric_date", start.isoformat())
+                            .lte("metric_date", end.isoformat())
+                            .order("metric_date"),
+    )
+
+    totals: dict = {"cloudtalk": {}, "apollo": {}}
+    series: dict = {}
+    agents: dict = {}
+    disps:  dict = {}
+
+    for r in rows:
+        src, key, dim = r.get("source"), r.get("metric_key"), r.get("dimension")
+        val = float(r.get("metric_value") or 0)
+        d   = str(r.get("metric_date"))[:10]
+
+        if dim is None:
+            # Rates are averaged, counters are summed — summing a percentage
+            # across 14 days is meaningless and was an easy bug to write here.
+            if key.endswith("_rate"):
+                acc = totals.setdefault(src, {}).setdefault(f"__{key}", [])
+                acc.append(val)
+            else:
+                totals.setdefault(src, {})[key] = totals.get(src, {}).get(key, 0) + val
+            series.setdefault(d, {"date": d}).update({f"{src}_{key}": val})
+        elif src == "cloudtalk" and key == "disposition":
+            disps[dim] = disps.get(dim, 0) + val
+        elif src == "cloudtalk" and key in ("calls_total", "calls_answered", "talk_time_sec"):
+            agents.setdefault(dim, {"name": dim, "calls_total": 0,
+                                    "calls_answered": 0, "talk_time_sec": 0})[key] += val
+
+    for src, block in totals.items():
+        for k in [k for k in block if k.startswith("__")]:
+            vals = block.pop(k)
+            block[k[2:]] = round(sum(vals) / len(vals), 1) if vals else 0
+
+    return {
+        "range":        {"start": start.isoformat(), "end": end.isoformat(), "days": days},
+        "totals":       totals,
+        "series":       [series[k] for k in sorted(series)],
+        "agents":       sorted(agents.values(), key=lambda a: -a["calls_total"])[:25],
+        "dispositions": sorted(({"label": k, "count": int(v)} for k, v in disps.items()),
+                               key=lambda x: -x["count"])[:15],
+        "configured":   {"apollo": _integ.apollo_configured(),
+                         "cloudtalk": _integ.cloudtalk_configured()},
+    }
+
 
 app.include_router(api_router)
 app.add_middleware(GZipMiddleware, minimum_size=512)  # compress JSON > 512 bytes

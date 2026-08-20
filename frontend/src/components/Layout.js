@@ -81,7 +81,7 @@ const NotificationsPanel = ({ onClose }) => {
       </div>
 
       <div style={{ padding:'0.75rem 1.25rem', borderTop:'1px solid var(--outline-variant)' }}>
-        <a href="/sales/reminders" style={{ fontSize:'0.8125rem', color:'var(--primary)', fontWeight:600, textDecoration:'none' }}>
+        <a href="/sales/tasks?tab=reminders" style={{ fontSize:'0.8125rem', color:'var(--primary)', fontWeight:600, textDecoration:'none' }}>
           View all reminders →
         </a>
       </div>
@@ -103,7 +103,7 @@ const HelpPanel = ({ onClose }) => {
     { icon:'person_add',    label:'Add a Lead',          href:'/sales/leads' },
     { icon:'upload_file',   label:'Import Leads (CSV)',   href:'/sales/import' },
     { icon:'task_alt',      label:'Create a Task',        href:'/sales/tasks' },
-    { icon:'alarm',         label:'Set a Reminder',       href:'/sales/reminders' },
+    { icon:'alarm',         label:'Set a Reminder',       href:'/sales/tasks?tab=reminders' },
     { icon:'group',         label:'Add a Candidate',      href:'/recruitment/candidates' },
     { icon:'work',          label:'Post a Job',           href:'/recruitment/jobs' },
     { icon:'settings',      label:'Manage Users',         href:'/settings' },

@@ -230,6 +230,9 @@ export const salesTrackerAPI = {
   getTrackerUsers:    ()           => api.get('/sales/tracker/users'),
   getLogs:            (params)     => api.get('/sales/tracker/log', { params }),
   submitLog:          (data)       => api.post('/sales/tracker/log', data),
+  getSummary:         (params, config = {}) => api.get('/sales/tracker/summary', { params, ...config }),
+  getInsights:        (params, config = {}) => api.get('/sales/tracker/insights', { params, ...config }),
+  generateInsights:   (params, config = {}) => api.post('/sales/tracker/insights/generate', null, { params, ...config }),
   getPipeline:        ()           => api.get('/sales/tracker/pipeline'),
   createDeal:         (data)       => api.post('/sales/tracker/pipeline', data),
   updateDeal:         (id, data)   => api.put(`/sales/tracker/pipeline/${id}`, data),
@@ -238,6 +241,23 @@ export const salesTrackerAPI = {
   getWeeklyReviews:   ()           => api.get('/sales/tracker/weekly-review'),
   submitMonthlyRollup:(data)       => api.post('/sales/tracker/monthly-rollup', data),
   getMonthlyRollups:  ()           => api.get('/sales/tracker/monthly-rollup'),
+};
+
+export const integrationsAPI = {
+  getStatus:    (config = {})         => api.get('/integrations/status', config),
+  getDashboard: (params, config = {}) => api.get('/integrations/dashboard', { params, ...config }),
+  sync:         (params)              => api.post('/integrations/sync', null, { params }),
+};
+
+export const callCadenceAPI = {
+  getLists: (params) => api.get('/call-lists', { params }),
+  createList: (body) => api.post('/call-lists', body),
+  getList: (id) => api.get(`/call-lists/${id}`),
+  addContacts: (id, contacts) => api.post(`/call-lists/${id}/contacts`, contacts),
+  logOutcome: (contactId, body) => api.patch(`/call-contacts/${contactId}`, body),
+  getDueCallbacks: (params) => api.get('/call-lists/callbacks/due', { params }),
+  archiveList: (id) => api.delete(`/call-lists/${id}`),
+  getStats: (params) => api.get('/call-lists/stats/summary', { params }),
 };
 // Interviews APIs
 export const interviewsAPI = {

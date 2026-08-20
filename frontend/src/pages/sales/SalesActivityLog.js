@@ -14,10 +14,12 @@ const Icon = ({ name, style = {} }) => (
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
 const TARGETS = {
-  emails_sent:   { min: 10, max: 15, label: 'Cold Emails' },
-  linkedin_sent: { min: 8,  max: 10, label: 'LinkedIn Msgs' },
-  calls_made:    { min: 3,  max: 5,  label: 'Cold Calls' },
-  followups_done:{ min: 3,  max: 5,  label: 'Follow-ups' },
+  emails_sent:           { min: 10, max: 15, label: 'Cold Emails' },
+  linkedin_sent:         { min: 8,  max: 10, label: 'LinkedIn Msgs' },
+  linkedin_invites_sent: { min: 8,  max: 12, label: 'LinkedIn Invites' },
+  calls_made:            { min: 3,  max: 5,  label: 'Cold Calls' },
+  followups_done:        { min: 3,  max: 5,  label: 'Follow-ups' },
+  job_portal_research:   { min: 2,  max: 3,  label: 'Job Portals' },
 };
 
 const fmtDate = (d) => {
@@ -45,10 +47,10 @@ const getStatusPill = (val, min, max) => {
 };
 
 const EMPTY_FORM = {
-  emails_sent: '', linkedin_sent: '', calls_made: '', replies_received: '',
+  emails_sent: '', linkedin_sent: '', linkedin_invites_sent: '', calls_made: '', replies_received: '',
   meetings_booked: '', meetings_done: '', proposals_sent: '', followups_done: '',
-  new_leads_added: '', hours_worked: '', mood: null,
-  biggest_win: '', biggest_blocker: '',
+  new_leads_added: '', job_portal_research: '', hours_worked: '', mood: null,
+  biggest_win: '', biggest_blocker: '', daily_notes: '',
 };
 
 // ── Team View line chart colours (one per team member) ────────
@@ -193,6 +195,7 @@ export default function SalesActivityLog() {
         setForm({
           emails_sent:      String(selectedLog.emails_sent      || ''),
           linkedin_sent:    String(selectedLog.linkedin_sent    || ''),
+          linkedin_invites_sent: String(selectedLog.linkedin_invites_sent || ''),
           calls_made:       String(selectedLog.calls_made       || ''),
           replies_received: String(selectedLog.replies_received || ''),
           meetings_booked:  String(selectedLog.meetings_booked  || ''),
@@ -200,10 +203,12 @@ export default function SalesActivityLog() {
           proposals_sent:   String(selectedLog.proposals_sent   || ''),
           followups_done:   String(selectedLog.followups_done   || ''),
           new_leads_added:  String(selectedLog.new_leads_added  || ''),
+          job_portal_research: String(selectedLog.job_portal_research || ''),
           hours_worked:     String(selectedLog.hours_worked     || ''),
           mood:             selectedLog.mood || null,
           biggest_win:      selectedLog.biggest_win     || '',
           biggest_blocker:  selectedLog.biggest_blocker || '',
+          daily_notes:      selectedLog.daily_notes || '',
         });
         setSubmitted(true);
       }
@@ -224,8 +229,8 @@ export default function SalesActivityLog() {
 
   const handleSubmit = async () => {
     const anyFilled = Object.entries(form).some(([k, v]) =>
-      k !== 'mood' && k !== 'biggest_win' && k !== 'biggest_blocker' && v !== '' && v !== null && Number(v) > 0
-    ) || form.biggest_win?.trim() || form.biggest_blocker?.trim() || form.mood !== null;
+      k !== 'mood' && k !== 'biggest_win' && k !== 'biggest_blocker' && k !== 'daily_notes' && v !== '' && v !== null && Number(v) > 0
+    ) || form.biggest_win?.trim() || form.biggest_blocker?.trim() || form.daily_notes?.trim() || form.mood !== null;
     if (!anyFilled) { setError('Please fill in at least one field before saving.'); return; }
     setError('');
     setSubmitting(true);
@@ -234,6 +239,7 @@ export default function SalesActivityLog() {
         log_date:          selectedDateISO,
         emails_sent:       parseInt(form.emails_sent)      || 0,
         linkedin_sent:     parseInt(form.linkedin_sent)    || 0,
+        linkedin_invites_sent: parseInt(form.linkedin_invites_sent) || 0,
         calls_made:        parseInt(form.calls_made)       || 0,
         replies_received:  parseInt(form.replies_received) || 0,
         meetings_booked:   parseInt(form.meetings_booked)  || 0,
@@ -241,10 +247,12 @@ export default function SalesActivityLog() {
         proposals_sent:    parseInt(form.proposals_sent)   || 0,
         followups_done:    parseInt(form.followups_done)   || 0,
         new_leads_added:   parseInt(form.new_leads_added)  || 0,
+        job_portal_research: parseInt(form.job_portal_research) || 0,
         hours_worked:      parseFloat(form.hours_worked)   || 0,
         mood:              form.mood,
         biggest_win:       form.biggest_win     || null,
         biggest_blocker:   form.biggest_blocker || null,
+        daily_notes:       form.daily_notes || null,
       });
       const savedRow = res.data?.data || null;
       if (savedRow) {
@@ -583,9 +591,27 @@ export default function SalesActivityLog() {
                 {numInput('proposals_sent',  'Proposals Sent',  '')}
                 {numInput('followups_done',  'Follow-ups Done', 'Target: 3–5')}
                 {numInput('new_leads_added', 'New Leads Added', '')}
+                {numInput('job_portal_research', 'Job Portals Researched', 'Target: 2-3')}
                 {numInput('hours_worked',    'Hours Worked',    '')}
               </div>
 
+              <p style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--on-surface-variant)', marginBottom: '0.5rem' }}>Notes</p>
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label className="label" style={{ fontSize: '0.8125rem' }}>
+                  Additional notes for the day
+                </label>
+                <textarea
+                  className="input"
+                  rows={3}
+                  value={form.daily_notes}
+                  onChange={e => setF('daily_notes', e.target.value)}
+                  placeholder="Which job portals you checked, roles spotted, anything Jayant should know"
+                  style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
+                />
+                <p style={{ fontSize: '0.6875rem', color: 'var(--on-surface-variant)', marginTop: '0.25rem', marginBottom: 0 }}>
+                  Shows in the CEO tracker next to your daily numbers.
+                </p>
+              </div>
               <p style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--on-surface-variant)', marginBottom: '0.75rem' }}>Mood & Energy</p>
               <div style={{ display: 'flex', gap: '0.5rem', marginBottom: form.mood <= 2 && form.mood ? '0.5rem' : '1.25rem' }}>
                 {[1, 2, 3, 4, 5].map(n => (

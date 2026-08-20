@@ -132,7 +132,7 @@ const AddTaskModal = ({ onClose, onAdd }) => {
 };
 
 /* ── Main ───────────────────────────────────────────── */
-export default function RecruitmentTasks() {
+export default function RecruitmentTasks({ embedded = false }) {
   const { isMobile } = useBreakpoint();
   const [tasks, setTasks]       = useState([]);
   const [loading, setLoading]   = useState(true);
@@ -228,10 +228,13 @@ export default function RecruitmentTasks() {
       {!loading && (
         <>
           <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem', flexWrap:'wrap', gap:'0.75rem' }}>
-            <div>
-              <p className="label-sm" style={{ marginBottom:'0.25rem', color:'var(--tertiary)' }}>Recruitment ATS</p>
-              <h1 className="headline-sm">Recruiter Tasks</h1>
-            </div>
+            {!embedded && (
+              <div>
+                <p className="label-sm" style={{ marginBottom:'0.25rem', color:'var(--tertiary)' }}>Recruitment ATS</p>
+                <h1 className="headline-sm">Recruiter Tasks</h1>
+              </div>
+            )}
+            {embedded && <div />}
             <button onClick={() => setShowAdd(true)} style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 1.25rem', borderRadius:'0.5rem', fontSize:'0.875rem', fontWeight:600, color:'#fff', border:'none', cursor:'pointer', background:'linear-gradient(135deg,var(--tertiary),#009966)', boxShadow:'0 2px 8px rgba(0,98,67,0.25)' }}>
               <Icon name="add" style={{ fontSize:'1rem', color:'#fff' }} /> New Task
             </button>

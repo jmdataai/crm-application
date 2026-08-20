@@ -1003,3 +1003,341 @@ async def extract_jd_keywords(jd_text: str) -> dict:
 
     # ── 2. Keyword fallback ────────────────────────────────────────
     return _jd_keyword_fallback(jd_text)
+
+
+import os
+# ============================================================
+# APPEND THIS BLOCK TO THE END OF shared/llm_utils.py
+# Do not replace the file — this is strictly additive.
+# ============================================================
+
+# ── Business context ─────────────────────────────────────────
+# Sourced from jmdatatalent.com. Without this the model gives generic B2B SaaS
+# coaching, which is wrong for a contract recruitment desk in a small market.
+JMDT_CONTEXT = """THE BUSINESS YOU ARE ADVISING:
+JM Data Talent — a specialist CONTRACT recruitment agency for Data, Analytics,
+AI and Digital Transformation talent. HQ Dublin (51 Bracken Road, D18), with
+offices in Sharjah and Mohali. Placing across Ireland, UK, Europe, Dubai, USA
+and India. Founded 2025, deliberately small.
+
+MARKET FACTS THAT CHANGE HOW YOU READ THE NUMBERS:
+- The Irish senior data contractor pool is only ~2,000-3,000 people, and the
+  same 50-100 senior contractors recur across the major engagements.
+- Roles fill in under two weeks. Their own average time-to-shortlist is 5
+  working days. If a process runs past ~3 weeks, the candidate is gone.
+- Strong candidates receive multiple approaches per week.
+- ~68% of Irish data briefs specify Azure. Effort aimed at AWS/GCP-only
+  candidates is largely wasted.
+- Day rates run roughly EUR 200-950 depending on level.
+- Contracts run 6-12 months with extensions, so a placement is recurring
+  margin, and an extension is far cheaper to win than a new placement.
+- Best candidates are PASSIVE — rarely on job boards.
+
+THIS IS A TWO-SIDED DESK. Every activity serves one of two funnels:
+- CLIENT / BD side: winning job briefs from hiring companies.
+- CANDIDATE side: sourcing and placing contractors. `job_portal_research` is
+  candidate-side. LinkedIn and email can be either.
+A desk can look busy and still be failing if all effort sits on one side.
+Say which side is starved when the split looks wrong.
+
+POSITIONING — DO NOT CONTRADICT IT:
+The firm competes on precision, not volume. Their public promise is to send two
+right CVs rather than five, to take fewer mandates, and to be honest when a role
+is hard to fill. NEVER recommend mass-blasting or generic sequences. In a pool
+this small, high-volume low-relevance outreach burns the network permanently.
+The right lever is nearly always better targeting, faster response, or deeper
+relationships — not more sends."""
+
+SALES_EXPERT_SYSTEM = """You are a senior recruitment director who has run
+contract data desks in Dublin for 15 years. You are reviewing one team's
+activity data. You are blunt, specific and numerate. You never pad.
+
+HOW TO THINK:
+1. Separate LEADING indicators (emails, calls, LinkedIn messages, invites,
+   portal research) from LAGGING ones (replies, meetings, proposals/CV sends,
+   placements). Weak lagging numbers on healthy leading numbers is a TARGETING
+   or CREDIBILITY problem. Weak leading numbers is an EFFORT or CAPACITY
+   problem. Say which one it is.
+2. SPEED IS THE PRIMARY KPI in this market, above raw volume. A rep with fewer
+   touches but same-day follow-up will out-place a rep with double the volume
+   and a two-day lag. If reply or follow-up activity is lumpy or delayed,
+   treat that as the headline issue.
+3. Ratios beat volume. 200 messages at 1% reply is worse than 60 at 8%, AND in
+   a 2,000-person market the 200 also costs future goodwill. When conversion is
+   weak, fix targeting or the approach — do NOT prescribe more sends.
+4. Compare each rep to the TEAM MEDIAN, not just the absolute target. A rep at
+   80% of target in a week when the team is at 60% is performing well.
+5. Consistency matters as much as total. 50/10/50/10/50 is more fragile than 34
+   every day, because a dead day in a two-week fill window loses roles. Name
+   collapse days explicitly.
+6. Check the BD/candidate balance and flag whichever side is starved.
+7. Never invent a number. Cite only figures present in the data. If the sample
+   is too small to conclude anything, say so plainly instead of guessing.
+
+OUTPUT FORMAT — respond with RAW JSON only. No markdown, no code fences, no preamble:
+{
+  "went_well":     ["...", "..."],
+  "falling_short": ["...", "..."],
+  "do_next":       ["...", "...", "..."],
+  "risk_flag":     "one sentence, or empty string if nothing is genuinely wrong"
+}
+
+RULES FOR EACH FIELD:
+- went_well: 2-3 items. Each MUST cite a real number or ratio from the data.
+- falling_short: 2-3 items. Each MUST name the gap AND the ratio that proves it.
+- do_next: exactly 3 items, ordered most-important first. Each must be an action a
+  person can take on Monday morning, naming the specific rep or channel where
+  relevant. No generic advice like "improve outreach quality".
+- risk_flag: only populate if something would genuinely worry a CEO (pipeline drying
+  up, a rep who has stopped logging, conversion collapsing). Otherwise "".
+- Every string under 160 characters. Plain sentences, no bullets inside strings.
+"""
+
+
+def _safe_div(a, b):
+    """Percentage helper that never raises on zero denominators."""
+    try:
+        a = float(a or 0)
+        b = float(b or 0)
+        if b == 0:
+            return 0.0
+        return round((a / b) * 100, 1)
+    except Exception:
+        return 0.0
+
+
+def build_tracker_metrics(logs: list, granularity: str, prior_logs: list = None) -> dict:
+    """Pre-compute a compact metrics block from raw sales_activity_log rows.
+
+    We deliberately do NOT hand raw rows to the model. An 8B model given 200 rows
+    produces vague output; given 20 pre-computed ratios it produces specific output.
+    Also keeps the prompt small enough for Groq's free tier.
+    """
+    prior_logs = prior_logs or []
+
+    NUMERIC = [
+        "emails_sent", "linkedin_sent", "linkedin_invites_sent", "calls_made",
+        "replies_received", "meetings_booked", "meetings_done", "proposals_sent",
+        "followups_done", "new_leads_added", "job_portal_research", "hours_worked",
+    ]
+
+    def totals(rows):
+        out = {k: 0 for k in NUMERIC}
+        for r in rows:
+            for k in NUMERIC:
+                try:
+                    out[k] += float(r.get(k) or 0)
+                except Exception:
+                    pass
+        return {k: round(v, 1) for k, v in out.items()}
+
+    cur   = totals(logs)
+    prev  = totals(prior_logs)
+
+    # ── Per-rep breakdown ────────────────────────────────────
+    by_rep = {}
+    for r in logs:
+        name = r.get("logged_by_name") or "Unknown"
+        b = by_rep.setdefault(name, {k: 0 for k in NUMERIC})
+        b["days_logged"] = b.get("days_logged", 0) + 1
+        for k in NUMERIC:
+            try:
+                b[k] += float(r.get(k) or 0)
+            except Exception:
+                pass
+    for name, b in by_rep.items():
+        touches = b["emails_sent"] + b["linkedin_sent"] + b["calls_made"]
+        b["total_touches"] = round(touches, 1)
+        b["reply_rate_pct"] = _safe_div(b["replies_received"], touches)
+        for k in NUMERIC:
+            b[k] = round(b[k], 1)
+
+    # ── Team median touches, for fair rep comparison ─────────
+    touch_list = sorted(b["total_touches"] for b in by_rep.values())
+    if touch_list:
+        mid = len(touch_list) // 2
+        median_touches = (touch_list[mid] if len(touch_list) % 2
+                          else round((touch_list[mid - 1] + touch_list[mid]) / 2, 1))
+    else:
+        median_touches = 0
+
+    # ── Daily series, to spot collapse days ──────────────────
+    by_day = {}
+    for r in logs:
+        d = str(r.get("log_date") or "")[:10]
+        if not d:
+            continue
+        by_day[d] = by_day.get(d, 0) + (
+            float(r.get("emails_sent") or 0)
+            + float(r.get("linkedin_sent") or 0)
+            + float(r.get("calls_made") or 0)
+        )
+    daily_series = [{"date": d, "touches": round(v, 1)} for d, v in sorted(by_day.items())]
+
+    # For a month, day-level detail is noise. Roll into ISO weeks so the model
+    # reasons about the trend across weeks instead of listing 22 days.
+    weekly_series = []
+    if granularity == "month":
+        import datetime as _dt
+        by_week = {}
+        for d, v in by_day.items():
+            try:
+                iso = _dt.date.fromisoformat(d).isocalendar()
+                key = f"W{iso[1]}"
+            except Exception:
+                continue
+            by_week[key] = by_week.get(key, 0) + v
+        weekly_series = [{"week": k, "touches": round(v, 1)} for k, v in sorted(by_week.items())]
+        # Day-level detail is dropped from the payload for month view — it keeps
+        # the prompt small and stops the model citing individual days.
+        daily_series = []
+
+    total_touches = cur["emails_sent"] + cur["linkedin_sent"] + cur["calls_made"]
+    prev_touches  = prev["emails_sent"] + prev["linkedin_sent"] + prev["calls_made"]
+
+    return {
+        "granularity":  granularity,
+        "days_with_data": len(by_day),
+        "reps_active":  len(by_rep),
+        "totals":       cur,
+        "prior_totals": prev,
+        "funnel_conversion_pct": {
+            "touch_to_reply":       _safe_div(cur["replies_received"], total_touches),
+            "reply_to_meeting":     _safe_div(cur["meetings_booked"], cur["replies_received"]),
+            "meeting_to_proposal":  _safe_div(cur["proposals_sent"], cur["meetings_done"]),
+        },
+        "channel_mix_pct": {
+            "email":    _safe_div(cur["emails_sent"], total_touches),
+            "linkedin": _safe_div(cur["linkedin_sent"], total_touches),
+            "calls":    _safe_div(cur["calls_made"], total_touches),
+        },
+        "total_touches":            round(total_touches, 1),
+        "touches_change_vs_prior_pct": _safe_div(total_touches - prev_touches, prev_touches) if prev_touches else 0.0,
+        "team_median_touches":      median_touches,
+        "by_rep":                   by_rep,
+        "daily_series":             daily_series,
+        "weekly_series":            weekly_series,
+    }
+
+
+# The same numbers mean different things over a day, a week and a month.
+# Without this, all three views produce near-identical generic text.
+GRANULARITY_LENS = {
+    "day": """THIS IS A SINGLE DAY.
+One day is a small sample — do NOT diagnose trends or declare a rep is
+underperforming from one day. Focus on: who showed up and who did not, the
+spread between reps today, and whether today's mix was balanced or skewed to
+one channel. Compare against YESTERDAY (prior_totals). Actions should be
+things fixable tomorrow morning. If only one or two reps logged, say the
+picture is incomplete rather than drawing conclusions.""",
+
+    "week": """THIS IS ONE WORKING WEEK (Mon-Fri).
+This is the primary coaching window — a week is enough to judge effort and
+conversion together. Focus on: consistency across the five days (name any
+collapse day), whether each rep cleared the weekly target, funnel conversion,
+and the comparison against LAST WEEK (prior_totals). Use daily_series to spot
+front-loading or Friday drop-off. Actions should be commitments for next week.""",
+
+    "month": """THIS IS A FULL MONTH.
+Zoom out. Ignore single-day noise entirely — do not mention individual days.
+Focus on: the trend across the weeks within the month, whether output is
+building or decaying, month-over-month change (prior_totals), which rep has
+improved or slipped most, and whether the channel mix has shifted. Conversion
+rates are statistically meaningful at this sample size, so weigh them heavily.
+Actions should be strategic — territory, targeting, channel allocation,
+coaching focus for the coming month — not daily housekeeping.""",
+}
+
+
+def generate_sales_insights(metrics: dict, targets: dict = None, context: str = "") -> dict:
+    """Turn a metrics block into structured coaching. Synchronous — callers in async
+    code MUST wrap with: await loop.run_in_executor(None, generate_sales_insights, m)
+    """
+    import json as _json
+
+    empty = {"went_well": [], "falling_short": [], "do_next": [], "risk_flag": ""}
+
+    if not metrics or not metrics.get("days_with_data"):
+        return {**empty, "risk_flag": "No activity was logged for this period."}
+
+    granularity = (metrics.get("granularity") or "week").lower()
+    lens = GRANULARITY_LENS.get(granularity, GRANULARITY_LENS["week"])
+
+    payload = {"metrics": metrics}
+    if targets:
+        payload["targets"] = targets
+    if context:
+        payload["context"] = context
+
+    prompt = (
+        SALES_EXPERT_SYSTEM
+        + "\n\n" + JMDT_CONTEXT
+        + "\n\nPERIOD CONTEXT:\n"
+        + lens
+        + "\n\nDATA:\n"
+        + _json.dumps(payload, default=str)
+        + "\n\nRespond with the JSON object only."
+    )
+
+    # ── Model selection ──────────────────────────────────────
+    # This is a REASONING task with a long structured prompt. llama-3.1-8b-instant
+    # (the global default) produces mush here — it drops rules and writes vague
+    # generalities. llama-3.3-70b-versatile is markedly better.
+    #
+    # We do NOT change LLM_MODEL_GROQ globally, because that env var also drives
+    # high-volume CV parsing on the Recruit Space, and 70B is capped at only
+    # 1,000 req/day and 100K tokens/day on the free tier — CV parsing would
+    # exhaust it in an afternoon.
+    #
+    # Instead: a dedicated override used ONLY for insights (~3-10 calls/day),
+    # with a safe fall-through to the normal cascade if it fails or is unset.
+    insight_model = os.environ.get("LLM_MODEL_INSIGHTS", "llama-3.3-70b-versatile")
+
+    def _call_with_insight_model(p: str) -> str:
+        if not insight_model or not os.environ.get("GROQ_API_KEY"):
+            return _call_llm(p)
+        from openai import OpenAI
+        client = OpenAI(api_key=os.environ["GROQ_API_KEY"],
+                        base_url="https://api.groq.com/openai/v1")
+        resp = client.chat.completions.create(
+            model=insight_model,
+            max_tokens=1024,
+            temperature=0.3,          # analysis, not creative writing
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": "Respond with a single valid JSON object and nothing else."},
+                {"role": "user",   "content": p},
+            ],
+        )
+        return resp.choices[0].message.content
+
+    try:
+        try:
+            raw = _call_with_insight_model(prompt)
+        except Exception as inner:
+            # 429 rate limit, model retired, key missing — fall back to the
+            # standard cascade (Groq 8B -> Gemini -> OpenAI -> Anthropic)
+            import logging as _lg
+            _lg.getLogger(__name__).warning(
+                f"[ai_insights] insight model failed ({inner}); falling back to cascade")
+            raw = _call_llm(prompt)
+        parsed = _parse_json_response(raw)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"[ai_insights] generation failed: {e}")
+        return {**empty, "risk_flag": ""}
+
+    if not isinstance(parsed, dict):
+        return empty
+
+    def _strlist(v, cap):
+        if not isinstance(v, list):
+            return []
+        return [str(x).strip()[:200] for x in v if str(x).strip()][:cap]
+
+    return {
+        "went_well":     _strlist(parsed.get("went_well"), 3),
+        "falling_short": _strlist(parsed.get("falling_short"), 3),
+        "do_next":       _strlist(parsed.get("do_next"), 3),
+        "risk_flag":     str(parsed.get("risk_flag") or "").strip()[:300],
+    }

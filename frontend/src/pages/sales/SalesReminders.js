@@ -186,7 +186,7 @@ const ReminderCard = ({ reminder, onDismiss, onDelete, onToggleEmail }) => {
 };
 
 /* ── Main ───────────────────────────────────────────── */
-export default function SalesReminders() {
+export default function SalesReminders({ embedded = false }) {
   const { isMobile } = useBreakpoint();
   const [reminders, setReminders] = useState([]);
   const [loading, setLoading]     = useState(true);
@@ -260,10 +260,13 @@ export default function SalesReminders() {
       {!loading && <>
       {/* Header */}
       <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem', flexWrap:'wrap', gap:'0.75rem' }}>
-        <div>
-          <p className="label-sm" style={{ marginBottom:'0.25rem' }}>Sales CRM</p>
-          <h1 className="headline-sm">Reminders</h1>
-        </div>
+            {!embedded && (
+              <div>
+                <p className="label-sm" style={{ marginBottom:'0.25rem' }}>Sales CRM</p>
+                <h1 className="headline-sm">Reminders</h1>
+              </div>
+            )}
+            {embedded && <div />}
         <button className="btn-primary" onClick={() => setShowAdd(true)}>
           <Icon name="add_alert" style={{ fontSize:'1rem', color:'#fff' }} /> New Reminder
         </button>

@@ -25,7 +25,11 @@ const AddTaskModal = ({ onClose, onAdd }) => {
   const { isMobile } = useBreakpoint();
   const [form, setForm] = useState({ title:'', type:'call', priority:'medium', due:today, time:'09:00', lead:'', company:'', notes:'' });
   const set = (k,v) => setForm(f => ({ ...f, [k]: v }));
-  const submit = () => { if(!form.title.trim()) return; onAdd({ ...form, id:`t${Date.now()}`, done:false }); onClose(); };
+  const submit = async () => {
+    if (!form.title.trim()) return;
+    await onAdd({ ...form, id:`t${Date.now()}`, done:false });
+    onClose();
+  };
 
   return (
     <div className="modal-overlay scale-in" onClick={e => e.target===e.currentTarget && onClose()}>
@@ -168,7 +172,7 @@ const TaskRow = ({ task, onToggle, onDelete }) => {
 };
 
 /* ── Main ───────────────────────────────────────────── */
-export default function SalesTasks() {
+export default function SalesTasks({ embedded = false }) {
   const { isMobile } = useBreakpoint();
   const [tasks, setTasks]   = useState([]);
   const [loading, setLoading] = useState(true);
@@ -200,9 +204,53 @@ export default function SalesTasks() {
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
-  const toggle = (id) => setTasks(ts => ts.map(t => t.id===id ? {...t, done:!t.done} : t));
-  const del    = (id) => setTasks(ts => ts.filter(t => t.id!==id));
-  const addTask = (t) => setTasks(ts => [t, ...ts]);
+  const toggle = async (id) => {
+    const target = tasks.find(t => t.id === id);
+    if (!target) return;
+    const next = !target.done;
+    setTasks(ts => ts.map(t => t.id===id ? { ...t, done: next } : t));
+    try {
+      await tasksAPI.update(id, { completed: next });
+    } catch {
+      setTasks(ts => ts.map(t => t.id===id ? { ...t, done: !next } : t));
+    }
+  };
+  const del = async (id) => {
+    const snapshot = tasks;
+    setTasks(ts => ts.filter(t => t.id!==id));
+    try {
+      await tasksAPI.delete(id);
+    } catch {
+      setTasks(snapshot);
+    }
+  };
+  const addTask = async (t) => {
+    try {
+      const res = await tasksAPI.create({
+        title: t.title,
+        description: t.notes || null,
+        task_type: t.type || 'note',
+        due_date: t.due,
+        due_time: t.time || null,
+        priority: t.priority || 'medium',
+      });
+      const saved = res.data || {};
+      setTasks(ts => [{
+        id: saved.id || t.id,
+        title: saved.title || t.title,
+        type: saved.task_type || t.type,
+        priority: saved.priority || t.priority,
+        due: saved.due_date || t.due,
+        time: (saved.due_time || t.time || '').slice(0, 5),
+        lead: t.lead || '',
+        company: t.company || '',
+        notes: saved.description || t.notes || '',
+        done: saved.completed ?? false,
+      }, ...ts]);
+    } catch {
+      alert('Could not save the task. Please try again.');
+    }
+  };
 
   const filtered = useMemo(() => {
     return tasks
@@ -241,10 +289,13 @@ export default function SalesTasks() {
       {!loading && <>
       {/* Header */}
       <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:'1.75rem', flexWrap:'wrap', gap:'0.75rem' }}>
-        <div>
-          <p className="label-sm" style={{ marginBottom:'0.25rem' }}>Sales CRM</p>
-          <h1 className="headline-sm">Tasks</h1>
-        </div>
+        {!embedded && (
+          <div>
+            <p className="label-sm" style={{ marginBottom:'0.25rem' }}>Sales CRM</p>
+            <h1 className="headline-sm">Tasks</h1>
+          </div>
+        )}
+        {embedded && <div />}
         <button className="btn-primary" onClick={() => setShowAdd(true)}>
           <Icon name="add" style={{ fontSize:'1rem', color:'#fff' }} /> New Task
         </button>
