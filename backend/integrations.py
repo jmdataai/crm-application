@@ -145,9 +145,7 @@ async def check_cloudtalk() -> Dict[str, Any]:
                              headers={"Authorization": _cloudtalk_auth_header()})
     if not res["ok"]:
         return {"configured": True, "ok": False, "detail": res["error"]}
-    code = (res["data"] or {}).get("responseCode")
-    return {"configured": True, "ok": code == 200,
-            "detail": "connected" if code == 200 else f"responseCode {code}"}
+    return {"configured": True, "ok": True, "detail": "connected"}
 
 
 # ── CloudTalk ────────────────────────────────────────────────
@@ -287,11 +285,11 @@ def _summarise_apollo(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
     for s in rows:
         name = (s.get("name") or "Untitled").strip()[:120]
-        sent    = int(s.get("num_total_emails_sent")  or s.get("emails_sent")    or 0)
-        opened  = int(s.get("unique_opened")          or s.get("opened_count")   or 0)
-        replied = int(s.get("unique_replied")         or s.get("replied_count")  or 0)
-        bounced = int(s.get("bounced")                or s.get("bounced_count")  or 0)
-        active  = int(s.get("num_contacts")           or s.get("active_contacts")or 0)
+        sent    = int(s.get("unique_delivered")  or s.get("num_total_emails_sent") or s.get("emails_sent")   or 0)
+        opened  = int(s.get("unique_opened")     or s.get("opened_count")                                    or 0)
+        replied = int(s.get("unique_replied")    or s.get("replied_count")                                   or 0)
+        bounced = int(s.get("unique_bounced")    or s.get("bounced")               or s.get("bounced_count") or 0)
+        active  = int(s.get("num_contacts")      or s.get("active_contacts")                                 or 0)
 
         tot["sent"] += sent; tot["opened"] += opened
         tot["replied"] += replied; tot["bounced"] += bounced; tot["active"] += active
