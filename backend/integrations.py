@@ -265,6 +265,59 @@ async def _cloudtalk_calls_range(start_day: date, end_day: date) -> Dict[str, An
     return {"ok": True, "by_day": by_day}
 
 
+# Known synonym groups for CloudTalk's free-text disposition notes. Keys are
+# canonical display labels; values are raw variants (matched case- and
+# whitespace-insensitively) that collapse into that label. Deliberately
+# conservative — only exact-phrase matches from this table collapse, so a
+# long free-text remark (e.g. "Send An Email ---------- **Email
+# Requested**...") is left exactly as typed rather than risking a wrong merge.
+# "Not Received- Disconnected" and "Hung Up" are deliberately NOT merged here
+# — one means the call never connected, the other means it connected and was
+# then hung up on. Different outcomes, kept separate on purpose.
+_DISPOSITION_CANON: Dict[str, List[str]] = {
+    "Voicemail": [
+        "vm", "vm again", "v.m.", "v/m", "voicemail", "voice mail",
+        "left voicemail", "went to voicemail", "vm left",
+    ],
+    "Do Not Call": [
+        "take me off your list", "remove the number", "remove my number",
+        "do not call", "dnc",
+    ],
+}
+_DISPOSITION_LOOKUP: Dict[str, str] = {
+    variant: canon
+    for canon, variants in _DISPOSITION_CANON.items()
+    for variant in variants
+}
+
+
+def _normalize_disposition(raw: str):
+    """Collapse case/whitespace duplicates and known synonyms onto one label.
+
+    Returns (group_key, display_label):
+      group_key     — lower-cased, whitespace-collapsed. Used to bucket counts
+                       so 'VM' / 'Vm' / 'VM Again' / 'Voicemail' all land in
+                       the same total no matter how the agent typed it, and
+                       so any future casing-only dupe ('Not fit' vs 'not FIT')
+                       collapses automatically even without a curated entry.
+      display_label — the curated canonical name when the phrase is
+                       recognised, otherwise the original text with only
+                       whitespace collapsed (first-seen casing wins for
+                       uncurated dupes).
+
+    group_key == "voicemail" is also what _summarise_cloudtalk uses to decide
+    a call should NOT be counted as answered — see below.
+    """
+    text = " ".join((raw or "").split())
+    if not text:
+        return "", ""
+    lowered = text.lower()
+    canon = _DISPOSITION_LOOKUP.get(lowered)
+    if canon:
+        return canon.lower(), canon
+    return lowered, text
+
+
 def _summarise_cloudtalk(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Roll raw CDRs into the metrics the desk actually reviews.
 
@@ -276,25 +329,48 @@ def _summarise_cloudtalk(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     The dispositions mirror what the team currently types by hand into the
     'Remarks' column of the call-cadence spreadsheet (VM, Gatekeeper, Not fit,
     Hung Up...). Surfacing them automatically is the point of this integration.
+
+    A call disposed as Voicemail is never counted as answered, even if
+    CloudTalk's own answered_at/duration fields say otherwise — the voicemail
+    system picking up isn't a human answering. It gets its own calls_voicemail
+    bucket instead, and its duration is excluded from talk time so avg_talk_sec
+    reflects real conversations, not voicemail greetings.
     """
     metrics: List[Dict[str, Any]] = []
     total = len(rows)
-    answered = missed = 0
+    answered = missed = voicemail = 0
     talk = waiting = 0.0
     by_agent: Dict[str, Dict[str, float]] = {}
-    by_disp:  Dict[str, int] = {}
+    by_disp:  Dict[str, Dict[str, Any]] = {}
     by_type:  Dict[str, int] = {}
 
     for r in rows:
         cdr = r.get("Cdr") or {}
         dur  = float(cdr.get("talking_time") or cdr.get("billsec") or 0)
         wait = float(cdr.get("waiting_time") or 0)
-        is_ans = dur > 0 or bool(cdr.get("answered_at"))
-        if is_ans:
+
+        notes = r.get("Notes") or []
+        tags  = r.get("Tags") or []
+        disp = ""
+        if notes and isinstance(notes[0], dict):
+            disp = (notes[0].get("note") or "").strip()
+        if not disp and tags and isinstance(tags[0], dict):
+            disp = (tags[0].get("name") or "").strip()
+        disp_key, disp_label = _normalize_disposition(disp)
+        is_voicemail = disp_key == "voicemail"
+
+        is_ans_raw = dur > 0 or bool(cdr.get("answered_at"))
+        is_ans = is_ans_raw and not is_voicemail
+
+        if is_voicemail:
+            voicemail += 1
+        elif is_ans:
             answered += 1
         else:
             missed += 1
-        talk    += dur
+
+        if not is_voicemail:
+            talk += dur   # exclude voicemail-greeting duration from talk time
         waiting += wait
 
         call_type = str(cdr.get("type") or "unknown").strip().lower()
@@ -305,20 +381,15 @@ def _summarise_cloudtalk(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         a = by_agent.setdefault(agent, {"calls": 0, "answered": 0, "talk": 0.0})
         a["calls"] += 1
         a["answered"] += 1 if is_ans else 0
-        a["talk"] += dur
+        a["talk"] += dur if not is_voicemail else 0
 
-        notes = r.get("Notes") or []
-        tags  = r.get("Tags") or []
-        disp = ""
-        if notes and isinstance(notes[0], dict):
-            disp = (notes[0].get("note") or "").strip()
-        if not disp and tags and isinstance(tags[0], dict):
-            disp = (tags[0].get("name") or "").strip()
-        if disp:
-            by_disp[disp] = by_disp.get(disp, 0) + 1
+        if disp_key:
+            entry = by_disp.setdefault(disp_key, {"label": disp_label, "count": 0})
+            entry["count"] += 1
 
     metrics.append({"metric_key": "calls_total",      "metric_value": total})
     metrics.append({"metric_key": "calls_answered",   "metric_value": answered})
+    metrics.append({"metric_key": "calls_voicemail",  "metric_value": voicemail})
     metrics.append({"metric_key": "calls_missed",     "metric_value": missed})
     metrics.append({"metric_key": "talk_time_sec",    "metric_value": round(talk)})
     metrics.append({"metric_key": "waiting_time_sec", "metric_value": round(waiting)})
@@ -334,8 +405,8 @@ def _summarise_cloudtalk(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         metrics.append({"metric_key": "calls_answered", "dimension": agent, "metric_value": v["answered"]})
         metrics.append({"metric_key": "talk_time_sec",  "dimension": agent, "metric_value": round(v["talk"])})
 
-    for disp, n in by_disp.items():
-        metrics.append({"metric_key": "disposition", "dimension": disp, "metric_value": n})
+    for entry in by_disp.values():
+        metrics.append({"metric_key": "disposition", "dimension": entry["label"], "metric_value": entry["count"]})
 
     for t, n in by_type.items():
         metrics.append({"metric_key": "call_type", "dimension": t, "metric_value": n})

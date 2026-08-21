@@ -5011,24 +5011,44 @@ async def integrations_sync(
     source: str = "all",
     day: Optional[str] = None,
     days: Optional[int] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
 ):
     """Manual sync. Admin/viewer only — vendor APIs are rate limited and this
     is the one button that can burn through those limits.
 
-    `days` (when sent by the frontend's 7/14/30-day picker) backfills
-    CloudTalk's real per-day call history across that whole window — one
-    real /calls/index.json call per day — so the dashboard's range actually
-    reflects that many days of real data instead of whatever 1-3 days
-    happened to already be stored. Apollo has no per-day history to backfill
-    (its API only ever returns a live cumulative total, not day-by-day
-    stats — see _apollo_sequences), so a `days` sync still just refreshes
-    today's single Apollo snapshot regardless of window size.
+    `days` (the legacy rolling-window picker) or an explicit `start`/`end`
+    pair (the timeframe dropdown's non-rolling presets — Yesterday, Previous
+    week, Previous month, Custom range) both backfill CloudTalk's real
+    per-day call history across that window — one real /calls/index.json
+    call per day — so the dashboard's range actually reflects real data
+    instead of whatever happened to already be stored. When both are sent,
+    start/end wins. Apollo has no per-day history to backfill (its API only
+    ever returns a live cumulative total, not day-by-day stats — see
+    _apollo_sequences), so any range sync still just refreshes today's single
+    Apollo snapshot regardless of window size.
     """
     user = await get_current_user(request)
     _require_module(user, "sales")
     role = (user or {}).get("role")
     if role not in ("admin", "viewer"):
         raise HTTPException(403, "Only admins can trigger a sync")
+
+    if start and end:
+        start_date = _parse_day(start)
+        end_date   = _parse_day(end)
+        if end_date < start_date:
+            start_date, end_date = end_date, start_date
+        end_date = min(end_date, _d.today())    # same cap as /dashboard — never sync into the future
+        if (end_date - start_date).days > 90:
+            start_date = end_date - _td(days=90)
+        if source == "cloudtalk":
+            return await _integ.sync_cloudtalk_range(sb, run, start_date, end_date)
+        if source == "apollo":
+            return await _integ.sync_apollo(sb, run, None)
+        ct = await _integ.sync_cloudtalk_range(sb, run, start_date, end_date)
+        ap = await _integ.sync_apollo(sb, run, None)
+        return {"cloudtalk": ct, "apollo": ap}
 
     if days:
         days  = max(1, min(int(days), 90))          # same clamp as /dashboard
@@ -5052,23 +5072,42 @@ async def integrations_sync(
 async def integrations_dashboard(
     request: Request,
     days: int = 14,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
 ):
     """Everything the dashboard needs in ONE round trip.
 
     Returns headline totals, a daily series per source, an agent leaderboard
     and a call-disposition breakdown — the last of which replaces the manual
     'Remarks' column in the call-cadence spreadsheet.
+
+    Accepts EITHER a `days`-back-from-today rolling window (legacy, still the
+    default when start/end are absent) OR an explicit `start`/`end` date pair
+    — needed for the timeframe dropdown's non-rolling presets (Yesterday,
+    Previous week, Previous month, Custom range), which aren't just "N days
+    ending today". When both are sent, start/end wins.
     """
     user = await get_current_user(request)
     _require_module(user, "sales")
-    days  = max(1, min(int(days or 14), 90))          # clamp: no unbounded scans
-    end   = _d.today()
-    start = end - _td(days=days - 1)
+
+    if start and end:
+        start_date = _parse_day(start)
+        end_date   = _parse_day(end)
+        if end_date < start_date:
+            start_date, end_date = end_date, start_date
+        end_date = min(end_date, _d.today())            # never scan into the future
+        if (end_date - start_date).days > 90:            # same clamp as the days path
+            start_date = end_date - _td(days=90)
+        days = (end_date - start_date).days + 1
+    else:
+        days       = max(1, min(int(days or 14), 90))    # clamp: no unbounded scans
+        end_date   = _d.today()
+        start_date = end_date - _td(days=days - 1)
 
     rows = await fetch_all_rows(
         "integration_metrics", "*",
-        query_fn=lambda q: q.gte("metric_date", start.isoformat())
-                            .lte("metric_date", end.isoformat())
+        query_fn=lambda q: q.gte("metric_date", start_date.isoformat())
+                            .lte("metric_date", end_date.isoformat())
                             .order("metric_date"),
     )
 
@@ -5140,7 +5179,7 @@ async def integrations_dashboard(
         ctb["avg_waiting_sec"] = round(ctb.get("waiting_time_sec", 0) / c_total) if c_total else 0
 
     return {
-        "range":        {"start": start.isoformat(), "end": end.isoformat(), "days": days},
+        "range":        {"start": start_date.isoformat(), "end": end_date.isoformat(), "days": days},
         "totals":       totals,
         "series":       [series[k] for k in sorted(series)],
         "agents":       sorted(agents.values(), key=lambda a: -a["calls_total"])[:25],

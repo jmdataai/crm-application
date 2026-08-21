@@ -19,11 +19,37 @@ const mmss = (sec) => {
   return h > 0 ? `${h}h ${m}m` : `${m}m ${s % 60}s`;
 };
 
-const RANGES = [
-  { label: '7 days',  days: 7 },
-  { label: '14 days', days: 14 },
-  { label: '30 days', days: 30 },
-];
+const pad2 = (n) => String(n).padStart(2, '0');
+const toISO = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+/** Monday-start week, matching how the desk (Dublin-based) counts a work week. */
+const startOfWeek = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); const dow = (x.getDay() + 6) % 7; return addDays(x, -dow); };
+const startOfMonth = (d) => new Date(d.getFullYear(), d.getMonth(), 1);
+
+/** Apollo-style timeframe presets. Recomputed on mount so "Today" etc. stay correct. */
+function buildPresets() {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const yesterday = addDays(today, -1);
+  const curWeekStart = startOfWeek(today);
+  const prevWeekEnd = addDays(curWeekStart, -1);
+  const prevWeekStart = addDays(prevWeekEnd, -6);
+  const curMonthStart = startOfMonth(today);
+  const prevMonthEnd = addDays(curMonthStart, -1);
+  const prevMonthStart = startOfMonth(prevMonthEnd);
+
+  return [
+    { key: 'today',      label: 'Today',         start: today,          end: today },
+    { key: 'yesterday',  label: 'Yesterday',      start: yesterday,      end: yesterday },
+    { key: 'cur_week',   label: 'Current week',   start: curWeekStart,   end: today },
+    { key: 'prev_week',  label: 'Previous week',  start: prevWeekStart,  end: prevWeekEnd },
+    { key: 'last7',      label: 'Last 7 days',    start: addDays(today, -6),  end: today },
+    { key: 'last30',     label: 'Last 30 days',   start: addDays(today, -29), end: today },
+    { key: 'cur_month',  label: 'Current month',  start: curMonthStart,  end: today },
+    { key: 'prev_month', label: 'Previous month', start: prevMonthStart, end: prevMonthEnd },
+    { key: 'last90',     label: 'Last 90 days',   start: addDays(today, -89), end: today },
+    { key: 'custom',     label: 'Custom range',   start: null,           end: null },
+  ];
+}
 
 /** Dispositions carried over from the manual call-cadence sheet. */
 const DISPOSITION_TONE = {
@@ -31,6 +57,7 @@ const DISPOSITION_TONE = {
   'vm': '#D97706', 'voicemail': '#D97706', 'gatekeeper': '#D97706',
   'no ring': '#6B7280', 'hung up': '#B91C1C', 'not interested': '#B91C1C',
   'not fit': '#B91C1C', 'not allowed': '#B91C1C', 'not found': '#6B7280',
+  'do not call': '#B91C1C',
 };
 const toneFor = (label) => DISPOSITION_TONE[String(label).toLowerCase().trim()] || '#4468B0';
 
@@ -79,14 +106,38 @@ export default function IntegrationsDashboard() {
   const { isMobile } = useBreakpoint();
   const isPrivileged = isAdmin || isViewer;
 
-  const [days, setDays] = useState(14);
+  const presets = useMemo(buildPresets, []);
+  // Default: closest match to the old 14-day default without inventing a
+  // preset Apollo doesn't have — 30 days gives a fuller, still-recent view.
+  const [presetKey, setPresetKey] = useState('last30');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  const [appliedRange, setAppliedRange] = useState(() => {
+    const p = presets.find((x) => x.key === 'last30');
+    return { start: toISO(p.start), end: toISO(p.end) };
+  });
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
 
-  const params = useMemo(() => ({ granularity: 'range', anchor: String(days), user_id: '' }), [days]);
+  const handlePresetChange = useCallback((key) => {
+    setPresetKey(key);
+    if (key === 'custom') return; // wait for Apply — see handleApplyCustom
+    const p = presets.find((x) => x.key === key);
+    if (p) setAppliedRange({ start: toISO(p.start), end: toISO(p.end) });
+  }, [presets]);
+
+  const handleApplyCustom = useCallback(() => {
+    if (!customStart || !customEnd) return;
+    setAppliedRange({ start: customStart, end: customEnd });
+  }, [customStart, customEnd]);
+
+  const params = useMemo(() => ({
+    granularity: 'range', anchor: `${appliedRange.start}_${appliedRange.end}`, user_id: '',
+  }), [appliedRange]);
 
   const { data, loading, isStale, error, refetch } = useCachedPeriodData(
-    () => integrationsAPI.getDashboard({ days }), 'integ-dash', params
+    () => integrationsAPI.getDashboard({ start: appliedRange.start, end: appliedRange.end }),
+    'integ-dash', params
   );
 
   const { data: status, refetch: refetchStatus } = useCachedPeriodData(
@@ -97,11 +148,14 @@ export default function IntegrationsDashboard() {
   const handleSync = useCallback(async () => {
     setSyncing(true); setSyncMsg('');
     try {
-      // Sending `days` backfills CloudTalk's real per-day history across the
-      // currently-selected range (not just "yesterday") — see sync_cloudtalk_range
-      // on the backend. Apollo has no per-day history to backfill, so it always
-      // just refreshes its one live snapshot regardless of range.
-      const res = await integrationsAPI.sync({ source: 'all', days });
+      // Sending start/end backfills CloudTalk's real per-day history across
+      // the currently-selected range (not just "yesterday") — see
+      // sync_cloudtalk_range on the backend. Apollo has no per-day history
+      // to backfill, so it always just refreshes its one live snapshot
+      // regardless of range.
+      const res = await integrationsAPI.sync({
+        source: 'all', start: appliedRange.start, end: appliedRange.end,
+      });
       const ct = res.data?.cloudtalk, ap = res.data?.apollo;
       const ctMsg = ct?.skipped ? 'not configured'
         : ct?.ok ? (ct?.days_synced ? `${ct.days_synced} day(s) backfilled, ${ct.calls} calls` : `${ct.calls} calls`)
@@ -116,7 +170,7 @@ export default function IntegrationsDashboard() {
     } finally {
       setSyncing(false);
     }
-  }, [refetch, refetchStatus, days]);
+  }, [refetch, refetchStatus, appliedRange]);
 
   const ct = data?.totals?.cloudtalk || {};
   const ap = data?.totals?.apollo || {};
@@ -146,17 +200,35 @@ export default function IntegrationsDashboard() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', border: '1px solid var(--outline-variant)', borderRadius: '0.5rem', overflow: 'hidden' }}>
-            {RANGES.map(r => (
-              <button key={r.days} onClick={() => setDays(r.days)}
-                style={{ padding: '0.5rem 0.75rem', border: 'none', cursor: 'pointer',
-                         fontSize: '0.75rem', fontWeight: days === r.days ? 700 : 500,
-                         background: days === r.days ? 'var(--primary)' : 'transparent',
-                         color: days === r.days ? '#fff' : 'var(--on-surface)' }}>
-                {r.label}
+          <select value={presetKey} onChange={(e) => handlePresetChange(e.target.value)}
+            style={{ padding: '0.5rem 0.75rem', borderRadius: '0.5rem', border: '1px solid var(--outline-variant)',
+                     background: 'var(--surface-container)', color: 'var(--on-surface)',
+                     fontSize: '0.8125rem', fontWeight: 600, cursor: 'pointer' }}>
+            {presets.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+          </select>
+          {presetKey === 'custom' && (
+            <div style={{ display: 'flex', gap: '0.375rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input type="date" value={customStart} max={customEnd || undefined}
+                onChange={(e) => setCustomStart(e.target.value)}
+                style={{ padding: '0.4375rem 0.5rem', borderRadius: '0.5rem',
+                         border: '1px solid var(--outline-variant)', fontSize: '0.8125rem',
+                         background: 'var(--surface-container)', color: 'var(--on-surface)' }} />
+              <span style={{ fontSize: '0.75rem', color: 'var(--on-surface-variant)' }}>to</span>
+              <input type="date" value={customEnd} min={customStart || undefined}
+                max={toISO(new Date())}
+                onChange={(e) => setCustomEnd(e.target.value)}
+                style={{ padding: '0.4375rem 0.5rem', borderRadius: '0.5rem',
+                         border: '1px solid var(--outline-variant)', fontSize: '0.8125rem',
+                         background: 'var(--surface-container)', color: 'var(--on-surface)' }} />
+              <button onClick={handleApplyCustom} disabled={!customStart || !customEnd}
+                style={{ padding: '0.4375rem 0.75rem', borderRadius: '0.5rem', border: 'none',
+                         background: 'var(--primary)', color: '#fff', fontSize: '0.75rem', fontWeight: 700,
+                         cursor: (!customStart || !customEnd) ? 'not-allowed' : 'pointer',
+                         opacity: (!customStart || !customEnd) ? 0.5 : 1 }}>
+                Apply
               </button>
-            ))}
-          </div>
+            </div>
+          )}
           {isPrivileged && (
             <button onClick={handleSync} disabled={syncing}
               style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.5rem 0.875rem',
@@ -209,7 +281,9 @@ export default function IntegrationsDashboard() {
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(${isMobile ? 130 : 155}px, 1fr))`, gap: '0.75rem', marginBottom: '1.25rem' }}>
               <Kpi label="Calls made"    value={fmt(ct.calls_total)}    icon="call"          accent="#D97706" />
-              <Kpi label="Answered"      value={fmt(ct.calls_answered)} icon="call_received" accent="#059669" />
+              <Kpi label="Answered"      value={fmt(ct.calls_answered)} icon="call_received" accent="#059669"
+                   sub="Excludes voicemail" />
+              <Kpi label="Voicemail"     value={fmt(ct.calls_voicemail)} icon="voicemail"     accent="#D97706" />
               <Kpi label="Missed"        value={fmt(ct.calls_missed)}   icon="call_missed"   accent="#B91C1C" />
               <Kpi label="Answer rate"   value={`${fmt(ct.answer_rate)}%`} icon="percent"    accent="#0891B2" />
               <Kpi label="Talk time"     value={mmss(ct.talk_time_sec)} icon="schedule"      accent="#7C3AED" />
