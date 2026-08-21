@@ -452,3 +452,50 @@ async def sync_all(sb_fn, run_fn, day: Optional[date] = None) -> Dict[str, Any]:
     ct = await sync_cloudtalk(sb_fn, run_fn, day)
     ap = await sync_apollo(sb_fn, run_fn, day)
     return {"cloudtalk": ct, "apollo": ap}
+
+
+async def sync_cloudtalk_range(sb_fn, run_fn, start_day: date, end_day: date) -> Dict[str, Any]:
+    """Backfill real per-day CloudTalk metrics across a date range.
+
+    Unlike Apollo (see sync_apollo — it only ever returns a live cumulative
+    snapshot, no date parameter exists on that endpoint), CloudTalk's
+    /calls/index.json genuinely has day-by-day history, so this loops one
+    real sync_cloudtalk() call per calendar day, oldest first. This is what
+    makes the 7/14/30-day view actually mean something for CloudTalk instead
+    of just re-reading whatever happened to already be stored.
+    """
+    if not cloudtalk_configured():
+        return {"source": "cloudtalk", "ok": False, "skipped": True,
+                "detail": "not configured"}
+    results: List[Dict[str, Any]] = []
+    d = start_day
+    while d <= end_day:
+        results.append(await sync_cloudtalk(sb_fn, run_fn, d))
+        d += timedelta(days=1)
+        await asyncio.sleep(0.15)   # stay well under CloudTalk's 60 req/min
+
+    ok = all(r.get("ok") for r in results)
+    total_calls = sum(int(r.get("calls") or 0) for r in results)
+    return {"source": "cloudtalk", "ok": ok, "calls": total_calls,
+            "days_synced": len(results),
+            "from": start_day.isoformat(), "to": end_day.isoformat(),
+            "detail": "ok" if ok else "one or more days failed — see results",
+            "results": results}
+
+
+async def sync_all_range(sb_fn, run_fn, days: int) -> Dict[str, Any]:
+    """Used when 'Sync now' is pressed while a 7/14/30-day window is selected.
+
+    CloudTalk backfills real per-day history for the whole window. Apollo has
+    no per-day history to backfill (its API only returns a live cumulative
+    total — see sync_apollo) so it always just refreshes today's snapshot,
+    regardless of window size; the dashboard read-side shows Apollo's latest
+    snapshot rather than summing it across days, since summing a cumulative
+    number across multiple days overstates it.
+    """
+    end   = date.today() - timedelta(days=1)
+    start = end - timedelta(days=max(1, days) - 1)
+    ct = await sync_cloudtalk_range(sb_fn, run_fn, start, end)
+    ap = await sync_apollo(sb_fn, run_fn, date.today() - timedelta(days=1))
+    return {"cloudtalk": ct, "apollo": ap}
+
