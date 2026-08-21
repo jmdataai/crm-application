@@ -97,11 +97,18 @@ export default function IntegrationsDashboard() {
   const handleSync = useCallback(async () => {
     setSyncing(true); setSyncMsg('');
     try {
-      const res = await integrationsAPI.sync({ source: 'all' });
+      // Sending `days` backfills CloudTalk's real per-day history across the
+      // currently-selected range (not just "yesterday") — see sync_cloudtalk_range
+      // on the backend. Apollo has no per-day history to backfill, so it always
+      // just refreshes its one live snapshot regardless of range.
+      const res = await integrationsAPI.sync({ source: 'all', days });
       const ct = res.data?.cloudtalk, ap = res.data?.apollo;
+      const ctMsg = ct?.skipped ? 'not configured'
+        : ct?.ok ? (ct?.days_synced ? `${ct.days_synced} day(s) backfilled, ${ct.calls} calls` : `${ct.calls} calls`)
+        : ct?.detail;
       setSyncMsg(
-        `CloudTalk: ${ct?.skipped ? 'not configured' : ct?.ok ? `${ct.calls} calls` : ct?.detail} · ` +
-        `Apollo: ${ap?.skipped ? 'not configured' : ap?.ok ? `${ap.sequences} sequences` : ap?.detail}`
+        `CloudTalk: ${ctMsg} · ` +
+        `Apollo: ${ap?.skipped ? 'not configured' : ap?.ok ? `${ap.sequences} sequences (live snapshot)` : ap?.detail}`
       );
       refetch(); refetchStatus();
     } catch (e) {
@@ -109,7 +116,7 @@ export default function IntegrationsDashboard() {
     } finally {
       setSyncing(false);
     }
-  }, [refetch, refetchStatus]);
+  }, [refetch, refetchStatus, days]);
 
   const ct = data?.totals?.cloudtalk || {};
   const ap = data?.totals?.apollo || {};
@@ -133,6 +140,9 @@ export default function IntegrationsDashboard() {
           <p style={{ fontSize: '0.8125rem', color: 'var(--on-surface-variant)', margin: '0.25rem 0 0' }}>
             CloudTalk calls and Apollo sequences in one view
             {isStale && <span style={{ marginLeft: '0.5rem', opacity: 0.7 }}>· refreshing…</span>}
+          </p>
+          <p style={{ fontSize: '0.6875rem', color: 'var(--on-surface-variant)', margin: '0.125rem 0 0', opacity: 0.8 }}>
+            Switching the range only re-reads what's already stored — press Sync now to backfill real CloudTalk history for it.
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -200,9 +210,11 @@ export default function IntegrationsDashboard() {
             <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(${isMobile ? 130 : 155}px, 1fr))`, gap: '0.75rem', marginBottom: '1.25rem' }}>
               <Kpi label="Calls made"    value={fmt(ct.calls_total)}    icon="call"          accent="#D97706" />
               <Kpi label="Answered"      value={fmt(ct.calls_answered)} icon="call_received" accent="#059669" />
+              <Kpi label="Missed"        value={fmt(ct.calls_missed)}   icon="call_missed"   accent="#B91C1C" />
               <Kpi label="Answer rate"   value={`${fmt(ct.answer_rate)}%`} icon="percent"    accent="#0891B2" />
               <Kpi label="Talk time"     value={mmss(ct.talk_time_sec)} icon="schedule"      accent="#7C3AED" />
               <Kpi label="Avg call"      value={mmss(ct.avg_talk_sec)}  icon="timer"         accent="#4468B0" />
+              <Kpi label="Avg wait"      value={mmss(ct.avg_waiting_sec)} icon="hourglass_top" accent="#6B7280" />
             </div>
           )}
         </>
@@ -260,6 +272,26 @@ export default function IntegrationsDashboard() {
                                 background: toneFor(d.label), borderRadius: 4 }} />
                 </div>
                 <strong style={{ fontSize: '0.8125rem', minWidth: 34, textAlign: 'right' }}>{fmt(d.count)}</strong>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Incoming vs outgoing */}
+      {data?.call_types?.length > 0 && (
+        <div style={card}>
+          <h2 style={{ fontSize: '0.9375rem', fontWeight: 700, marginTop: 0, marginBottom: '0.875rem' }}>Call type</h2>
+          {data.call_types.map(ctp => {
+            const top = data.call_types[0].count || 1;
+            return (
+              <div key={ctp.label} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                <span style={{ fontSize: '0.8125rem', minWidth: 130, textTransform: 'capitalize' }}>{ctp.label}</span>
+                <div style={{ flex: 1, height: 8, borderRadius: 4, background: 'var(--outline-variant)', overflow: 'hidden' }}>
+                  <div style={{ width: `${Math.round((ctp.count / top) * 100)}%`, height: '100%',
+                                background: ctp.label === 'incoming' ? '#059669' : '#4468B0', borderRadius: 4 }} />
+                </div>
+                <strong style={{ fontSize: '0.8125rem', minWidth: 34, textAlign: 'right' }}>{fmt(ctp.count)}</strong>
               </div>
             );
           })}

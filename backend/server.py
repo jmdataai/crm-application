@@ -4379,7 +4379,7 @@ async def root_health():
     return {"status": "ok", "service": "Nexus CRM + ATS", "version": "2.0.0"}
 
 from datetime import date as _d, timedelta as _td
-import integrations as _integ
+from . import integrations as _integ
 
 TRACKER_TARGETS_WEEKLY = {
     "emails_sent":           {"min": 50, "max": 75},
@@ -5010,14 +5010,35 @@ async def integrations_sync(
     request: Request,
     source: str = "all",
     day: Optional[str] = None,
+    days: Optional[int] = None,
 ):
     """Manual sync. Admin/viewer only — vendor APIs are rate limited and this
-    is the one button that can burn through those limits."""
+    is the one button that can burn through those limits.
+
+    `days` (when sent by the frontend's 7/14/30-day picker) backfills
+    CloudTalk's real per-day call history across that whole window — one
+    real /calls/index.json call per day — so the dashboard's range actually
+    reflects that many days of real data instead of whatever 1-3 days
+    happened to already be stored. Apollo has no per-day history to backfill
+    (its API only ever returns a live cumulative total, not day-by-day
+    stats — see _apollo_sequences), so a `days` sync still just refreshes
+    today's single Apollo snapshot regardless of window size.
+    """
     user = await get_current_user(request)
     _require_module(user, "sales")
     role = (user or {}).get("role")
     if role not in ("admin", "viewer"):
         raise HTTPException(403, "Only admins can trigger a sync")
+
+    if days:
+        days  = max(1, min(int(days), 90))          # same clamp as /dashboard
+        end   = _d.today() - _td(days=1)
+        start = end - _td(days=days - 1)
+        if source == "cloudtalk":
+            return await _integ.sync_cloudtalk_range(sb, run, start, end)
+        if source == "apollo":
+            return await _integ.sync_apollo(sb, run, None)
+        return await _integ.sync_all_range(sb, run, days)
 
     d = _parse_day(day)
     if source == "cloudtalk":
@@ -5055,6 +5076,7 @@ async def integrations_dashboard(
     series: dict = {}
     agents: dict = {}
     disps:  dict = {}
+    calltypes: dict = {}
 
     for r in rows:
         src, key, dim = r.get("source"), r.get("metric_key"), r.get("dimension")
@@ -5062,9 +5084,18 @@ async def integrations_dashboard(
         d   = str(r.get("metric_date"))[:10]
 
         if dim is None:
-            # Rates are averaged, counters are summed — summing a percentage
-            # across 14 days is meaningless and was an easy bug to write here.
-            if key.endswith("_rate"):
+            if src == "apollo":
+                # Apollo's API has no per-day history (see _apollo_sequences) —
+                # every stored row is the SAME live cumulative snapshot,
+                # just labelled with whichever day it happened to sync on.
+                # Summing it across a multi-day window would double- or
+                # triple-count the same total, so we keep only the latest
+                # snapshot in the window (rows arrive oldest-first, so the
+                # last write wins).
+                totals.setdefault(src, {})[key] = val
+            elif key.endswith("_rate"):
+                # Rates are averaged, counters are summed — summing a
+                # percentage across 14 days is meaningless.
                 acc = totals.setdefault(src, {}).setdefault(f"__{key}", [])
                 acc.append(val)
             else:
@@ -5072,6 +5103,8 @@ async def integrations_dashboard(
             series.setdefault(d, {"date": d}).update({f"{src}_{key}": val})
         elif src == "cloudtalk" and key == "disposition":
             disps[dim] = disps.get(dim, 0) + val
+        elif src == "cloudtalk" and key == "call_type":
+            calltypes[dim] = calltypes.get(dim, 0) + val
         elif src == "cloudtalk" and key in ("calls_total", "calls_answered", "talk_time_sec"):
             agents.setdefault(dim, {"name": dim, "calls_total": 0,
                                     "calls_answered": 0, "talk_time_sec": 0})[key] += val
@@ -5081,6 +5114,19 @@ async def integrations_dashboard(
             vals = block.pop(k)
             block[k[2:]] = round(sum(vals) / len(vals), 1) if vals else 0
 
+    # CloudTalk's avg_talk_sec / avg_waiting_sec / answer_rate are stored as
+    # PER-DAY averages. Summing (or naively averaging) those daily averages
+    # across a multi-day window is wrong — e.g. a 7-day window would show
+    # "avg call" as roughly 7x too long. Recompute them from the window's
+    # summed totals instead, so the number is correct at any range length.
+    ctb = totals.get("cloudtalk")
+    if ctb:
+        c_total    = ctb.get("calls_total", 0)
+        c_answered = ctb.get("calls_answered", 0)
+        ctb["answer_rate"]     = round(c_answered / c_total * 100, 1) if c_total else 0
+        ctb["avg_talk_sec"]    = round(ctb.get("talk_time_sec", 0) / c_answered) if c_answered else 0
+        ctb["avg_waiting_sec"] = round(ctb.get("waiting_time_sec", 0) / c_total) if c_total else 0
+
     return {
         "range":        {"start": start.isoformat(), "end": end.isoformat(), "days": days},
         "totals":       totals,
@@ -5088,6 +5134,8 @@ async def integrations_dashboard(
         "agents":       sorted(agents.values(), key=lambda a: -a["calls_total"])[:25],
         "dispositions": sorted(({"label": k, "count": int(v)} for k, v in disps.items()),
                                key=lambda x: -x["count"])[:15],
+        "call_types":   sorted(({"label": k, "count": int(v)} for k, v in calltypes.items()),
+                               key=lambda x: -x["count"]),
         "configured":   {"apollo": _integ.apollo_configured(),
                          "cloudtalk": _integ.cloudtalk_configured()},
     }
