@@ -155,19 +155,28 @@ async def _cloudtalk_calls(day: date) -> Dict[str, Any]:
 
     Confirmed shape (verified via direct API call 2026-08-20): CloudTalk wraps
     everything as {responseData: {itemsCount, pageCount, pageNumber, limit,
-    data: [...]}} — NOT {data: {items: [...], total: N}} as previously assumed.
-    Each item may still be nested under a 'Cdr' key in the v1 API, so we
-    flatten defensively — if that inner shape changes, we fall back to the
-    item itself rather than crashing.
+    data: [...]}}. Each item is {Cdr, CallNumber, Agent, Contact, Ratings,
+    BillingCall, Notes, Tags} — verified 2026-08-21.
+
+    CloudTalk's date_from == date_to filter returns itemsCount: 0 even for a
+    day with confirmed real calls (verified 2026-08-21: a call with
+    started_at on 2026-08-19 was invisible to a date_from=19/date_to=19
+    query, but present in a wider-range query). So we query a 3-day window
+    centred on `day` and filter precisely by each call's own started_at date
+    instead of trusting CloudTalk's day-boundary filtering.
     """
     out: List[Dict[str, Any]] = []
     headers = {"Authorization": _cloudtalk_auth_header()}
+    query_from = day - timedelta(days=1)
+    query_to   = day + timedelta(days=1)
+    target     = day.isoformat()
     async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
         page = 1
+        fetched = 0
         while page <= _PAGE_CAP:
             res = await _request(c, "GET", f"{CLOUDTALK_BASE}/calls/index.json",
-                                 params={"date_from": day.isoformat(),
-                                         "date_to":   day.isoformat(),
+                                 params={"date_from": query_from.isoformat(),
+                                         "date_to":   query_to.isoformat(),
                                          "limit": 250, "page": page},
                                  headers=headers)
             if not res["ok"]:
@@ -177,15 +186,19 @@ async def _cloudtalk_calls(day: date) -> Dict[str, Any]:
             items = body.get("data") or []
             if not items:
                 break
+            fetched += len(items)
 
             for it in items:
-                # v1 nests the record under 'Cdr'; tolerate both shapes
-                rec = it.get("Cdr") if isinstance(it, dict) and "Cdr" in it else it
-                if isinstance(rec, dict):
-                    out.append(rec)
+                if not isinstance(it, dict):
+                    continue
+                cdr = it.get("Cdr") or {}
+                started = str(cdr.get("started_at") or "")
+                if started[:10] != target:
+                    continue  # belongs to the day before/after our target
+                out.append(it)  # keep Cdr + Agent + Contact + Notes + Tags together
 
             total = body.get("itemsCount")
-            if total is not None and len(out) >= int(total):
+            if total is not None and fetched >= int(total):
                 break
             if len(items) < 250:
                 break
@@ -197,41 +210,66 @@ async def _cloudtalk_calls(day: date) -> Dict[str, Any]:
 def _summarise_cloudtalk(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Roll raw CDRs into the metrics the desk actually reviews.
 
+    Field names verified against a live sample 2026-08-21:
+    Cdr.talking_time / Cdr.billsec (duration, seconds), Cdr.waiting_time,
+    Cdr.answered_at, Cdr.type (incoming/outgoing), Agent.fullname,
+    Notes[].note, Tags[].name (call-level tags, distinct from Contact.tags).
+
     The dispositions mirror what the team currently types by hand into the
     'Remarks' column of the call-cadence spreadsheet (VM, Gatekeeper, Not fit,
     Hung Up...). Surfacing them automatically is the point of this integration.
     """
     metrics: List[Dict[str, Any]] = []
     total = len(rows)
-    answered = talk = 0
+    answered = missed = 0
+    talk = waiting = 0.0
     by_agent: Dict[str, Dict[str, float]] = {}
     by_disp:  Dict[str, int] = {}
+    by_type:  Dict[str, int] = {}
 
     for r in rows:
-        status = str(r.get("status") or r.get("call_status") or "").lower()
-        dur    = float(r.get("talking_time") or r.get("billsec") or 0)
-        is_ans = status in ("answered", "completed") or dur > 0
+        cdr = r.get("Cdr") or {}
+        dur  = float(cdr.get("talking_time") or cdr.get("billsec") or 0)
+        wait = float(cdr.get("waiting_time") or 0)
+        is_ans = dur > 0 or bool(cdr.get("answered_at"))
         if is_ans:
             answered += 1
-        talk += dur
+        else:
+            missed += 1
+        talk    += dur
+        waiting += wait
 
-        agent = (r.get("agent_name") or r.get("user_name") or "Unassigned").strip() or "Unassigned"
+        call_type = str(cdr.get("type") or "unknown").strip().lower()
+        by_type[call_type] = by_type.get(call_type, 0) + 1
+
+        agent_obj = r.get("Agent") or {}
+        agent = (agent_obj.get("fullname") or "Unassigned").strip() or "Unassigned"
         a = by_agent.setdefault(agent, {"calls": 0, "answered": 0, "talk": 0.0})
         a["calls"] += 1
         a["answered"] += 1 if is_ans else 0
         a["talk"] += dur
 
-        disp = (r.get("disposition") or r.get("tag") or r.get("note") or "").strip()
+        notes = r.get("Notes") or []
+        tags  = r.get("Tags") or []
+        disp = ""
+        if notes and isinstance(notes[0], dict):
+            disp = (notes[0].get("note") or "").strip()
+        if not disp and tags and isinstance(tags[0], dict):
+            disp = (tags[0].get("name") or "").strip()
         if disp:
             by_disp[disp] = by_disp.get(disp, 0) + 1
 
-    metrics.append({"metric_key": "calls_total",    "metric_value": total})
-    metrics.append({"metric_key": "calls_answered", "metric_value": answered})
-    metrics.append({"metric_key": "talk_time_sec",  "metric_value": round(talk)})
+    metrics.append({"metric_key": "calls_total",      "metric_value": total})
+    metrics.append({"metric_key": "calls_answered",   "metric_value": answered})
+    metrics.append({"metric_key": "calls_missed",     "metric_value": missed})
+    metrics.append({"metric_key": "talk_time_sec",    "metric_value": round(talk)})
+    metrics.append({"metric_key": "waiting_time_sec", "metric_value": round(waiting)})
     metrics.append({"metric_key": "answer_rate",
                     "metric_value": round(answered / total * 100, 1) if total else 0})
     metrics.append({"metric_key": "avg_talk_sec",
                     "metric_value": round(talk / answered) if answered else 0})
+    metrics.append({"metric_key": "avg_waiting_sec",
+                    "metric_value": round(waiting / total) if total else 0})
 
     for agent, v in by_agent.items():
         metrics.append({"metric_key": "calls_total",    "dimension": agent, "metric_value": v["calls"]})
@@ -240,6 +278,9 @@ def _summarise_cloudtalk(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
     for disp, n in by_disp.items():
         metrics.append({"metric_key": "disposition", "dimension": disp, "metric_value": n})
+
+    for t, n in by_type.items():
+        metrics.append({"metric_key": "call_type", "dimension": t, "metric_value": n})
 
     return metrics
 
