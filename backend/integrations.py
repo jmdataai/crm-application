@@ -207,6 +207,64 @@ async def _cloudtalk_calls(day: date) -> Dict[str, Any]:
     return {"ok": True, "rows": out}
 
 
+async def _cloudtalk_calls_range(start_day: date, end_day: date) -> Dict[str, Any]:
+    """Page through /calls/index.json ONCE for a whole date range, then
+    bucket each call by its own started_at date.
+
+    This replaces calling _cloudtalk_calls() once per day when backfilling a
+    range. That looped approach cost one CloudTalk request (page) per day
+    AND re-downloaded most days' calls up to 3x each, since every day's
+    1-day-before/1-day-after window overlaps its neighbours' windows. A
+    single range fetch dodges the date_from==date_to zero-width bug by
+    construction (a multi-day range is never zero-width) and cuts a 30-day
+    backfill from ~30 requests down to however many 250-per-page pages the
+    account's real call volume needs — usually 1-2.
+    """
+    by_day: Dict[str, List[Dict[str, Any]]] = {}
+    headers = {"Authorization": _cloudtalk_auth_header()}
+    # Small buffer on both ends, purely as a timezone safety margin — every
+    # call is still bucketed precisely by its own started_at date below, so
+    # a wider fetch window can never leak a call into the wrong day.
+    query_from = start_day - timedelta(days=1)
+    query_to   = end_day + timedelta(days=1)
+    lo, hi     = start_day.isoformat(), end_day.isoformat()
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        page = 1
+        fetched = 0
+        while page <= _PAGE_CAP:
+            res = await _request(c, "GET", f"{CLOUDTALK_BASE}/calls/index.json",
+                                 params={"date_from": query_from.isoformat(),
+                                         "date_to":   query_to.isoformat(),
+                                         "limit": 250, "page": page},
+                                 headers=headers)
+            if not res["ok"]:
+                return {"ok": False, "error": res["error"], "by_day": by_day}
+
+            body  = (res["data"] or {}).get("responseData") or {}
+            items = body.get("data") or []
+            if not items:
+                break
+            fetched += len(items)
+
+            for it in items:
+                if not isinstance(it, dict):
+                    continue
+                cdr = it.get("Cdr") or {}
+                started = str(cdr.get("started_at") or "")[:10]
+                if not (lo <= started <= hi):
+                    continue  # part of the timezone buffer, not the requested range
+                by_day.setdefault(started, []).append(it)
+
+            total = body.get("itemsCount")
+            if total is not None and fetched >= int(total):
+                break
+            if len(items) < 250:
+                break
+            page += 1
+
+    return {"ok": True, "by_day": by_day}
+
+
 def _summarise_cloudtalk(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Roll raw CDRs into the metrics the desk actually reviews.
 
@@ -457,22 +515,40 @@ async def sync_all(sb_fn, run_fn, day: Optional[date] = None) -> Dict[str, Any]:
 async def sync_cloudtalk_range(sb_fn, run_fn, start_day: date, end_day: date) -> Dict[str, Any]:
     """Backfill real per-day CloudTalk metrics across a date range.
 
-    Unlike Apollo (see sync_apollo — it only ever returns a live cumulative
-    snapshot, no date parameter exists on that endpoint), CloudTalk's
-    /calls/index.json genuinely has day-by-day history, so this loops one
-    real sync_cloudtalk() call per calendar day, oldest first. This is what
-    makes the 7/14/30-day view actually mean something for CloudTalk instead
-    of just re-reading whatever happened to already be stored.
+    Fetches the whole range in ONE paginated call (_cloudtalk_calls_range)
+    instead of one call per day, then writes the same one integration_metrics
+    row-set per day from the bucketed results — output is identical to
+    calling sync_cloudtalk() once per day, just far fewer HTTP round trips.
+
+    Apollo has no per-day history to backfill at all (see sync_apollo —
+    its endpoint only ever returns a live cumulative snapshot, not
+    day-by-day stats), which is why there's no equivalent sync_apollo_range.
     """
     if not cloudtalk_configured():
         return {"source": "cloudtalk", "ok": False, "skipped": True,
                 "detail": "not configured"}
+
+    fetch = await _cloudtalk_calls_range(start_day, end_day)
+    if not fetch["ok"]:
+        return {"source": "cloudtalk", "ok": False,
+                "from": start_day.isoformat(), "to": end_day.isoformat(),
+                "detail": fetch["error"]}
+
+    by_day = fetch["by_day"]
     results: List[Dict[str, Any]] = []
     d = start_day
     while d <= end_day:
-        results.append(await sync_cloudtalk(sb_fn, run_fn, d))
+        rows = by_day.get(d.isoformat(), [])
+        try:
+            metrics = _summarise_cloudtalk(rows)
+            n = await _store(sb_fn, run_fn, "cloudtalk", d, metrics)
+            results.append({"source": "cloudtalk", "ok": True, "date": d.isoformat(),
+                            "calls": len(rows), "metrics_written": n, "detail": "ok"})
+        except Exception as e:
+            log.error(f"[cloudtalk] range sync failed for {d.isoformat()}: {_redact(e)}")
+            results.append({"source": "cloudtalk", "ok": False, "date": d.isoformat(),
+                            "detail": _redact(e)})
         d += timedelta(days=1)
-        await asyncio.sleep(0.15)   # stay well under CloudTalk's 60 req/min
 
     ok = all(r.get("ok") for r in results)
     total_calls = sum(int(r.get("calls") or 0) for r in results)
@@ -498,4 +574,3 @@ async def sync_all_range(sb_fn, run_fn, days: int) -> Dict[str, Any]:
     ct = await sync_cloudtalk_range(sb_fn, run_fn, start, end)
     ap = await sync_apollo(sb_fn, run_fn, date.today() - timedelta(days=1))
     return {"cloudtalk": ct, "apollo": ap}
-

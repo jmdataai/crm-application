@@ -4379,7 +4379,7 @@ async def root_health():
     return {"status": "ok", "service": "Nexus CRM + ATS", "version": "2.0.0"}
 
 from datetime import date as _d, timedelta as _td
-import integrations as _integ
+from . import integrations as _integ
 
 TRACKER_TARGETS_WEEKLY = {
     "emails_sent":           {"min": 50, "max": 75},
@@ -5077,6 +5077,7 @@ async def integrations_dashboard(
     agents: dict = {}
     disps:  dict = {}
     calltypes: dict = {}
+    apollo_snapshot: dict = {}   # key -> (most_recent_date, value)
 
     for r in rows:
         src, key, dim = r.get("source"), r.get("metric_key"), r.get("dimension")
@@ -5088,19 +5089,22 @@ async def integrations_dashboard(
                 # Apollo's API has no per-day history (see _apollo_sequences) —
                 # every stored row is the SAME live cumulative snapshot,
                 # just labelled with whichever day it happened to sync on.
-                # Summing it across a multi-day window would double- or
-                # triple-count the same total, so we keep only the latest
-                # snapshot in the window (rows arrive oldest-first, so the
-                # last write wins).
+                # Summing it across days would double-count it in the totals
+                # (already fixed below); rows() arrives oldest-first so this
+                # simply ends up holding the LATEST day's value once the loop
+                # finishes, which is also all we want plotted on the trend
+                # chart — one point, not one identical bar per sync day.
                 totals.setdefault(src, {})[key] = val
+                apollo_snapshot[key] = (d, val)
             elif key.endswith("_rate"):
                 # Rates are averaged, counters are summed — summing a
                 # percentage across 14 days is meaningless.
                 acc = totals.setdefault(src, {}).setdefault(f"__{key}", [])
                 acc.append(val)
+                series.setdefault(d, {"date": d}).update({f"{src}_{key}": val})
             else:
                 totals.setdefault(src, {})[key] = totals.get(src, {}).get(key, 0) + val
-            series.setdefault(d, {"date": d}).update({f"{src}_{key}": val})
+                series.setdefault(d, {"date": d}).update({f"{src}_{key}": val})
         elif src == "cloudtalk" and key == "disposition":
             disps[dim] = disps.get(dim, 0) + val
         elif src == "cloudtalk" and key == "call_type":
@@ -5113,6 +5117,14 @@ async def integrations_dashboard(
         for k in [k for k in block if k.startswith("__")]:
             vals = block.pop(k)
             block[k[2:]] = round(sum(vals) / len(vals), 1) if vals else 0
+
+    # Add Apollo's snapshot to the trend chart on exactly one day — the most
+    # recent one it was synced on — instead of every day it happened to be
+    # re-synced (which is what produced the duplicated ~66 bars on both the
+    # 19th and 20th: same lifetime total, plotted twice as if it were two
+    # separate days of activity).
+    for key, (snap_date, snap_val) in apollo_snapshot.items():
+        series.setdefault(snap_date, {"date": snap_date})[f"apollo_{key}"] = snap_val
 
     # CloudTalk's avg_talk_sec / avg_waiting_sec / answer_rate are stored as
     # PER-DAY averages. Summing (or naively averaging) those daily averages
