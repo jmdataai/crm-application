@@ -490,6 +490,192 @@ def _summarise_apollo(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return metrics
 
 
+# ── Apollo — real per-message activity (replaces the old snapshot-only path
+#    for everything EXCEPT sequences_count/contacts_active, which have no
+#    per-day equivalent) ──────────────────────────────────────────
+
+_APOLLO_MSG_PAGE_CAP = 50   # hard stop: 50 pages x 100 = 5,000 messages per query, per sync
+
+
+async def _apollo_messages_page(client: httpx.AsyncClient, params: Dict[str, str]) -> Dict[str, Any]:
+    """One paginated fetch of /emailer_messages/search for a given filter set.
+
+    No total-count field exists on this endpoint — confirmed against a live
+    sample 2026-08-21: `num_fetch_result` is null and there is no
+    `pagination` block (unlike /emailer_campaigns/search). So we page until a
+    page comes back shorter than per_page, same stopping rule already used
+    for CloudTalk's pagination.
+    """
+    out: List[Dict[str, Any]] = []
+    headers = {"x-api-key": os.environ["APOLLO_API_KEY"], "Content-Type": "application/json"}
+    page = 1
+    while page <= _APOLLO_MSG_PAGE_CAP:
+        res = await _request(client, "GET", f"{APOLLO_BASE}/emailer_messages/search",
+                             params={**params, "page": page, "per_page": 100}, headers=headers)
+        if not res["ok"]:
+            return {"ok": False, "error": res["error"], "rows": out}
+        items = (res["data"] or {}).get("emailer_messages") or []
+        out.extend(i for i in items if isinstance(i, dict))
+        if len(items) < 100:
+            break
+        page += 1
+    return {"ok": True, "rows": out}
+
+
+async def _apollo_messages_range(start_day: date, end_day: date) -> Dict[str, Any]:
+    """Real per-day Apollo email activity for [start_day, end_day].
+
+    Four independent queries against /emailer_messages/search, run
+    CONCURRENTLY via asyncio.gather — one round trip's latency covers all
+    four instead of four in series, which matters once a 90-day/custom range
+    means each query may need to page.
+
+      1. No stats filter, completed_at in range — every message that
+         finished sending in the window. Delivered/Bounced/Replied are read
+         straight off each message's own bounce/spam_blocked/replied fields;
+         each is bucketed by ITS OWN completed_at date — this is what fixes
+         "everything lands on the sync day", since every message carries its
+         own real send date instead of one shared snapshot value.
+      2. stats=drafted, due_at in range   — Drafted, bucketed by due_at
+         (drafted messages never get a completed_at, confirmed 2026-08-21)
+      3. stats=failed_other, due_at in range — Not Sent, bucketed by due_at
+      4. stats=opened, completed_at in range — Opened count only. No raw
+         "opened" field is exposed on the message object itself (confirmed
+         against a live sample 2026-08-21), so this has to be its own
+         filtered count rather than something read off query #1's rows.
+    """
+    if not apollo_configured():
+        return {"ok": False, "error": "not configured"}
+
+    lo, hi = start_day.isoformat(), end_day.isoformat()
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        sent_fut = _apollo_messages_page(c, {
+            "emailer_message_date_range_mode": "completed_at",
+            "emailer_message_date_range[min]": lo,
+            "emailer_message_date_range[max]": hi,
+        })
+        drafted_fut = _apollo_messages_page(c, {
+            "emailer_message_stats[]": "drafted",
+            "emailer_message_date_range_mode": "due_at",
+            "emailer_message_date_range[min]": lo,
+            "emailer_message_date_range[max]": hi,
+        })
+        not_sent_fut = _apollo_messages_page(c, {
+            "emailer_message_stats[]": "failed_other",
+            "emailer_message_date_range_mode": "due_at",
+            "emailer_message_date_range[min]": lo,
+            "emailer_message_date_range[max]": hi,
+        })
+        opened_fut = _apollo_messages_page(c, {
+            "emailer_message_stats[]": "opened",
+            "emailer_message_date_range_mode": "completed_at",
+            "emailer_message_date_range[min]": lo,
+            "emailer_message_date_range[max]": hi,
+        })
+        sent, drafted, not_sent, opened = await asyncio.gather(
+            sent_fut, drafted_fut, not_sent_fut, opened_fut
+        )
+
+    for label, res in (("sent", sent), ("drafted", drafted),
+                       ("not_sent", not_sent), ("opened", opened)):
+        if not res["ok"]:
+            return {"ok": False, "error": f"{label} query: {res['error']}"}
+
+    return {"ok": True, "sent_rows": sent["rows"], "drafted_rows": drafted["rows"],
+            "not_sent_rows": not_sent["rows"], "opened_count": len(opened["rows"])}
+
+
+def _summarise_apollo_messages(res: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """Turn the four raw fetches from _apollo_messages_range into day-bucketed
+    counts. Uses the SAME metric_key names the dashboard already reads
+    (emails_sent, emails_delivered, emails_bounced, emails_replied) — only
+    the data SOURCE changes (real per-message dates instead of one repeated
+    cumulative snapshot), so existing chart wiring needs no key changes.
+    """
+    by_day: Dict[str, Dict[str, int]] = {}
+
+    def bump(day: str, key: str) -> None:
+        if not day:
+            return
+        by_day.setdefault(day, {})
+        by_day[day][key] = by_day[day].get(key, 0) + 1
+
+    for m in res["sent_rows"]:
+        day = str(m.get("completed_at") or "")[:10]
+        if not day:
+            continue
+        bounced = bool(m.get("bounce"))
+        spam    = bool(m.get("spam_blocked"))
+        bump(day, "emails_sent")
+        if bounced:
+            bump(day, "emails_bounced")
+        elif spam:
+            bump(day, "emails_spam_blocked")
+        else:
+            bump(day, "emails_delivered")
+        if m.get("replied"):
+            bump(day, "emails_replied")
+
+    for m in res["drafted_rows"]:
+        bump(str(m.get("due_at") or m.get("created_at") or "")[:10], "emails_drafted")
+
+    for m in res["not_sent_rows"]:
+        bump(str(m.get("due_at") or m.get("created_at") or "")[:10], "emails_not_sent")
+
+    totals: Dict[str, int] = {}
+    for day_metrics in by_day.values():
+        for k, v in day_metrics.items():
+            totals[k] = totals.get(k, 0) + v
+    totals["emails_opened"] = res["opened_count"]
+
+    return {"by_day": by_day, "totals": totals}
+
+
+async def sync_apollo_range(sb_fn, run_fn, start_day: date, end_day: date) -> Dict[str, Any]:
+    """Real per-day Apollo backfill — see _apollo_messages_range.
+
+    sequences_count/contacts_active have no per-day equivalent (Apollo's
+    sequence endpoint is still a live snapshot), so they're merged into
+    end_day's row only — combined into ONE _store() call for that day, since
+    _store() deletes-then-inserts the WHOLE day for a source; calling it
+    twice for the same day would let the second call wipe the first.
+    """
+    if not apollo_configured():
+        return {"source": "apollo", "ok": False, "skipped": True, "detail": "not configured",
+                "from": start_day.isoformat(), "to": end_day.isoformat()}
+    try:
+        msg_res = await _apollo_messages_range(start_day, end_day)
+        if not msg_res["ok"]:
+            return {"source": "apollo", "ok": False, "detail": msg_res["error"],
+                    "from": start_day.isoformat(), "to": end_day.isoformat()}
+        summary = _summarise_apollo_messages(msg_res)
+
+        seq_res = await _apollo_sequences()
+        seq_snapshot = ([m for m in _summarise_apollo(seq_res["rows"])
+                        if m["metric_key"] in ("sequences_count", "contacts_active")
+                        and not m.get("dimension")]
+                        if seq_res["ok"] else [])
+
+        written = 0
+        d = start_day
+        while d <= end_day:
+            day_metrics = [{"metric_key": k, "metric_value": v}
+                           for k, v in summary["by_day"].get(d.isoformat(), {}).items()]
+            if d == end_day:
+                day_metrics += seq_snapshot
+            if day_metrics:
+                written += await _store(sb_fn, run_fn, "apollo", d, day_metrics)
+            d += timedelta(days=1)
+
+        return {"source": "apollo", "ok": True, "from": start_day.isoformat(),
+                "to": end_day.isoformat(), "messages": len(msg_res["sent_rows"]),
+                "metrics_written": written, "detail": "ok"}
+    except Exception as e:
+        log.error(f"[apollo] range sync failed: {_redact(e)}")
+        return {"source": "apollo", "ok": False, "detail": _redact(e),
+                "from": start_day.isoformat(), "to": end_day.isoformat()}
+
+
 # ── persistence ──────────────────────────────────────────────
 
 async def _store(sb_fn, run_fn, source: str, day: date, metrics: List[Dict[str, Any]]) -> int:
@@ -559,21 +745,19 @@ async def sync_cloudtalk(sb_fn, run_fn, day: Optional[date] = None) -> Dict[str,
 
 
 async def sync_apollo(sb_fn, run_fn, day: Optional[date] = None) -> Dict[str, Any]:
+    """Single-day Apollo sync — delegates to sync_apollo_range(day, day) for
+    real per-day message data instead of the old live-snapshot-only path.
+    Kept as its own function because the nightly scheduler and non-range
+    manual syncs call it with just a day, not a range.
+    """
     day = day or (date.today() - timedelta(days=1))
-    if not apollo_configured():
-        return {"source": "apollo", "ok": False, "skipped": True,
-                "detail": "not configured", "date": day.isoformat()}
-    try:
-        res = await _apollo_sequences()
-        metrics = _summarise_apollo(res["rows"])
-        n = await _store(sb_fn, run_fn, "apollo", day, metrics)
-        return {"source": "apollo", "ok": res["ok"], "date": day.isoformat(),
-                "sequences": len(res["rows"]), "metrics_written": n,
-                "rate": res.get("rate", {}), "detail": res.get("error") or "ok"}
-    except Exception as e:
-        log.error(f"[apollo] sync failed: {_redact(e)}")
-        return {"source": "apollo", "ok": False, "date": day.isoformat(),
-                "detail": _redact(e)}
+    res = await sync_apollo_range(sb_fn, run_fn, day, day)
+    # Preserve the original single-day return shape (source/ok/date/
+    # sequences/metrics_written/detail) that callers already expect.
+    return {"source": "apollo", "ok": res.get("ok", False),
+            "skipped": res.get("skipped", False), "date": day.isoformat(),
+            "sequences": res.get("messages", 0), "metrics_written": res.get("metrics_written", 0),
+            "detail": res.get("detail", "")}
 
 
 async def sync_all(sb_fn, run_fn, day: Optional[date] = None) -> Dict[str, Any]:
@@ -591,9 +775,9 @@ async def sync_cloudtalk_range(sb_fn, run_fn, start_day: date, end_day: date) ->
     row-set per day from the bucketed results — output is identical to
     calling sync_cloudtalk() once per day, just far fewer HTTP round trips.
 
-    Apollo has no per-day history to backfill at all (see sync_apollo —
-    its endpoint only ever returns a live cumulative snapshot, not
-    day-by-day stats), which is why there's no equivalent sync_apollo_range.
+    Apollo now has its own real per-day range backfill — see
+    sync_apollo_range — built on /emailer_messages/search rather than the
+    sequence-snapshot endpoint this file used to rely on for Apollo.
     """
     if not cloudtalk_configured():
         return {"source": "cloudtalk", "ok": False, "skipped": True,
@@ -631,17 +815,12 @@ async def sync_cloudtalk_range(sb_fn, run_fn, start_day: date, end_day: date) ->
 
 
 async def sync_all_range(sb_fn, run_fn, days: int) -> Dict[str, Any]:
-    """Used when 'Sync now' is pressed while a 7/14/30-day window is selected.
-
-    CloudTalk backfills real per-day history for the whole window. Apollo has
-    no per-day history to backfill (its API only returns a live cumulative
-    total — see sync_apollo) so it always just refreshes today's snapshot,
-    regardless of window size; the dashboard read-side shows Apollo's latest
-    snapshot rather than summing it across days, since summing a cumulative
-    number across multiple days overstates it.
+    """Used when 'Sync now' is pressed while a range is selected on the
+    dashboard. Both CloudTalk and Apollo now backfill real per-day history
+    for the whole window — see sync_cloudtalk_range and sync_apollo_range.
     """
     end   = date.today() - timedelta(days=1)
     start = end - timedelta(days=max(1, days) - 1)
     ct = await sync_cloudtalk_range(sb_fn, run_fn, start, end)
-    ap = await sync_apollo(sb_fn, run_fn, date.today() - timedelta(days=1))
+    ap = await sync_apollo_range(sb_fn, run_fn, start, end)
     return {"cloudtalk": ct, "apollo": ap}

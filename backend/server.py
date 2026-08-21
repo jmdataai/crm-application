@@ -5020,13 +5020,11 @@ async def integrations_sync(
     `days` (the legacy rolling-window picker) or an explicit `start`/`end`
     pair (the timeframe dropdown's non-rolling presets — Yesterday, Previous
     week, Previous month, Custom range) both backfill CloudTalk's real
-    per-day call history across that window — one real /calls/index.json
-    call per day — so the dashboard's range actually reflects real data
-    instead of whatever happened to already be stored. When both are sent,
-    start/end wins. Apollo has no per-day history to backfill (its API only
-    ever returns a live cumulative total, not day-by-day stats — see
-    _apollo_sequences), so any range sync still just refreshes today's single
-    Apollo snapshot regardless of window size.
+    per-day call history AND Apollo's real per-day email history — one real
+    /calls/index.json (CloudTalk) or /emailer_messages/search (Apollo) fetch
+    per range — so the dashboard's range actually reflects real data instead
+    of whatever happened to already be stored. When both start/end and days
+    are sent, start/end wins.
     """
     user = await get_current_user(request)
     _require_module(user, "sales")
@@ -5045,9 +5043,9 @@ async def integrations_sync(
         if source == "cloudtalk":
             return await _integ.sync_cloudtalk_range(sb, run, start_date, end_date)
         if source == "apollo":
-            return await _integ.sync_apollo(sb, run, None)
+            return await _integ.sync_apollo_range(sb, run, start_date, end_date)
         ct = await _integ.sync_cloudtalk_range(sb, run, start_date, end_date)
-        ap = await _integ.sync_apollo(sb, run, None)
+        ap = await _integ.sync_apollo_range(sb, run, start_date, end_date)
         return {"cloudtalk": ct, "apollo": ap}
 
     if days:
@@ -5057,7 +5055,7 @@ async def integrations_sync(
         if source == "cloudtalk":
             return await _integ.sync_cloudtalk_range(sb, run, start, end)
         if source == "apollo":
-            return await _integ.sync_apollo(sb, run, None)
+            return await _integ.sync_apollo_range(sb, run, start, end)
         return await _integ.sync_all_range(sb, run, days)
 
     d = _parse_day(day)
@@ -5116,7 +5114,15 @@ async def integrations_dashboard(
     agents: dict = {}
     disps:  dict = {}
     calltypes: dict = {}
-    apollo_snapshot: dict = {}   # key -> (most_recent_date, value)
+    apollo_snapshot: dict = {}   # key -> (most_recent_date, value) — sequence-level only
+
+    # Only these two Apollo metrics are still a live, non-per-day snapshot
+    # (Apollo's sequence endpoint has no daily history). Everything else
+    # Apollo writes now — emails_sent/delivered/bounced/spam_blocked/
+    # replied/drafted/not_sent/opened — is real per-day data from
+    # /emailer_messages/search and gets summed across the range exactly like
+    # CloudTalk's counters, via the same branch below.
+    _APOLLO_SNAPSHOT_KEYS = {"sequences_count", "contacts_active"}
 
     for r in rows:
         src, key, dim = r.get("source"), r.get("metric_key"), r.get("dimension")
@@ -5124,15 +5130,11 @@ async def integrations_dashboard(
         d   = str(r.get("metric_date"))[:10]
 
         if dim is None:
-            if src == "apollo":
-                # Apollo's API has no per-day history (see _apollo_sequences) —
-                # every stored row is the SAME live cumulative snapshot,
-                # just labelled with whichever day it happened to sync on.
-                # Summing it across days would double-count it in the totals
-                # (already fixed below); rows() arrives oldest-first so this
-                # simply ends up holding the LATEST day's value once the loop
-                # finishes, which is also all we want plotted on the trend
-                # chart — one point, not one identical bar per sync day.
+            if src == "apollo" and key in _APOLLO_SNAPSHOT_KEYS:
+                # Written once, on the sync's last day only — take the latest
+                # value rather than summing (summing would double-count the
+                # same live snapshot number across every day it was synced,
+                # exactly the bug that produced doubled 66s on two days).
                 totals.setdefault(src, {})[key] = val
                 apollo_snapshot[key] = (d, val)
             elif key.endswith("_rate"):
@@ -5157,11 +5159,10 @@ async def integrations_dashboard(
             vals = block.pop(k)
             block[k[2:]] = round(sum(vals) / len(vals), 1) if vals else 0
 
-    # Add Apollo's snapshot to the trend chart on exactly one day — the most
-    # recent one it was synced on — instead of every day it happened to be
-    # re-synced (which is what produced the duplicated ~66 bars on both the
-    # 19th and 20th: same lifetime total, plotted twice as if it were two
-    # separate days of activity).
+    # Plot sequences_count/contacts_active on exactly one day — the most
+    # recent one they were synced on — instead of every day the sync
+    # happened to run (same fix as before, now scoped to just these two
+    # still-snapshot-only Apollo metrics).
     for key, (snap_date, snap_val) in apollo_snapshot.items():
         series.setdefault(snap_date, {"date": snap_date})[f"apollo_{key}"] = snap_val
 
@@ -5177,6 +5178,19 @@ async def integrations_dashboard(
         ctb["answer_rate"]     = round(c_answered / c_total * 100, 1) if c_total else 0
         ctb["avg_talk_sec"]    = round(ctb.get("talk_time_sec", 0) / c_answered) if c_answered else 0
         ctb["avg_waiting_sec"] = round(ctb.get("waiting_time_sec", 0) / c_total) if c_total else 0
+
+    # Apollo's open/reply/bounce rates and Not Opened are likewise derived
+    # from the window's summed real counts, not stored/averaged per day —
+    # same reasoning as CloudTalk above.
+    apb = totals.get("apollo")
+    if apb:
+        a_sent      = apb.get("emails_sent", 0)
+        a_delivered = apb.get("emails_delivered", 0)
+        a_opened    = apb.get("emails_opened", 0)
+        apb["not_opened"] = max(0, a_delivered - a_opened)
+        apb["open_rate"]   = round(a_opened / a_delivered * 100, 1) if a_delivered else 0
+        apb["reply_rate"]  = round(apb.get("emails_replied", 0) / a_sent * 100, 1) if a_sent else 0
+        apb["bounce_rate"] = round(apb.get("emails_bounced", 0) / a_sent * 100, 1) if a_sent else 0
 
     return {
         "range":        {"start": start_date.isoformat(), "end": end_date.isoformat(), "days": days},

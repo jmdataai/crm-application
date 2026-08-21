@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
-  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis,
+  ResponsiveContainer, ComposedChart, Bar, Line, Area, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend,
 } from 'recharts';
 
@@ -20,8 +20,17 @@ const SERIES = [
   { key: 'cloudtalk_calls_total',    name: 'Calls',    color: '#D97706', type: 'bar' },
   { key: 'cloudtalk_calls_answered', name: 'Answered', color: '#059669', type: 'bar' },
   { key: 'apollo_emails_sent',       name: 'Emails',   color: '#4468B0', type: 'bar' },
-  { key: 'apollo_emails_replied',    name: 'Replies',  color: '#7C3AED', type: 'line' },
+  { key: 'apollo_emails_replied',    name: 'Replies',  color: '#7C3AED', type: 'area' },
 ];
+
+/** Legend item look when a series is toggled off — dim + strikethrough, with
+ * a CSS transition so clicking it gives a small "settling into place"
+ * animation instead of an abrupt jump. */
+const legendItemStyle = (isHidden) => ({
+  opacity: isHidden ? 0.4 : 1,
+  textDecoration: isHidden ? 'line-through' : 'none',
+  transition: 'opacity 0.2s ease, text-decoration-color 0.2s ease',
+});
 
 const Tip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
@@ -42,6 +51,13 @@ const Tip = ({ active, payload, label }) => {
 };
 
 export default function IntegrationCharts({ data = [], height = 280 }) {
+  const [hiddenKeys, setHiddenKeys] = useState(new Set());
+  const toggleKey = (key) => setHiddenKeys(prev => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
+
   if (!data.length) {
     return (
       <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -51,8 +67,19 @@ export default function IntegrationCharts({ data = [], height = 280 }) {
     );
   }
 
-  // Only plot series that actually carry data — an all-zero legend entry is noise
+  // Only offer series that actually carry data — an all-zero legend entry is
+  // noise. Hide-toggle (via the legend click) applies on top of this.
   const active = SERIES.filter(s => data.some(d => Number(d[s.key]) > 0));
+  const legendPayload = active.map(s => ({
+    value: s.name, type: 'circle', id: s.key, color: s.color, payload: { dataKey: s.key },
+  }));
+  const handleLegendClick = (entry) => {
+    const key = entry?.payload?.dataKey ?? entry?.id;
+    if (key) toggleKey(key);
+  };
+  const legendFormatter = (value, entry) => (
+    <span style={legendItemStyle(hiddenKeys.has(entry?.payload?.dataKey ?? entry?.id))}>{value}</span>
+  );
 
   const axis = { tick: { fontSize: 11, fill: 'var(--on-surface-variant)' },
                  stroke: 'var(--outline-variant)', tickLine: false, axisLine: false };
@@ -62,17 +89,37 @@ export default function IntegrationCharts({ data = [], height = 280 }) {
       <ResponsiveContainer>
         <ComposedChart data={data.map(d => ({ ...d, label: String(d.date).slice(5) }))}
                        margin={{ top: 8, right: 8, left: -18, bottom: 4 }}>
+          <defs>
+            {active.filter(s => s.type === 'area').map(s => (
+              <linearGradient key={s.key} id={`nx-grad-${s.key}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={s.color} stopOpacity={0.35} />
+                <stop offset="95%" stopColor={s.color} stopOpacity={0.02} />
+              </linearGradient>
+            ))}
+          </defs>
           <CartesianGrid strokeDasharray="2 4" stroke="var(--outline-variant)" vertical={false} />
           <XAxis dataKey="label" {...axis} />
           <YAxis allowDecimals={false} {...axis} />
           <Tooltip content={<Tip />} cursor={{ fill: 'var(--outline-variant)', opacity: 0.25 }} />
-          <Legend wrapperStyle={{ fontSize: '0.75rem', paddingTop: 8 }} iconType="circle" iconSize={8} />
+          <Legend wrapperStyle={{ fontSize: '0.75rem', paddingTop: 8, cursor: 'pointer' }}
+                  iconType="circle" iconSize={8} payload={legendPayload}
+                  onClick={handleLegendClick} formatter={legendFormatter} />
           {active.filter(s => s.type === 'bar').map(s => (
-            <Bar key={s.key} dataKey={s.key} name={s.name} fill={s.color} radius={[3, 3, 0, 0]} maxBarSize={26} />
+            <Bar key={s.key} dataKey={s.key} name={s.name} fill={s.color} radius={[3, 3, 0, 0]} maxBarSize={26}
+                 hide={hiddenKeys.has(s.key)} animationDuration={550} animationEasing="ease-out" />
+          ))}
+          {active.filter(s => s.type === 'area').map(s => (
+            <Area key={s.key} type="monotone" dataKey={s.key} name={s.name}
+                  stroke={s.color} strokeWidth={2} fill={`url(#nx-grad-${s.key})`}
+                  dot={{ r: 3, strokeWidth: 0, fill: s.color }}
+                  activeDot={{ r: 6, strokeWidth: 2, stroke: 'var(--surface)' }}
+                  hide={hiddenKeys.has(s.key)} animationDuration={650} animationEasing="ease-out" />
           ))}
           {active.filter(s => s.type === 'line').map(s => (
             <Line key={s.key} type="monotone" dataKey={s.key} name={s.name}
-                  stroke={s.color} strokeWidth={2} dot={{ r: 3, strokeWidth: 0, fill: s.color }} />
+                  stroke={s.color} strokeWidth={2} dot={{ r: 3, strokeWidth: 0, fill: s.color }}
+                  activeDot={{ r: 6, strokeWidth: 2, stroke: 'var(--surface)' }}
+                  hide={hiddenKeys.has(s.key)} animationDuration={650} animationEasing="ease-out" />
           ))}
         </ComposedChart>
       </ResponsiveContainer>

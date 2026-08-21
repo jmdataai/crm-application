@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ResponsiveContainer, ComposedChart, BarChart, Bar, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend, Cell,
@@ -52,6 +52,15 @@ const SmartTooltip = ({ active, payload, label }) => {
   );
 };
 
+/** Legend item look when a series is toggled off — dim + strikethrough, with
+ * a CSS transition so clicking it gives the small "settling into place"
+ * animation, rather than an abrupt jump. */
+const legendItemStyle = (isHidden) => ({
+  opacity: isHidden ? 0.4 : 1,
+  textDecoration: isHidden ? 'line-through' : 'none',
+  transition: 'opacity 0.2s ease, text-decoration-color 0.2s ease',
+});
+
 /**
  * Period chart.
  *  - day view   -> grouped bars, one cluster per rep
@@ -69,7 +78,33 @@ export default function TrackerCharts({
   selectedDate = null,
   height = 300,
 }) {
-  const visible = useMemo(() => cols.filter(c => !hidden.has(c.key)), [cols, hidden]);
+  // Legend-driven show/hide, layered on TOP of the existing `hidden` prop
+  // (which the parent's KPI-card toggles already control) — either one can
+  // hide a series, and both must agree to show it.
+  const [legendHidden, setLegendHidden] = useState(new Set());
+  const toggleLegendKey = (key) => setLegendHidden(prev => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
+  const effectiveHidden = useMemo(
+    () => new Set([...hidden, ...legendHidden]), [hidden, legendHidden]
+  );
+  const visible = useMemo(() => cols.filter(c => !effectiveHidden.has(c.key)), [cols, effectiveHidden]);
+  // Explicit legend payload built from ALL cols (not just currently-rendered
+  // bars) so a toggled-off series stays visible — dimmed — in the legend and
+  // can be clicked again, instead of disappearing once hidden.
+  const legendPayload = useMemo(() => cols.map(c => ({
+    value: c.short, type: 'circle', id: c.key, color: c.color,
+    payload: { dataKey: c.key },
+  })), [cols]);
+  const handleLegendClick = (entry) => {
+    const key = entry?.payload?.dataKey ?? entry?.id;
+    if (key) toggleLegendKey(key);
+  };
+  const legendFormatter = (value, entry) => (
+    <span style={legendItemStyle(effectiveHidden.has(entry?.payload?.dataKey ?? entry?.id))}>{value}</span>
+  );
 
   if (!data?.length) {
     return (
@@ -94,9 +129,12 @@ export default function TrackerCharts({
             <XAxis dataKey="label" axisLine={false} {...axis} />
             <YAxis allowDecimals={false} axisLine={false} {...axis} />
             <Tooltip content={<SmartTooltip />} cursor={{ fill: 'var(--outline-variant)', opacity: 0.25 }} />
-            <Legend wrapperStyle={{ fontSize: '0.75rem', paddingTop: 8 }} iconType="circle" iconSize={8} />
+            <Legend wrapperStyle={{ fontSize: '0.75rem', paddingTop: 8, cursor: 'pointer' }}
+                    iconType="circle" iconSize={8} payload={legendPayload}
+                    onClick={handleLegendClick} formatter={legendFormatter} />
             {visible.map(c => (
-              <Bar key={c.key} dataKey={c.key} name={c.short} fill={c.color} radius={[4, 4, 0, 0]} maxBarSize={22} />
+              <Bar key={c.key} dataKey={c.key} name={c.short} fill={c.color} radius={[4, 4, 0, 0]} maxBarSize={22}
+                   animationDuration={550} animationEasing="ease-out" />
             ))}
           </BarChart>
         ) : (
@@ -112,22 +150,26 @@ export default function TrackerCharts({
             <XAxis dataKey="label" axisLine={false} {...axis} />
             <YAxis allowDecimals={false} axisLine={false} {...axis} />
             <Tooltip content={<SmartTooltip />} cursor={{ fill: 'var(--outline-variant)', opacity: 0.25 }} />
-            <Legend wrapperStyle={{ fontSize: '0.75rem', paddingTop: 8 }} iconType="circle" iconSize={8} />
+            <Legend wrapperStyle={{ fontSize: '0.75rem', paddingTop: 8, cursor: 'pointer' }}
+                    iconType="circle" iconSize={8} payload={legendPayload}
+                    onClick={handleLegendClick} formatter={legendFormatter} />
             {visible.map((c, i) => (
               <Bar key={c.key} dataKey={c.key} name={c.short} stackId="a" fill={c.color} maxBarSize={40}
-                   radius={i === visible.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}>
+                   radius={i === visible.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                   animationDuration={550} animationEasing="ease-out">
                 {/* Dim every bar except the selected day, so drill-down is obvious */}
                 {data.map(d => (
                   <Cell key={d.date}
                         opacity={!selectedDate || d.date === selectedDate ? 1 : 0.35}
-                        cursor="pointer" />
+                        cursor="pointer" style={{ transition: 'opacity 0.2s ease' }} />
                 ))}
               </Bar>
             ))}
             <Line type="monotone" dataKey="total" name="Total"
                   stroke="var(--on-surface)" strokeWidth={2}
                   dot={{ r: 3, strokeWidth: 0, fill: 'var(--on-surface)' }}
-                  activeDot={{ r: 5 }} />
+                  activeDot={{ r: 6, strokeWidth: 2, stroke: 'var(--surface)' }}
+                  animationDuration={650} animationEasing="ease-out" />
           </ComposedChart>
         )}
       </ResponsiveContainer>

@@ -148,11 +148,9 @@ export default function IntegrationsDashboard() {
   const handleSync = useCallback(async () => {
     setSyncing(true); setSyncMsg('');
     try {
-      // Sending start/end backfills CloudTalk's real per-day history across
-      // the currently-selected range (not just "yesterday") — see
-      // sync_cloudtalk_range on the backend. Apollo has no per-day history
-      // to backfill, so it always just refreshes its one live snapshot
-      // regardless of range.
+      // Sending start/end backfills real per-day history for BOTH sources
+      // across the currently-selected range — see sync_cloudtalk_range and
+      // sync_apollo_range on the backend.
       const res = await integrationsAPI.sync({
         source: 'all', start: appliedRange.start, end: appliedRange.end,
       });
@@ -160,10 +158,9 @@ export default function IntegrationsDashboard() {
       const ctMsg = ct?.skipped ? 'not configured'
         : ct?.ok ? (ct?.days_synced ? `${ct.days_synced} day(s) backfilled, ${ct.calls} calls` : `${ct.calls} calls`)
         : ct?.detail;
-      setSyncMsg(
-        `CloudTalk: ${ctMsg} · ` +
-        `Apollo: ${ap?.skipped ? 'not configured' : ap?.ok ? `${ap.sequences} sequences (live snapshot)` : ap?.detail}`
-      );
+      const apMsg = ap?.skipped ? 'not configured'
+        : ap?.ok ? `${fmt(ap.messages)} emails synced` : ap?.detail;
+      setSyncMsg(`CloudTalk: ${ctMsg} · Apollo: ${apMsg}`);
       refetch(); refetchStatus();
     } catch (e) {
       setSyncMsg(e?.response?.data?.detail || 'Sync failed.');
@@ -299,18 +296,24 @@ export default function IntegrationsDashboard() {
         <>
           <h2 style={{ fontSize: '0.875rem', fontWeight: 700, margin: '0 0 0.75rem',
                        display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-            <Icon name="mail" style={{ fontSize: '1rem' }} /> Sequences
+            <Icon name="mail" style={{ fontSize: '1rem' }} /> Emails
           </h2>
           {loading && !data ? (
             <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(${isMobile ? 130 : 155}px, 1fr))`, gap: '0.75rem', marginBottom: '1.25rem' }}>
-              {[0,1,2,3,4].map(i => <Skeleton key={i} h={92} r={14} />)}
+              {[0,1,2,3,4,5,6,7].map(i => <Skeleton key={i} h={92} r={14} />)}
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(${isMobile ? 130 : 155}px, 1fr))`, gap: '0.75rem', marginBottom: '1.25rem' }}>
-              <Kpi label="Emails sent"  value={fmt(ap.emails_sent)}      icon="send"       accent="#4468B0" />
-              <Kpi label="Open rate"    value={`${fmt(ap.open_rate)}%`}  icon="drafts"     accent="#0891B2" />
+              <Kpi label="Drafted"      value={fmt(ap.emails_drafted)}   icon="edit_note"  accent="#6B7280" />
+              <Kpi label="Sent"         value={fmt(ap.emails_sent)}      icon="send"       accent="#4468B0" />
+              <Kpi label="Delivered"    value={fmt(ap.emails_delivered)} icon="mark_email_read" accent="#059669" />
+              <Kpi label="Not opened"   value={fmt(ap.not_opened)}       icon="drafts"     accent="#D97706" />
+              <Kpi label="Bounced"      value={fmt(ap.emails_bounced)}   icon="error"
+                   accent={Number(ap.emails_bounced) > 0 ? '#B91C1C' : '#6B7280'} />
+              <Kpi label="Not sent"     value={fmt(ap.emails_not_sent)}  icon="cancel"     accent="#B91C1C" />
+              <Kpi label="Open rate"    value={`${fmt(ap.open_rate)}%`}  icon="visibility" accent="#0891B2" />
               <Kpi label="Reply rate"   value={`${fmt(ap.reply_rate)}%`} icon="reply"      accent="#059669" />
-              <Kpi label="Bounce rate"  value={`${fmt(ap.bounce_rate)}%`} icon="error"
+              <Kpi label="Bounce rate"  value={`${fmt(ap.bounce_rate)}%`} icon="percent"
                    accent={Number(ap.bounce_rate) > 3 ? '#B91C1C' : '#6B7280'}
                    sub={Number(ap.bounce_rate) > 3 ? 'Above 3% — check list hygiene' : null} />
               <Kpi label="Sequences"    value={fmt(ap.sequences_count)}  icon="list_alt"   accent="#7C3AED" />
