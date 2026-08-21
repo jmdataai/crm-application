@@ -153,10 +153,12 @@ async def check_cloudtalk() -> Dict[str, Any]:
 async def _cloudtalk_calls(day: date) -> Dict[str, Any]:
     """Page through /calls/index.json for one day.
 
-    CloudTalk wraps everything as {responseCode, data:{items:[...], total:N}}.
-    Each item is itself nested under a 'Cdr' key in the v1 API, so we flatten
-    defensively — if the shape changes, we fall back to the item itself rather
-    than crashing.
+    Confirmed shape (verified via direct API call 2026-08-20): CloudTalk wraps
+    everything as {responseData: {itemsCount, pageCount, pageNumber, limit,
+    data: [...]}} — NOT {data: {items: [...], total: N}} as previously assumed.
+    Each item may still be nested under a 'Cdr' key in the v1 API, so we
+    flatten defensively — if that inner shape changes, we fall back to the
+    item itself rather than crashing.
     """
     out: List[Dict[str, Any]] = []
     headers = {"Authorization": _cloudtalk_auth_header()}
@@ -171,8 +173,8 @@ async def _cloudtalk_calls(day: date) -> Dict[str, Any]:
             if not res["ok"]:
                 return {"ok": False, "error": res["error"], "rows": out}
 
-            body  = (res["data"] or {}).get("data") or {}
-            items = body.get("items") or []
+            body  = (res["data"] or {}).get("responseData") or {}
+            items = body.get("data") or []
             if not items:
                 break
 
@@ -182,7 +184,7 @@ async def _cloudtalk_calls(day: date) -> Dict[str, Any]:
                 if isinstance(rec, dict):
                     out.append(rec)
 
-            total = body.get("total")
+            total = body.get("itemsCount")
             if total is not None and len(out) >= int(total):
                 break
             if len(items) < 250:
