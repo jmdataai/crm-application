@@ -665,6 +665,12 @@ async def sync_apollo_range(sb_fn, run_fn, start_day: date, end_day: date) -> Di
         range_level = [{"metric_key": "emails_opened",
                         "metric_value": summary["totals"].get("emails_opened", 0)}]
 
+        # Wipe the whole window first — see _clear_range. Without this, days
+        # that have no Apollo activity now but DID have stored rows before
+        # (e.g. the old cumulative snapshots) keep those rows, and the
+        # dashboard's summing read-side adds them into the totals.
+        await _clear_range(sb_fn, run_fn, "apollo", start_day, end_day)
+
         written = 0
         d = start_day
         while d <= end_day:
@@ -686,6 +692,23 @@ async def sync_apollo_range(sb_fn, run_fn, start_day: date, end_day: date) -> Di
 
 
 # ── persistence ──────────────────────────────────────────────
+
+async def _clear_range(sb_fn, run_fn, source: str, start_day: date, end_day: date) -> None:
+    """Delete every row for this source across [start_day, end_day].
+
+    Needed because _store() is a no-op when a day has no metrics, so a day
+    that USED to have rows but now has none would keep its stale values
+    forever. That mattered the moment Apollo's read-side switched from
+    "take the latest snapshot" to "sum across days": leftover rows from the
+    old snapshot-era sync stopped being ignored and started being ADDED
+    together (two stored 66s reading back as 132). Clearing the window first
+    makes a range sync fully authoritative for that window.
+    """
+    await run_fn(lambda: sb_fn("integration_metrics")
+                 .delete().eq("source", source)
+                 .gte("metric_date", start_day.isoformat())
+                 .lte("metric_date", end_day.isoformat()).execute())
+
 
 async def _store(sb_fn, run_fn, source: str, day: date, metrics: List[Dict[str, Any]]) -> int:
     """Replace this source's rows for this day, then insert fresh ones.

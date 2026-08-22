@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis,
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend,
 } from 'recharts';
 
@@ -9,9 +9,12 @@ import {
  * same pattern as TrackerCharts.js. Both pages share the ~350 KB chunk, so
  * visiting the second one costs nothing extra.
  *
- * Styled after a reference HUD dashboard: smooth gradient-filled area series
- * (not bars), square legend swatches, and a slightly longer/eased entrance
- * animation so the chart visibly "draws in" rather than snapping into place.
+ * Styled after a reference HUD dashboard, but with BAR series (explicitly
+ * requested over lines/areas): rounded bar caps, square legend swatches,
+ * click-a-legend-item to show/hide a series, and a long eased entrance
+ * animation so the bars visibly grow up from the axis rather than snapping
+ * into place. Each series keeps its own bar rather than stacking, so a
+ * hidden series simply removes its bar instead of reshaping the others.
  */
 
 const TOOLTIP_STYLE = {
@@ -91,32 +94,23 @@ export default function IntegrationCharts({ data = [], height = 280 }) {
   return (
     <div style={{ width: '100%', height }}>
       <ResponsiveContainer>
-        <AreaChart data={data.map(d => ({ ...d, label: String(d.date).slice(5) }))}
-                   margin={{ top: 8, right: 8, left: -18, bottom: 4 }}>
-          <defs>
-            {active.map(s => (
-              <linearGradient key={s.key} id={`nx-grad-${s.key}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={s.color} stopOpacity={0.4} />
-                <stop offset="95%" stopColor={s.color} stopOpacity={0.03} />
-              </linearGradient>
-            ))}
-          </defs>
+        <BarChart data={data.map(d => ({ ...d, label: String(d.date).slice(5) }))}
+                  margin={{ top: 8, right: 8, left: -18, bottom: 4 }}
+                  barGap={2} barCategoryGap="22%">
           <CartesianGrid strokeDasharray="2 4" stroke="var(--outline-variant)" vertical={false} />
           <XAxis dataKey="label" {...axis} />
           <YAxis allowDecimals={false} {...axis} />
-          <Tooltip content={<Tip />} cursor={{ stroke: 'var(--outline-variant)', strokeWidth: 1, strokeDasharray: '3 3' }} />
+          <Tooltip content={<Tip />} cursor={{ fill: 'var(--outline-variant)', opacity: 0.2 }} />
           <Legend wrapperStyle={{ fontSize: '0.75rem', paddingTop: 8, cursor: 'pointer' }}
                   iconType="square" iconSize={9} payload={legendPayload}
                   onClick={handleLegendClick} formatter={legendFormatter} />
           {active.map(s => (
-            <Area key={s.key} type="monotone" dataKey={s.key} name={s.name}
-                  stroke={s.color} strokeWidth={2.5} fill={`url(#nx-grad-${s.key})`}
-                  dot={{ r: 3, strokeWidth: 0, fill: s.color }}
-                  activeDot={{ r: 6, strokeWidth: 2, stroke: 'var(--surface)' }}
-                  hide={hiddenKeys.has(s.key)}
-                  animationDuration={900} animationEasing="ease-out" />
+            <Bar key={s.key} dataKey={s.key} name={s.name}
+                 fill={s.color} radius={[4, 4, 0, 0]} maxBarSize={22}
+                 hide={hiddenKeys.has(s.key)}
+                 animationDuration={900} animationEasing="ease-out" />
           ))}
-        </AreaChart>
+        </BarChart>
       </ResponsiveContainer>
     </div>
   );
