@@ -5179,16 +5179,24 @@ async def integrations_dashboard(
         ctb["avg_talk_sec"]    = round(ctb.get("talk_time_sec", 0) / c_answered) if c_answered else 0
         ctb["avg_waiting_sec"] = round(ctb.get("waiting_time_sec", 0) / c_total) if c_total else 0
 
-    # Apollo's open/reply/bounce rates and Not Opened are likewise derived
-    # from the window's summed real counts, not stored/averaged per day —
-    # same reasoning as CloudTalk above.
+    # Apollo's open/reply/bounce rates are derived from the window's summed
+    # real counts, not stored/averaged per day — same reasoning as CloudTalk
+    # above.
+    #
+    # emails_opened is NOT collected: the message objects expose no per-message
+    # "opened" flag, and filtering by Apollo's opened status proved unreliable
+    # (Apollo silently ignores unrecognised status filters — verified
+    # 2026-08-22). Your sends also have open_tracking_enabled=false, so opens
+    # genuinely aren't being recorded. Reporting "Not opened = Delivered"
+    # would therefore be a fabricated number dressed up as a real one; both
+    # it and open_rate stay at 0 until open tracking is switched on and a
+    # per-message opened field is available to read.
     apb = totals.get("apollo")
     if apb:
-        a_sent      = apb.get("emails_sent", 0)
-        a_delivered = apb.get("emails_delivered", 0)
-        a_opened    = apb.get("emails_opened", 0)
-        apb["not_opened"] = max(0, a_delivered - a_opened)
-        apb["open_rate"]   = round(a_opened / a_delivered * 100, 1) if a_delivered else 0
+        a_sent = apb.get("emails_sent", 0)
+        apb["emails_opened"] = apb.get("emails_opened", 0)
+        apb["not_opened"]    = 0
+        apb["open_rate"]     = 0
         apb["reply_rate"]  = round(apb.get("emails_replied", 0) / a_sent * 100, 1) if a_sent else 0
         apb["bounce_rate"] = round(apb.get("emails_bounced", 0) / a_sent * 100, 1) if a_sent else 0
 

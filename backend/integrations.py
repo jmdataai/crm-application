@@ -497,142 +497,112 @@ def _summarise_apollo(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 _APOLLO_MSG_PAGE_CAP = 50   # hard stop: 50 pages x 100 = 5,000 messages per query, per sync
 
 
-async def _apollo_messages_page(client: httpx.AsyncClient, params: Dict[str, str]) -> Dict[str, Any]:
-    """One paginated fetch of /emailer_messages/search for a given filter set.
+async def _apollo_messages_all() -> Dict[str, Any]:
+    """Fetch every Apollo message, unfiltered, and let the caller classify.
 
-    No total-count field exists on this endpoint — confirmed against a live
-    sample 2026-08-21: `num_fetch_result` is null and there is no
-    `pagination` block (unlike /emailer_campaigns/search). So we page until a
-    page comes back shorter than per_page, same stopping rule already used
-    for CloudTalk's pagination.
+    WHY NO STATUS FILTERS: verified against the live API 2026-08-22 that
+    Apollo SILENTLY IGNORES unrecognised emailer_message_stats[] values —
+    invented values like "hard_bounced" returned a full result set rather
+    than an error. That makes any status-filter-based approach impossible to
+    validate ("it didn't error" proves nothing) and quietly wrong when a
+    value is subtly off. It also burned us concretely: filtering on
+    "failed_other" returned 0 while Apollo's own UI showed 4 Not Sent.
+
+    Every field needed to classify is already on the message object, so we
+    fetch once and decide locally — see _summarise_apollo_messages. This is
+    both more reliable and fewer API calls than the four filtered queries it
+    replaces.
+
+    No date filter either: drafted and failed messages are pending/terminal
+    STATES rather than dated events, and bounding them by date range risks
+    dropping ones the dashboard should still count. At current volume this
+    is 2 pages; the page cap bounds it at 5,000 messages regardless.
     """
+    if not apollo_configured():
+        return {"ok": False, "error": "not configured", "rows": []}
+
     out: List[Dict[str, Any]] = []
     headers = {"x-api-key": os.environ["APOLLO_API_KEY"], "Content-Type": "application/json"}
-    page = 1
-    while page <= _APOLLO_MSG_PAGE_CAP:
-        res = await _request(client, "GET", f"{APOLLO_BASE}/emailer_messages/search",
-                             params={**params, "page": page, "per_page": 100}, headers=headers)
-        if not res["ok"]:
-            return {"ok": False, "error": res["error"], "rows": out}
-        items = (res["data"] or {}).get("emailer_messages") or []
-        out.extend(i for i in items if isinstance(i, dict))
-        if len(items) < 100:
-            break
-        page += 1
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        page = 1
+        while page <= _APOLLO_MSG_PAGE_CAP:
+            res = await _request(c, "GET", f"{APOLLO_BASE}/emailer_messages/search",
+                                 params={"page": page, "per_page": 100}, headers=headers)
+            if not res["ok"]:
+                return {"ok": False, "error": res["error"], "rows": out}
+            items = (res["data"] or {}).get("emailer_messages") or []
+            out.extend(i for i in items if isinstance(i, dict))
+            if len(items) < 100:
+                break
+            page += 1
     return {"ok": True, "rows": out}
 
 
-async def _apollo_messages_range(start_day: date, end_day: date) -> Dict[str, Any]:
-    """Real per-day Apollo email activity for [start_day, end_day].
+def _summarise_apollo_messages(rows: List[Dict[str, Any]],
+                               start_day: date, end_day: date) -> Dict[str, Dict[str, Any]]:
+    """Classify Apollo messages locally and bucket them by their own real date.
 
-    Four independent queries against /emailer_messages/search, run
-    CONCURRENTLY via asyncio.gather — one round trip's latency covers all
-    four instead of four in series, which matters once a 90-day/custom range
-    means each query may need to page.
+    Classification verified against a full 157-message live pull 2026-08-22,
+    which reconciled exactly with Apollo's own UI counts:
 
-      1. No stats filter, completed_at in range — every message that
-         finished sending in the window. Delivered/Bounced/Replied are read
-         straight off each message's own bounce/spam_blocked/replied fields;
-         each is bucketed by ITS OWN completed_at date — this is what fixes
-         "everything lands on the sync day", since every message carries its
-         own real send date instead of one shared snapshot value.
-      2. stats=drafted, due_at in range   — Drafted, bucketed by due_at
-         (drafted messages never get a completed_at, confirmed 2026-08-21)
-      3. stats=failed_other, due_at in range — Not Sent, bucketed by due_at
-      4. stats=opened, completed_at in range — Opened count only. No raw
-         "opened" field is exposed on the message object itself (confirmed
-         against a live sample 2026-08-21), so this has to be its own
-         filtered count rather than something read off query #1's rows.
-    """
-    if not apollo_configured():
-        return {"ok": False, "error": "not configured"}
+      has completed_at            -> SENT  (it left the outbox)
+          + bounce                ->   ...and Bounced
+          + spam_blocked          ->   ...and Spam blocked
+          + neither               ->   ...and Delivered
+      status 'drafted'            -> DRAFTED   (never had a completed_at)
+      failed / not_sent_reason
+          and NO completed_at     -> NOT SENT  (never left the outbox)
 
-    lo, hi = start_day.isoformat(), end_day.isoformat()
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
-        sent_fut = _apollo_messages_page(c, {
-            "emailer_message_date_range_mode": "completed_at",
-            "emailer_message_date_range[min]": lo,
-            "emailer_message_date_range[max]": hi,
-        })
-        drafted_fut = _apollo_messages_page(c, {
-            "emailer_message_stats[]": "drafted",
-            "emailer_message_date_range_mode": "due_at",
-            "emailer_message_date_range[min]": lo,
-            "emailer_message_date_range[max]": hi,
-        })
-        not_sent_fut = _apollo_messages_page(c, {
-            "emailer_message_stats[]": "failed_other",
-            "emailer_message_date_range_mode": "due_at",
-            "emailer_message_date_range[min]": lo,
-            "emailer_message_date_range[max]": hi,
-        })
-        opened_fut = _apollo_messages_page(c, {
-            "emailer_message_stats[]": "opened",
-            "emailer_message_date_range_mode": "completed_at",
-            "emailer_message_date_range[min]": lo,
-            "emailer_message_date_range[max]": hi,
-        })
-        sent, drafted, not_sent, opened = await asyncio.gather(
-            sent_fut, drafted_fut, not_sent_fut, opened_fut
-        )
+    The bounce case is the subtle one: a bounced message HAS a completed_at,
+    so it counts toward Sent as well as Bounced — which is exactly why
+    Apollo shows Sent 71 against Delivered 70 with 1 bounce. Classifying
+    bounce as "not sent" would understate Sent and break that reconciliation.
 
-    for label, res in (("sent", sent), ("drafted", drafted),
-                       ("not_sent", not_sent), ("opened", opened)):
-        if not res["ok"]:
-            return {"ok": False, "error": f"{label} query: {res['error']}"}
-
-    return {"ok": True, "sent_rows": sent["rows"], "drafted_rows": drafted["rows"],
-            "not_sent_rows": not_sent["rows"], "opened_count": len(opened["rows"])}
-
-
-def _summarise_apollo_messages(res: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-    """Turn the four raw fetches from _apollo_messages_range into day-bucketed
-    counts. Uses the SAME metric_key names the dashboard already reads
-    (emails_sent, emails_delivered, emails_bounced, emails_replied) — only
-    the data SOURCE changes (real per-message dates instead of one repeated
-    cumulative snapshot), so existing chart wiring needs no key changes.
+    Dates: sent-side buckets by completed_at (the real send date — this is
+    what spreads activity across days instead of collapsing onto the sync
+    day). Drafted buckets by due_at; not-sent buckets by failed_at, falling
+    back to due_at. Anything outside [start_day, end_day] is dropped.
     """
     by_day: Dict[str, Dict[str, int]] = {}
+    lo, hi = start_day.isoformat(), end_day.isoformat()
 
     def bump(day: str, key: str) -> None:
-        if not day:
+        if not day or day < lo or day > hi:
             return
         by_day.setdefault(day, {})
         by_day[day][key] = by_day[day].get(key, 0) + 1
 
-    for m in res["sent_rows"]:
-        day = str(m.get("completed_at") or "")[:10]
-        if not day:
-            continue
-        bounced = bool(m.get("bounce"))
-        spam    = bool(m.get("spam_blocked"))
-        bump(day, "emails_sent")
-        if bounced:
-            bump(day, "emails_bounced")
-        elif spam:
-            bump(day, "emails_spam_blocked")
-        else:
-            bump(day, "emails_delivered")
-        if m.get("replied"):
-            bump(day, "emails_replied")
+    for m in rows:
+        completed = str(m.get("completed_at") or "")[:10]
+        status    = str(m.get("status") or "").strip().lower()
 
-    for m in res["drafted_rows"]:
-        bump(str(m.get("due_at") or m.get("created_at") or "")[:10], "emails_drafted")
-
-    for m in res["not_sent_rows"]:
-        bump(str(m.get("due_at") or m.get("created_at") or "")[:10], "emails_not_sent")
+        if completed:
+            bump(completed, "emails_sent")
+            if m.get("bounce"):
+                bump(completed, "emails_bounced")
+            elif m.get("spam_blocked"):
+                bump(completed, "emails_spam_blocked")
+            else:
+                bump(completed, "emails_delivered")
+            if m.get("replied"):
+                bump(completed, "emails_replied")
+        elif status == "drafted":
+            bump(str(m.get("due_at") or m.get("created_at") or "")[:10], "emails_drafted")
+        elif status == "failed" or m.get("failed_at") or m.get("not_sent_reason"):
+            day = str(m.get("failed_at") or m.get("due_at") or m.get("created_at") or "")[:10]
+            bump(day, "emails_not_sent")
 
     totals: Dict[str, int] = {}
     for day_metrics in by_day.values():
         for k, v in day_metrics.items():
             totals[k] = totals.get(k, 0) + v
-    totals["emails_opened"] = res["opened_count"]
 
     return {"by_day": by_day, "totals": totals}
 
 
 async def sync_apollo_range(sb_fn, run_fn, start_day: date, end_day: date) -> Dict[str, Any]:
-    """Real per-day Apollo backfill — see _apollo_messages_range.
+    """Real per-day Apollo backfill — one unfiltered fetch, classified
+    locally. See _apollo_messages_all and _summarise_apollo_messages.
 
     sequences_count/contacts_active have no per-day equivalent (Apollo's
     sequence endpoint is still a live snapshot), so they're merged into
@@ -644,11 +614,14 @@ async def sync_apollo_range(sb_fn, run_fn, start_day: date, end_day: date) -> Di
         return {"source": "apollo", "ok": False, "skipped": True, "detail": "not configured",
                 "from": start_day.isoformat(), "to": end_day.isoformat()}
     try:
-        msg_res = await _apollo_messages_range(start_day, end_day)
+        msg_res = await _apollo_messages_all()
         if not msg_res["ok"]:
+            # Deliberately does NOT clear the window: wiping on failure would
+            # replace stale numbers with zeros, which look just as real. The
+            # error is surfaced to the sync banner instead.
             return {"source": "apollo", "ok": False, "detail": msg_res["error"],
                     "from": start_day.isoformat(), "to": end_day.isoformat()}
-        summary = _summarise_apollo_messages(msg_res)
+        summary = _summarise_apollo_messages(msg_res["rows"], start_day, end_day)
 
         seq_res = await _apollo_sequences()
         seq_snapshot = ([m for m in _summarise_apollo(seq_res["rows"])
@@ -656,19 +629,11 @@ async def sync_apollo_range(sb_fn, run_fn, start_day: date, end_day: date) -> Di
                         and not m.get("dimension")]
                         if seq_res["ok"] else [])
 
-        # emails_opened is a RANGE-level count, not per-day: Apollo exposes no
-        # per-message "opened_at", so the opened figure can only be obtained
-        # as a filtered count over the whole window (see _apollo_messages_range
-        # query #4). It therefore rides along on end_day's row — same
-        # treatment as the sequence snapshot, and read back by summing, which
-        # is correct because it's written exactly once per range.
-        range_level = [{"metric_key": "emails_opened",
-                        "metric_value": summary["totals"].get("emails_opened", 0)}]
-
         # Wipe the whole window first — see _clear_range. Without this, days
         # that have no Apollo activity now but DID have stored rows before
         # (e.g. the old cumulative snapshots) keep those rows, and the
-        # dashboard's summing read-side adds them into the totals.
+        # dashboard's summing read-side adds them into the totals. That is
+        # precisely what turned two stored 66s into a displayed 132.
         await _clear_range(sb_fn, run_fn, "apollo", start_day, end_day)
 
         written = 0
@@ -677,13 +642,14 @@ async def sync_apollo_range(sb_fn, run_fn, start_day: date, end_day: date) -> Di
             day_metrics = [{"metric_key": k, "metric_value": v}
                            for k, v in summary["by_day"].get(d.isoformat(), {}).items()]
             if d == end_day:
-                day_metrics += seq_snapshot + range_level
+                day_metrics += seq_snapshot
             if day_metrics:
                 written += await _store(sb_fn, run_fn, "apollo", d, day_metrics)
             d += timedelta(days=1)
 
         return {"source": "apollo", "ok": True, "from": start_day.isoformat(),
-                "to": end_day.isoformat(), "messages": len(msg_res["sent_rows"]),
+                "to": end_day.isoformat(),
+                "messages": summary["totals"].get("emails_sent", 0),
                 "metrics_written": written, "detail": "ok"}
     except Exception as e:
         log.error(f"[apollo] range sync failed: {_redact(e)}")
