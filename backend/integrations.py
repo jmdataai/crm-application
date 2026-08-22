@@ -656,13 +656,22 @@ async def sync_apollo_range(sb_fn, run_fn, start_day: date, end_day: date) -> Di
                         and not m.get("dimension")]
                         if seq_res["ok"] else [])
 
+        # emails_opened is a RANGE-level count, not per-day: Apollo exposes no
+        # per-message "opened_at", so the opened figure can only be obtained
+        # as a filtered count over the whole window (see _apollo_messages_range
+        # query #4). It therefore rides along on end_day's row — same
+        # treatment as the sequence snapshot, and read back by summing, which
+        # is correct because it's written exactly once per range.
+        range_level = [{"metric_key": "emails_opened",
+                        "metric_value": summary["totals"].get("emails_opened", 0)}]
+
         written = 0
         d = start_day
         while d <= end_day:
             day_metrics = [{"metric_key": k, "metric_value": v}
                            for k, v in summary["by_day"].get(d.isoformat(), {}).items()]
             if d == end_day:
-                day_metrics += seq_snapshot
+                day_metrics += seq_snapshot + range_level
             if day_metrics:
                 written += await _store(sb_fn, run_fn, "apollo", d, day_metrics)
             d += timedelta(days=1)
