@@ -2,6 +2,7 @@ import { useBreakpoint } from '../../hooks/useBreakpoint';
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { jobsAPI, candidatesAPI, jobPublishAPI } from '../../services/api';
 import { useNavigate } from 'react-router-dom';
+import ScreeningQuestionsEditor, { validateQuestions, serializeQuestions } from '../../components/ScreeningQuestionsEditor';
 
 const Icon = ({ name, style = {} }) => (
   <span className="material-symbols-outlined" style={{ fontSize: '1.25rem', verticalAlign: 'middle', ...style }}>{name}</span>
@@ -122,12 +123,15 @@ const AddJobModal = ({ onClose, onAdd }) => {
   });
   const [postLinkedin, setPostLinkedin] = useState(true);
   const [linkedinResult, setLinkedinResult] = useState(null);
+  const [questions, setQuestions] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState('');
   const set = (k,v) => setForm(f => ({ ...f, [k]: v }));
 
   const submit = async () => {
     if (!form.title.trim()) return;
+    const qErr = validateQuestions(questions);
+    if (qErr) { setError(qErr); return; }
     setSaving(true);
     setError('');
     try {
@@ -143,6 +147,7 @@ const AddJobModal = ({ onClose, onAdd }) => {
         is_urgent:        form.urgent,
         is_active:        true,
         post_to_linkedin: postLinkedin,
+        screening_questions: serializeQuestions(questions),
       });
       const li = res.data?.linkedin_post;
       if (postLinkedin && li && !li.success) {
@@ -202,6 +207,9 @@ const AddJobModal = ({ onClose, onAdd }) => {
           <div style={{ gridColumn:'1/-1' }}>
             <label className="label">Salary Range</label>
             <input className="input" placeholder="e.g. ₹12–18 LPA or $80k–$100k" value={form.salary_range} onChange={e => set('salary_range',e.target.value)} />
+          </div>
+          <div style={{ gridColumn:'1/-1' }}>
+            <ScreeningQuestionsEditor value={questions} onChange={setQuestions} />
           </div>
           <div style={{ gridColumn:'1/-1', display:'flex', flexWrap:'wrap', gap:'1.5rem', alignItems:'center' }}>
             <label style={{ display:'flex', alignItems:'center', gap:'0.625rem', cursor:'pointer' }}>
@@ -266,12 +274,19 @@ const EditJobModal = ({ job, onClose, onSave }) => {
     skills:       (job.skills||[]).join(', '),
     urgent:       job.urgent       || false,
   });
+  // Old jobs created before this feature have no column value — default to []
+  const [questions, setQuestions] = React.useState(
+    Array.isArray(job.screening_questions) ? job.screening_questions : []
+  );
   const [saving, setSaving] = React.useState(false);
   const [error,  setError]  = React.useState('');
   const set = (k,v) => setForm(f => ({ ...f, [k]:v }));
 
   const submit = async () => {
     if (!form.title.trim()) { setError('Title is required'); return; }
+    const qErr = validateQuestions(questions);
+    if (qErr) { setError(qErr); return; }
+    const cleanQuestions = serializeQuestions(questions);
     setSaving(true); setError('');
     try {
       await jobsAPI.update(job.id, {
@@ -284,6 +299,7 @@ const EditJobModal = ({ job, onClose, onSave }) => {
         salary_range:    form.salary_range  || null,
         skills:          form.skills.split(',').map(s => s.trim()).filter(Boolean),
         is_urgent:       form.urgent,
+        screening_questions: cleanQuestions,
       });
       onSave({
         ...job,
@@ -292,6 +308,7 @@ const EditJobModal = ({ job, onClose, onSave }) => {
         salary_range: form.salary_range,
         skills: form.skills.split(',').map(s => s.trim()).filter(Boolean),
         urgent: form.urgent,
+        screening_questions: cleanQuestions,
       });
       onClose();
     } catch (err) {
@@ -343,6 +360,9 @@ const EditJobModal = ({ job, onClose, onSave }) => {
           <div style={{ gridColumn:'1/-1' }}>
             <label className="label">Salary Range</label>
             <input className="input" placeholder="e.g. ₹12–18 LPA or $80k–$100k" value={form.salary_range} onChange={e => set('salary_range',e.target.value)} />
+          </div>
+          <div style={{ gridColumn:'1/-1' }}>
+            <ScreeningQuestionsEditor value={questions} onChange={setQuestions} />
           </div>
           <div style={{ gridColumn:'1/-1' }}>
             <label style={{ display:'flex', alignItems:'center', gap:'0.625rem', cursor:'pointer' }}>

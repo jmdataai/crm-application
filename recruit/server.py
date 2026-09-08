@@ -174,6 +174,9 @@ class JobCreate(BaseModel):
     is_active:         bool           = True
     is_urgent:         bool           = False
     post_to_linkedin:  bool           = False   # trigger LinkedIn company page post
+    # Per-job screening questions shown on the public apply form.
+    # Validated by _sanitize_screening_questions() — never stored raw.
+    screening_questions: List[dict]   = []
 
 class JobUpdate(BaseModel):
     title:           Optional[str]  = None
@@ -186,6 +189,8 @@ class JobUpdate(BaseModel):
     skills:          Optional[List[str]] = None
     is_active:       Optional[bool] = None
     is_urgent:       Optional[bool] = None
+    # Send [] to clear all questions; omit the key entirely to leave them untouched.
+    screening_questions: Optional[List[dict]] = None
 
 class CandidateCreate(BaseModel):
     full_name:        str
@@ -533,6 +538,273 @@ async def _audit(
 # ============================================================
 
 # ============================================================
+# SCREENING QUESTIONS  (per-job application questions)
+# ------------------------------------------------------------
+# Definitions live in  jobs.screening_questions  (jsonb, default [])
+# Answers live in      candidates.screening_answers (jsonb, nullable)
+# Both are created by backend/migrations/screening_questions.sql.
+#
+# Design notes:
+#   • Everything the browser sends is re-validated here. The job's stored
+#     question list is the single source of truth when grading answers —
+#     a tampered payload cannot inject extra questions or free text into
+#     a choice field.
+#   • The answer snapshot stores the question LABEL next to the answer.
+#     Editing a job's questions later must never change what an earlier
+#     applicant appears to have been asked.
+#   • If the migration has not been run yet, every write/read below falls
+#     back to the pre-feature behaviour instead of erroring. This makes the
+#     backend deploy safe in either order (SQL first or code first).
+# ============================================================
+
+SCREENING_QUESTION_TYPES = {"short_text", "long_text", "radio", "dropdown", "checkbox"}
+SCREENING_CHOICE_TYPES   = {"radio", "dropdown", "checkbox"}
+
+MAX_SCREENING_QUESTIONS  = 15
+MAX_SCREENING_OPTIONS    = 12
+MAX_SCREENING_LABEL_LEN  = 300
+MAX_SCREENING_OPTION_LEN = 120
+MAX_SCREENING_SHORT_ANS  = 300
+MAX_SCREENING_LONG_ANS   = 2000
+
+
+def _screening_missing_column(exc: Exception) -> bool:
+    """
+    True when a Supabase/PostgREST error means the screening columns do not
+    exist yet (migration not run). Deliberately narrow: it must mention one of
+    our two column names AND look like a schema error, so real failures still
+    propagate.
+    """
+    msg = str(exc).lower()
+    if "screening_questions" not in msg and "screening_answers" not in msg:
+        return False
+    return (
+        "column" in msg
+        or "pgrst204" in msg          # PostgREST: column not found in schema cache
+        or "pgrst100" in msg          # PostgREST: failed to parse select
+        or "42703" in msg             # Postgres: undefined_column
+        or "schema cache" in msg
+        or "does not exist" in msg
+    )
+
+
+def _clean_screening_text(value, max_len: int) -> str:
+    """Strip HTML/angle brackets, collapse runs of spaces, trim, hard-cap length."""
+    if value is None:
+        return ""
+    s = str(value)
+    s = _re.sub(r"<[^>]*>", "", s)
+    s = s.replace("<", "").replace(">", "")
+    s = _re.sub(r"[ \t]+", " ", s)          # keeps newlines for long_text
+    return s.strip()[:max_len]
+
+
+def _sanitize_screening_questions(raw) -> list:
+    """
+    Validate + normalise question definitions from the CRM UI.
+    Returns a clean list; raises HTTPException(422) on malformed input.
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise HTTPException(422, detail={
+            "error": "INVALID_QUESTIONS",
+            "message": "Screening questions must be a list.",
+        })
+    if len(raw) > MAX_SCREENING_QUESTIONS:
+        raise HTTPException(422, detail={
+            "error": "TOO_MANY_QUESTIONS",
+            "message": f"A job can have at most {MAX_SCREENING_QUESTIONS} screening questions.",
+        })
+
+    cleaned: list = []
+    seen_ids: set = set()
+
+    for idx, q in enumerate(raw):
+        pos = idx + 1
+        if not isinstance(q, dict):
+            raise HTTPException(422, detail={
+                "error": "INVALID_QUESTION",
+                "message": f"Question {pos} is malformed.",
+            })
+
+        label = _clean_screening_text(q.get("label"), MAX_SCREENING_LABEL_LEN)
+        if not label:
+            raise HTTPException(422, detail={
+                "error": "MISSING_QUESTION_TEXT",
+                "message": f"Question {pos} needs question text.",
+                "index": idx,
+            })
+
+        qtype = str(q.get("type") or "short_text").strip().lower()
+        if qtype not in SCREENING_QUESTION_TYPES:
+            raise HTTPException(422, detail={
+                "error": "INVALID_QUESTION_TYPE",
+                "message": f"Question {pos} has an unknown type '{qtype}'.",
+                "allowed": sorted(SCREENING_QUESTION_TYPES),
+                "index": idx,
+            })
+
+        # Stable id — regenerated if missing, unusable, or duplicated
+        qid = _re.sub(r"[^A-Za-z0-9_\-]", "", str(q.get("id") or ""))[:40]
+        if not qid or qid in seen_ids:
+            qid = f"q_{secrets.token_hex(4)}"
+            while qid in seen_ids:
+                qid = f"q_{secrets.token_hex(4)}"
+        seen_ids.add(qid)
+
+        options: list = []
+        if qtype in SCREENING_CHOICE_TYPES:
+            for opt in (q.get("options") or []):
+                text = _clean_screening_text(opt, MAX_SCREENING_OPTION_LEN)
+                if text and text not in options:
+                    options.append(text)
+                if len(options) >= MAX_SCREENING_OPTIONS:
+                    break
+            if len(options) < 2:
+                raise HTTPException(422, detail={
+                    "error": "TOO_FEW_OPTIONS",
+                    "message": f"Question {pos} is a choice question and needs at least 2 options.",
+                    "index": idx,
+                })
+
+        cleaned.append({
+            "id":       qid,
+            "label":    label,
+            "type":     qtype,
+            "options":  options,
+            "required": bool(q.get("required", False)),
+        })
+
+    return cleaned
+
+
+def _public_screening_questions(questions) -> list:
+    """Projection sent to the public apply form — drops anything unrecognised."""
+    out: list = []
+    for q in (questions or []):
+        if not isinstance(q, dict):
+            continue
+        qtype = q.get("type")
+        if qtype not in SCREENING_QUESTION_TYPES:
+            continue
+        out.append({
+            "id":       q.get("id"),
+            "label":    q.get("label"),
+            "type":     qtype,
+            "options":  q.get("options") or [],
+            "required": bool(q.get("required")),
+        })
+    return out
+
+
+def _grade_screening_answers(questions, raw_answers) -> Optional[dict]:
+    """
+    Build the stored answer snapshot by walking the job's questions (source of
+    truth) and pulling the matching submitted answer.
+
+    Returns None when the job has no questions — in that case the candidate row
+    keeps screening_answers = NULL, exactly like every pre-existing candidate.
+
+    Raises HTTPException(422) when a required answer is missing or a choice
+    answer is not one of the offered options.
+    """
+    questions = _public_screening_questions(questions)
+    if not questions:
+        return None
+
+    # ── Parse whatever the client sent ────────────────────────
+    submitted: dict = {}
+    if raw_answers:
+        parsed = raw_answers
+        if isinstance(parsed, str):
+            try:
+                parsed = json.loads(parsed)
+            except (ValueError, TypeError):
+                raise HTTPException(422, detail={
+                    "error": "INVALID_ANSWERS",
+                    "message": "Your answers could not be read. Please refresh the page and try again.",
+                })
+        if isinstance(parsed, dict):
+            parsed = parsed.get("items") or parsed.get("answers") or []
+        if not isinstance(parsed, list):
+            raise HTTPException(422, detail={
+                "error": "INVALID_ANSWERS",
+                "message": "Your answers could not be read. Please refresh the page and try again.",
+            })
+        for item in parsed[: MAX_SCREENING_QUESTIONS * 2]:
+            if isinstance(item, dict) and item.get("id"):
+                submitted[str(item["id"])] = item.get("answer")
+
+    items: list = []
+    for q in questions:
+        qid      = q["id"]
+        qtype    = q["type"]
+        options  = q["options"]
+        required = q["required"]
+        value    = submitted.get(qid)
+
+        if qtype == "checkbox":
+            if isinstance(value, str):
+                value = [value]
+            if not isinstance(value, list):
+                value = []
+            chosen: list = []
+            for v in value[:MAX_SCREENING_OPTIONS]:
+                text = _clean_screening_text(v, MAX_SCREENING_OPTION_LEN)
+                if text and text in options and text not in chosen:
+                    chosen.append(text)
+            if required and not chosen:
+                raise HTTPException(422, detail={
+                    "error":   "MISSING_ANSWER",
+                    "message": f"Please answer: {q['label']}",
+                    "field":   qid,
+                })
+            answer, answered = chosen, bool(chosen)
+
+        elif qtype in ("radio", "dropdown"):
+            text = _clean_screening_text(value, MAX_SCREENING_OPTION_LEN)
+            if text and text not in options:
+                raise HTTPException(422, detail={
+                    "error":   "INVALID_ANSWER",
+                    "message": f"Please choose one of the listed options for: {q['label']}",
+                    "field":   qid,
+                })
+            if required and not text:
+                raise HTTPException(422, detail={
+                    "error":   "MISSING_ANSWER",
+                    "message": f"Please answer: {q['label']}",
+                    "field":   qid,
+                })
+            answer, answered = text, bool(text)
+
+        else:  # short_text | long_text
+            cap  = MAX_SCREENING_LONG_ANS if qtype == "long_text" else MAX_SCREENING_SHORT_ANS
+            text = _clean_screening_text(value, cap)
+            if required and not text:
+                raise HTTPException(422, detail={
+                    "error":   "MISSING_ANSWER",
+                    "message": f"Please answer: {q['label']}",
+                    "field":   qid,
+                })
+            answer, answered = text, bool(text)
+
+        items.append({
+            "id":       qid,
+            "label":    q["label"],
+            "type":     qtype,
+            "answer":   answer,
+            "answered": answered,
+        })
+
+    return {
+        "version":      1,
+        "submitted_at": datetime.now(timezone.utc).isoformat(),
+        "items":        items,
+    }
+
+
+# ============================================================
 # JOBS
 # ============================================================
 @api_router.post("/jobs")
@@ -540,7 +812,7 @@ async def create_job(job: JobCreate, request: Request):
     user = await get_current_user(request)
     _require_module(user, "recruitment")
     apply_key = secrets.token_urlsafe(8)
-    res = await run(lambda: sb("jobs").insert({
+    job_payload = {
         "title":           job.title,
         "department":      job.department,
         "location":        job.location,
@@ -555,7 +827,21 @@ async def create_job(job: JobCreate, request: Request):
         # URL-safe random key — used by the public /apply?key=… form.
         # Generated here (not in the DB) so the value is visible in the response immediately.
         "apply_key":       apply_key,
-    }).execute())
+    }
+    # Validated here so a bad payload fails before the row is written
+    screening = _sanitize_screening_questions(job.screening_questions)
+    try:
+        res = await run(lambda: sb("jobs").insert(
+            {**job_payload, "screening_questions": screening}
+        ).execute())
+    except Exception as exc:
+        if not _screening_missing_column(exc):
+            raise
+        logger.warning(
+            "[screening] jobs.screening_questions is missing — run "
+            "backend/migrations/screening_questions.sql. Job created without questions."
+        )
+        res = await run(lambda: sb("jobs").insert(job_payload).execute())
     created_job = res.data[0]
 
     # Optionally post to LinkedIn (non-blocking — job creation succeeds even if LinkedIn fails)
@@ -612,9 +898,24 @@ async def update_job(job_id: str, job: JobUpdate, request: Request):
     user = await get_current_user(request)
     _require_module(user, "recruitment")
     patch = {k: v for k, v in job.model_dump().items() if v is not None}
+    # An empty list is meaningful here (= clear all questions), and survives the
+    # `is not None` filter above, so it is handled the same as a populated list.
+    if "screening_questions" in patch:
+        patch["screening_questions"] = _sanitize_screening_questions(patch["screening_questions"])
     old_job = await run(lambda: sb("jobs").select("title").eq("id", job_id).execute())
     job_name = (old_job.data or [{}])[0].get("title") or job_id
-    await run(lambda: sb("jobs").update(patch).eq("id", job_id).execute())
+    try:
+        await run(lambda: sb("jobs").update(patch).eq("id", job_id).execute())
+    except Exception as exc:
+        if not _screening_missing_column(exc):
+            raise
+        logger.warning(
+            "[screening] jobs.screening_questions is missing — run "
+            "backend/migrations/screening_questions.sql. Questions not saved."
+        )
+        patch.pop("screening_questions", None)
+        if patch:
+            await run(lambda: sb("jobs").update(patch).eq("id", job_id).execute())
     asyncio.create_task(_audit("update", user=user, entity_type="job", entity_id=job_id,
                                 entity_name=job_name, new_value=patch,
                                 ip=_get_ip(request), ua=request.headers.get("user-agent","")))
@@ -2290,14 +2591,29 @@ async def public_get_job_by_key(apply_key: str):
     if not apply_key or len(apply_key) > 64:
         raise HTTPException(404, detail={"error": "JOB_NOT_FOUND", "message": "Job not found."})
 
-    job = await safe_single(
-        lambda: sb("jobs")
-        .select("id,title,department,location,employment_type,is_urgent")
-        .eq("apply_key", apply_key)
-        .eq("is_active", True)
-        .single()
-        .execute()
-    )
+    _base_cols = "id,title,department,location,employment_type,is_urgent"
+
+    def _fetch(cols: str):
+        return safe_single(
+            lambda: sb("jobs")
+            .select(cols)
+            .eq("apply_key", apply_key)
+            .eq("is_active", True)
+            .single()
+            .execute()
+        )
+
+    try:
+        job = await _fetch(f"{_base_cols},screening_questions")
+    except Exception as exc:
+        if not _screening_missing_column(exc):
+            raise
+        logger.warning(
+            "[screening] jobs.screening_questions is missing — run "
+            "backend/migrations/screening_questions.sql. Serving form without questions."
+        )
+        job = await _fetch(_base_cols)
+
     if not job:
         raise HTTPException(
             404,
@@ -2314,6 +2630,7 @@ async def public_get_job_by_key(apply_key: str):
         "location":        job.get("location") or "",
         "employment_type": job.get("employment_type") or "",
         "is_urgent":       job.get("is_urgent") or False,
+        "questions":       _public_screening_questions(job.get("screening_questions")),
     }
 
 
@@ -2334,6 +2651,7 @@ async def public_apply_job(
     experience_years: Optional[str]  = Form(None, description="Total years of experience (numeric)"),
     linkedin_url:     Optional[str]  = Form(None, description="LinkedIn profile URL"),
     portfolio_url:    Optional[str]  = Form(None, description="Portfolio, GitHub, or personal site URL"),
+    answers:          Optional[str]  = Form(None, description='Screening answers as JSON: [{"id":"q_x","answer":"Yes"}]'),
 ):
     """
     PUBLIC — No authentication header required.
@@ -2361,14 +2679,27 @@ async def public_apply_job(
     if not apply_key or len(apply_key) > 64:
         raise HTTPException(404, detail={"error": "JOB_NOT_FOUND", "message": "Invalid application link."})
 
-    job_row = await safe_single(
-        lambda: sb("jobs")
-        .select("id,title,department")
-        .eq("apply_key", apply_key)
-        .eq("is_active", True)
-        .single()
-        .execute()
-    )
+    def _fetch_job(cols: str):
+        return safe_single(
+            lambda: sb("jobs")
+            .select(cols)
+            .eq("apply_key", apply_key)
+            .eq("is_active", True)
+            .single()
+            .execute()
+        )
+
+    try:
+        job_row = await _fetch_job("id,title,department,screening_questions")
+    except Exception as exc:
+        if not _screening_missing_column(exc):
+            raise
+        logger.warning(
+            "[screening] jobs.screening_questions is missing — run "
+            "backend/migrations/screening_questions.sql. Answers ignored for this application."
+        )
+        job_row = await _fetch_job("id,title,department")
+
     if not job_row:
         raise HTTPException(
             404,
@@ -2380,6 +2711,12 @@ async def public_apply_job(
     # Real values from the DB — not from the user
     real_job_id    = job_row["id"]
     real_job_title = job_row["title"]
+
+    # ── 1b. Grade screening answers against the job's stored questions ──
+    #   Done here (before the Drive upload) so a missing required answer
+    #   fails fast without burning an upload. Returns None when the job has
+    #   no questions → candidate row keeps screening_answers = NULL.
+    screening_snapshot = _grade_screening_answers(job_row.get("screening_questions"), answers)
 
     # ── 2. Validate required text fields ─────────────────────────
     # (No job_id / job_title validation needed — they come from DB)
@@ -2506,7 +2843,22 @@ async def public_apply_job(
         "resume_url":       resume_url,
     }
 
-    result = await run(lambda: sb("candidates").insert(candidate_payload).execute())
+    if screening_snapshot:
+        try:
+            result = await run(lambda: sb("candidates").insert(
+                {**candidate_payload, "screening_answers": screening_snapshot}
+            ).execute())
+        except Exception as exc:
+            if not _screening_missing_column(exc):
+                raise
+            logger.warning(
+                "[screening] candidates.screening_answers is missing — run "
+                "backend/migrations/screening_questions.sql. Application saved without answers."
+            )
+            result = await run(lambda: sb("candidates").insert(candidate_payload).execute())
+    else:
+        result = await run(lambda: sb("candidates").insert(candidate_payload).execute())
+
     if not result.data:
         raise HTTPException(
             500,

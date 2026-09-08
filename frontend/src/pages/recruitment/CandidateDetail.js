@@ -617,8 +617,15 @@ export default function CandidateDetail() {
     applied: candidate.created_at?.slice(0,10)||'',
   };
 
+  // Screening answers submitted through the public apply form.
+  // NULL for every CRM-created / imported candidate — the tab then never renders.
+  const screeningItems = Array.isArray(candidate.screening_answers?.items)
+    ? candidate.screening_answers.items
+    : [];
+
   const TABS = [
     { key:'activity',   label:'Activity',   icon:'history' },
+    ...(screeningItems.length ? [{ key:'screening', label:'Screening', icon:'quiz' }] : []),
     { key:'interviews', label:'Interviews', icon:'video_call' },
     { key:'notes',      label:'Notes',      icon:'sticky_note_2' },
     { key:'timeline',   label:'Timeline',   icon:'timeline' },
@@ -802,6 +809,36 @@ export default function CandidateDetail() {
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Screening — answers submitted on the public apply form */}
+          {activeTab === 'screening' && (
+            <div className="card slide-in">
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:'0.75rem', marginBottom:'1.25rem', flexWrap:'wrap' }}>
+                <h3 style={{ fontWeight:700, fontSize:'0.9375rem' }}>Screening Answers</h3>
+                {candidate.screening_answers?.submitted_at && (
+                  <span style={{ fontSize:'0.75rem', color:'var(--on-surface-variant)' }}>
+                    Submitted {candidate.screening_answers.submitted_at.slice(0,16).replace('T',' ')}
+                  </span>
+                )}
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:'0.875rem' }}>
+                {screeningItems.map((item, i) => {
+                  const answer = Array.isArray(item.answer) ? item.answer.join(', ') : (item.answer || '');
+                  return (
+                    <div key={item.id || i} style={{ background:'var(--surface-container-low)', borderRadius:'0.625rem', padding:'0.875rem 1rem' }}>
+                      <p style={{ margin:0, fontSize:'0.8125rem', fontWeight:600, color:'var(--on-surface-variant)', lineHeight:1.5 }}>
+                        {i + 1}. {item.label}
+                      </p>
+                      <p style={{ margin:'0.375rem 0 0', fontSize:'0.9375rem', fontWeight:600, whiteSpace:'pre-wrap',
+                                  color: answer ? 'var(--on-surface)' : 'var(--on-surface-variant)' }}>
+                        {answer || 'Not answered'}
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

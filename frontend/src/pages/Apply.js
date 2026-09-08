@@ -15,7 +15,7 @@
  */
 
 import { useBreakpoint } from '../hooks/useBreakpoint';
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 const API_BASE = process.env.REACT_APP_API_URL || '';
@@ -187,6 +187,120 @@ const inputBase = (hasError) => ({
   transition:'border-color 0.15s', boxSizing:'border-box',
 });
 
+// ─────────────────────────────────────────────────────────────
+// Screening questions (per-job, defined in the CRM)
+//   • answers state: { [question.id]: string | string[] }
+//   • error keys are namespaced "ans:<id>" so a question id can never
+//     collide with a built-in field name like "email".
+// ─────────────────────────────────────────────────────────────
+const answerKey   = (q) => `ans:${q.id}`;
+const answerEmpty = (q, v) =>
+  q.type === 'checkbox' ? !(Array.isArray(v) && v.length) : !String(v ?? '').trim();
+
+const validateAnswers = (questions, answers) => {
+  const e = {};
+  (questions || []).forEach(q => {
+    if (q.required && answerEmpty(q, answers[q.id])) {
+      e[answerKey(q)] = 'This question is required.';
+    }
+  });
+  return e;
+};
+
+const ScreeningQuestion = ({ q, index, value, error, onAnswer, onTouch }) => {
+  const hasError = !!error;
+  const checked  = Array.isArray(value) ? value : [];
+
+  const toggleCheckbox = (opt) => {
+    const next = checked.includes(opt) ? checked.filter(o => o !== opt) : [...checked, opt];
+    onAnswer(q.id, next);
+    onTouch(q);
+  };
+
+  return (
+    <div style={{ marginBottom: '1.25rem' }} data-haserror={String(hasError)}>
+      <label style={{ display:'block', fontSize:'0.8125rem', fontWeight:600, color:'var(--on-surface-variant)', marginBottom:'0.5rem', lineHeight:1.5 }}>
+        {index + 1}. {q.label}
+        {q.required && <span style={{ color:'#E53935', marginLeft:3 }}>*</span>}
+      </label>
+
+      {q.type === 'dropdown' && (
+        <select
+          value={value || ''}
+          onChange={e => { onAnswer(q.id, e.target.value); onTouch(q); }}
+          onBlur={() => onTouch(q)}
+          style={{ ...inputBase(hasError), cursor:'pointer' }}
+        >
+          <option value="">Select an answer…</option>
+          {(q.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+        </select>
+      )}
+
+      {q.type === 'radio' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+          {(q.options || []).map(opt => (
+            <label key={opt} style={{ display:'flex', alignItems:'center', gap:'0.625rem', cursor:'pointer', fontSize:'0.9375rem', color:'var(--on-surface)' }}>
+              <input
+                type="radio"
+                name={q.id}
+                value={opt}
+                checked={value === opt}
+                onChange={() => { onAnswer(q.id, opt); onTouch(q); }}
+                style={{ width:16, height:16, accentColor:'var(--tertiary)', flexShrink:0 }}
+              />
+              {opt}
+            </label>
+          ))}
+        </div>
+      )}
+
+      {q.type === 'checkbox' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+          {(q.options || []).map(opt => (
+            <label key={opt} style={{ display:'flex', alignItems:'center', gap:'0.625rem', cursor:'pointer', fontSize:'0.9375rem', color:'var(--on-surface)' }}>
+              <input
+                type="checkbox"
+                checked={checked.includes(opt)}
+                onChange={() => toggleCheckbox(opt)}
+                style={{ width:16, height:16, accentColor:'var(--tertiary)', flexShrink:0 }}
+              />
+              {opt}
+            </label>
+          ))}
+        </div>
+      )}
+
+      {q.type === 'short_text' && (
+        <input
+          type="text"
+          value={value || ''}
+          maxLength={300}
+          onChange={e => onAnswer(q.id, e.target.value.replace(/[<>]/g, ''))}
+          onBlur={() => onTouch(q)}
+          onFocus={e => { e.target.style.borderColor = 'var(--tertiary)'; }}
+          placeholder="Your answer"
+          style={inputBase(hasError)}
+        />
+      )}
+
+      {q.type === 'long_text' && (
+        <textarea
+          rows={3}
+          value={value || ''}
+          maxLength={2000}
+          onChange={e => onAnswer(q.id, e.target.value.replace(/[<>]/g, ''))}
+          onBlur={() => onTouch(q)}
+          onFocus={e => { e.target.style.borderColor = 'var(--tertiary)'; }}
+          placeholder="Your answer"
+          style={{ ...inputBase(hasError), resize:'vertical', fontFamily:'inherit' }}
+        />
+      )}
+
+      <FieldError error={error} />
+    </div>
+  );
+};
+
 const STATES = { VALIDATING:'validating', NOT_FOUND:'not_found', FORM:'form', SUBMITTING:'submitting', SUCCESS:'success' };
 
 // ─────────────────────────────────────────────────────────────
@@ -212,8 +326,18 @@ export default function Apply() {
     experience_years:'', linkedin_url:'', portfolio_url:'',
   });
 
+  // Per-job screening questions — empty for jobs that have none
+  const [answers, setAnswers] = useState({});
+  // useMemo is required: an inline `job?.questions || []` would be a new array
+  // on every render, which would change runValidation's identity and put the
+  // live-validation effect into an infinite setState loop.
+  const questions = useMemo(() => (Array.isArray(job?.questions) ? job.questions : []), [job]);
+
   const setF  = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const touch = (k)    => setTouched(t => ({ ...t, [k]: true }));
+
+  const setAnswer   = (qid, v) => setAnswers(a => ({ ...a, [qid]: v }));
+  const touchAnswer = (q)      => touch(answerKey(q));
 
   // ── Validate key on mount ───────────────────────────────────
   useEffect(() => {
@@ -237,8 +361,9 @@ export default function Apply() {
     const ex = V.experience(form.experience_years);               if (ex) e.experience_years = ex;
     const li = V.linkedin(form.linkedin_url);                     if (li) e.linkedin_url     = li;
     const po = V.url(form.portfolio_url, 'Portfolio URL');        if (po) e.portfolio_url    = po;
+    Object.assign(e, validateAnswers(questions, answers));
     return e;
-  }, [form, resume]);
+  }, [form, resume, questions, answers]);
 
   // Live-validate touched fields only
   useEffect(() => {
@@ -257,6 +382,7 @@ export default function Apply() {
   const submit = async () => {
     const allTouched = { first_name:1, last_name:1, email:1, phone:1, resume:1,
       current_company:1, candidate_role:1, experience_years:1, linkedin_url:1, portfolio_url:1 };
+    questions.forEach(q => { allTouched[answerKey(q)] = 1; });
     setTouched(allTouched);
 
     const e = runValidation();
@@ -285,6 +411,14 @@ export default function Apply() {
     if (form.experience_years.trim()) fd.append('experience_years', parseInt(form.experience_years, 10).toString());
     if (form.linkedin_url.trim())     fd.append('linkedin_url',     form.linkedin_url.trim());
     if (form.portfolio_url.trim())    fd.append('portfolio_url',    form.portfolio_url.trim());
+    if (questions.length) {
+      fd.append('answers', JSON.stringify(questions.map(q => ({
+        id: q.id,
+        answer: q.type === 'checkbox'
+          ? (Array.isArray(answers[q.id]) ? answers[q.id] : [])
+          : stripTags(String(answers[q.id] ?? '')).trim(),
+      }))));
+    }
 
     try {
       const res  = await fetch(`${API_BASE}/api/public/apply`, { method:'POST', body:fd });
@@ -552,6 +686,29 @@ export default function Apply() {
                 }}
               />
             </Field>
+
+            {/* Screening questions — only rendered when this job has any */}
+            {questions.length > 0 && (
+              <div style={{ marginBottom:'1.5rem', paddingTop:'0.5rem', borderTop:'1px solid var(--outline-variant)' }}>
+                <h2 style={{ fontSize:'1rem', fontWeight:700, color:'var(--on-surface)', margin:'1rem 0 0.25rem' }}>
+                  A few questions about this role
+                </h2>
+                <p style={{ margin:'0 0 1.25rem', fontSize:'0.8125rem', color:'var(--on-surface-variant)' }}>
+                  Your answers go straight to the hiring team.
+                </p>
+                {questions.map((q, i) => (
+                  <ScreeningQuestion
+                    key={q.id}
+                    q={q}
+                    index={i}
+                    value={answers[q.id]}
+                    error={errors[answerKey(q)]}
+                    onAnswer={setAnswer}
+                    onTouch={touchAnswer}
+                  />
+                ))}
+              </div>
+            )}
 
             {/* Optional fields */}
             <details style={{ marginBottom:'1.5rem' }}>
