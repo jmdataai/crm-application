@@ -62,6 +62,7 @@ const DAILY_MIN = 10 + 8 + 3 + 3; // emails + linkedin + calls + followups
 export default function SalesActivityLog() {
   const { isMobile } = useBreakpoint();
   const { user }     = useAuth();
+  const userId       = user?.id;
 
   // Only admin and viewer (CEO) can see team view
   const isPrivileged = user?.role === 'admin' || user?.role === 'viewer';
@@ -187,7 +188,9 @@ export default function SalesActivityLog() {
       const selectedWeekEndISO   = getWeekEndISO(selectedDateISO);
       const fromISO = historyFromISO < selectedWeekStartISO ? historyFromISO : selectedWeekStartISO;
       const toISO   = historyToISO > selectedWeekEndISO ? historyToISO : selectedWeekEndISO;
-      const res  = await salesTrackerAPI.getLogs({ from_date: fromISO, to_date: toISO });
+      // "My Log" is always the signed-in user's own log. Without user_id, admins/CEO get every
+      // rep's rows back and the form could be prefilled (and re-saved) with someone else's numbers.
+      const res  = await salesTrackerAPI.getLogs({ from_date: fromISO, to_date: toISO, user_id: userId });
       const logs = res.data || [];
       setRecentLogs(logs);
       const selectedLog = logs.find(l => l.log_date === selectedDateISO);
@@ -215,7 +218,7 @@ export default function SalesActivityLog() {
     } catch (e) {
       setLoadError(e?.response?.data?.detail || 'Failed to load logs. Check your connection and try again.');
     } finally { setLoadingLogs(false); }
-  }, [historyFromISO, historyToISO, selectedDateISO]);
+  }, [historyFromISO, historyToISO, selectedDateISO, userId]);
 
   useEffect(() => { loadRecentLogs(); }, [loadRecentLogs]);
 

@@ -222,7 +222,8 @@ export default function SalesDashboard() {
   useEffect(() => {
     // Sent emails map — uses existing bulkEmailAPI endpoint
     bulkEmailAPI.getSent().then(res => {
-      const sent = Array.isArray(res.data) ? res.data : [];
+      // backend returns { sent: [...] }; tolerate a bare array too
+      const sent = Array.isArray(res.data) ? res.data : (Array.isArray(res.data?.sent) ? res.data.sent : []);
       const map  = {};
       for (const s of sent) {
         const email = (s.sent_to || '').toLowerCase();

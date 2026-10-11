@@ -146,9 +146,10 @@ const WeekForm = ({ weekStart, onSaved }) => {
     });
   };
 
+  // Send all 7 days, zeros included: the backend upserts per day, so a day that was cleared
+  // must be sent as 0 or its old hours stay in the database (and in total_hours).
   const buildPayload = () =>
     weekDays
-      .filter((date) => parseEntryHours(entries[date]) > 0 || entries[date]?.comments)
       .map((date) => ({
         entry_date: date,
         hours_value: parseInt(entries[date]?.hoursValue || '0', 10) || 0,

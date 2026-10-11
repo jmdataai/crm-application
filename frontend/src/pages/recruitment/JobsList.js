@@ -960,7 +960,13 @@ export default function JobsList() {
                           platforms: Object.entries(publishPlatforms).filter(([,v])=>v).map(([k])=>k),
                           post_to_linkedin: publishPlatforms.linkedin,
                         });
-                        setPublishResult({ success: true, message: `Published to ${selectedCount} platform${selectedCount!==1?'s':''}` });
+                        // The backend answers 200 with success:false when e.g. the LinkedIn post fails.
+                        const ok = res?.data?.success !== false;
+                        setPublishResult({
+                          success: ok,
+                          message: res?.data?.message
+                            || (ok ? `Published to ${selectedCount} platform${selectedCount!==1?'s':''}` : 'Publish failed. Check LinkedIn credentials.'),
+                        });
                         // Refresh job posts map
                         const postsRes = await jobPublishAPI.getAll();
                         const posts    = Array.isArray(postsRes.data) ? postsRes.data : [];

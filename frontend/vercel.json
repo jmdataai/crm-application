@@ -25,6 +25,14 @@
       "destination": "https://freddy-jmdataai-nexus-crm-recruit.hf.space/api/public/:path*"
     },
     {
+      "source": "/api/job-posts",
+      "destination": "https://freddy-jmdataai-nexus-crm-recruit.hf.space/api/job-posts"
+    },
+    {
+      "source": "/api/job-posts/:path*",
+      "destination": "https://freddy-jmdataai-nexus-crm-recruit.hf.space/api/job-posts/:path*"
+    },
+    {
       "source": "/api/:path*",
       "destination": "https://freddy-jmdataai-nexus-crm-backend.hf.space/api/:path*"
     },
@@ -37,7 +45,10 @@
     {
       "source": "/api/:path*",
       "headers": [
-        { "key": "Access-Control-Allow-Credentials", "value": "true" }
+        {
+          "key": "Access-Control-Allow-Credentials",
+          "value": "true"
+        }
       ]
     }
   ]

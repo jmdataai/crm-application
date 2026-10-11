@@ -15,6 +15,7 @@ const salesNavBase = [
   { path: '/sales/sequences',     icon: 'schedule_send', label: 'Sequences' },
   { path: '/sales/activity-log',  icon: 'edit_note',    label: 'Daily Log' },
   { path: '/sales/bulk-email',    icon: 'forward_to_inbox', label: 'Bulk Email' },
+  { path: '/sales/hiring-intel',  icon: 'radar',         label: 'Hiring Intel' },
   { path: '/sales/leads',         icon: 'group',         label: 'Leads' },
   { path: '/sales/call-cadence',  icon: 'phone_in_talk', label: 'Call Cadence' },
   { path: '/sales/import',        icon: 'upload_file',   label: 'Import Leads', requiresPerm: 'canViewImport' },

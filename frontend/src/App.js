@@ -20,6 +20,7 @@ import SalesTrackerCEO   from './pages/sales/SalesTrackerCEO';
 import PipelineKanban        from './pages/sales/PipelineKanban';
 import SequencesManager      from './pages/sales/SequencesManager';
 import CallCadence           from './pages/sales/CallCadence';
+import HiringIntel           from './pages/sales/HiringIntel';
 import IntegrationsDashboard from './pages/IntegrationsDashboard';
 import Tasks             from './pages/Tasks';
 
@@ -92,6 +93,7 @@ function AppRoutes() {
       <Route path="/sales/pipeline"       element={<Page module="sales"><PipelineKanban /></Page>} />
       <Route path="/sales/sequences"      element={<Page module="sales"><SequencesManager /></Page>} />
       <Route path="/sales/call-cadence"   element={<Page module="sales"><CallCadence /></Page>} />
+      <Route path="/sales/hiring-intel"   element={<Page module="sales"><HiringIntel /></Page>} />
 
       {/* ── Recruitment — admin, sales, viewer only ── */}
       <Route path="/recruitment"                   element={<Page module="recruitment"><RecruitmentDashboard /></Page>} />

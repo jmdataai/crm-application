@@ -51,7 +51,7 @@ _PAGE_CAP  = 50          # hard stop: 50 pages x 250 = 12,500 records per sync
 def _redact(msg: Any) -> str:
     """Strip anything key-shaped out of a message before it is logged."""
     s = str(msg)
-    for var in ("APOLLO_API_KEY", "CLOUDTALK_API_KEY_ID", "CLOUDTALK_API_KEY_SECRET"):
+    for var in ("APOLLO_API_KEY", "CLOUDTALK_API_KEY_ID", "CLOUDTALK_API_KEY_SECRET", "JOOBLE_API_KEY"):
         val = os.environ.get(var)
         if val and len(val) > 6:
             s = s.replace(val, f"<{var}>")

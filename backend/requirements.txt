@@ -69,3 +69,6 @@ PyMuPDF>=1.24.0
 
 # Microsoft Graph API — send emails from user mailboxes / Outlook Sent Items
 msal>=1.29.0
+
+# Hiring Intel — parse LinkedIn job cards and careers pages (pure-python parser, no lxml)
+beautifulsoup4>=4.12.3

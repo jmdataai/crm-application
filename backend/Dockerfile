@@ -21,6 +21,7 @@ COPY server.py .
 COPY google_drive.py .
 COPY llm_utils.py .
 COPY integrations.py .
+COPY hiring_intel.py .
 
 # Hugging Face Spaces expects the app on port 7860
 EXPOSE 7860

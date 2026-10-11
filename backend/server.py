@@ -1960,22 +1960,13 @@ async def get_sales_tracker_dashboard(
         filter_user_id = user_id      # admin/viewer: optional filter
 
     today = date.today()
-    week_num, year = _current_iso_week()
-
-    # Apply week offset
-    adjusted_week = week_num + week_offset
-    adjusted_year = year
-    while adjusted_week <= 0:
-        adjusted_week += 52; adjusted_year -= 1
-    while adjusted_week > 52:
-        adjusted_week -= 52; adjusted_year += 1
-
-    monday, friday = _get_week_bounds(adjusted_week, adjusted_year)
-    prev_week = adjusted_week - 1
-    prev_year = adjusted_year
-    if prev_week <= 0:
-        prev_week += 52; prev_year -= 1
-    prev_monday, prev_friday = _get_week_bounds(prev_week, prev_year)
+    # Offset by calendar weeks from this Monday. (The old "+/-52" arithmetic skipped ISO
+    # week 53 — 2026 has one, starting 28 Dec 2026 — and jumped to an empty week.)
+    monday = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
+    friday = monday + timedelta(days=4)
+    adjusted_year, adjusted_week = monday.isocalendar()[0], monday.isocalendar()[1]
+    prev_monday = monday - timedelta(weeks=1)
+    prev_friday = prev_monday + timedelta(days=4)
 
     sb = get_supabase()
 
@@ -1999,11 +1990,9 @@ async def get_sales_tracker_dashboard(
 
     last4 = []
     for w in range(3, -1, -1):
-        wk = adjusted_week - w
-        yr = adjusted_year
-        if wk <= 0:
-            wk += 52; yr -= 1
-        wmon, wfri = _get_week_bounds(wk, yr)
+        wmon = monday - timedelta(weeks=w)
+        wfri = wmon + timedelta(days=4)
+        yr, wk = wmon.isocalendar()[0], wmon.isocalendar()[1]
         wrows = [r for r in all_recent if wmon.isoformat() <= r.get("log_date","") <= wfri.isoformat()]
         s = _sum_logs(wrows)
         s["weekNumber"] = wk
@@ -2198,7 +2187,7 @@ async def create_pipeline_deal(body: SalesPipelineDealCreate, request: Request):
         "is_active":          True,
     }
     sb = get_supabase()
-    res = sb.table("sales_pipeline").insert(row).execute()
+    res = await run(lambda: sb.table("sales_pipeline").insert(row).execute())
     deal = (res.data or [{}])[0]
     deal["daysInStage"] = _days_in_stage(deal.get("stage_updated_date"))
     return {"success": True, "deal": deal}
@@ -2209,7 +2198,7 @@ async def get_pipeline_deals(request: Request):
     user = await get_current_user(request)
     _require_module(user, "sales")
     sb = get_supabase()
-    res = sb.table("sales_pipeline").select("*").eq("is_active", True)        .order("weighted_value", desc=True).execute()
+    res = await run(lambda: sb.table("sales_pipeline").select("*").eq("is_active", True)        .order("weighted_value", desc=True).execute())
     deals = res.data or []
     for d in deals:
         d["daysInStage"] = _days_in_stage(d.get("stage_updated_date"))
@@ -2238,7 +2227,7 @@ async def update_pipeline_deal(deal_id: str, body: SalesPipelineDealUpdate, requ
             updates["stage_updated_date"] = date.today().isoformat()
     if body.deal_value is not None or "probability" in updates:
         sb = get_supabase()
-        existing = sb.table("sales_pipeline").select("deal_value,probability").eq("id", deal_id).execute()
+        existing = await run(lambda: sb.table("sales_pipeline").select("deal_value,probability").eq("id", deal_id).execute())
         ex = (existing.data or [{}])[0]
         dv  = updates.get("deal_value",  float(ex.get("deal_value")  or 0))
         pr  = updates.get("probability", float(ex.get("probability") or 10))
@@ -2251,7 +2240,7 @@ async def update_pipeline_deal(deal_id: str, body: SalesPipelineDealUpdate, requ
             updates["next_action_date"] = body.next_action_date
     updates["updated_at"] = "now()"
     sb = get_supabase()
-    res = sb.table("sales_pipeline").update(updates).eq("id", deal_id).execute()
+    res = await run(lambda: sb.table("sales_pipeline").update(updates).eq("id", deal_id).execute())
     deal = (res.data or [{}])[0]
     deal["daysInStage"] = _days_in_stage(deal.get("stage_updated_date"))
     asyncio.create_task(_audit("update", user=user, entity_type="deal",
@@ -2265,7 +2254,7 @@ async def delete_pipeline_deal(deal_id: str, request: Request):
     user = await get_current_user(request)
     _require_module(user, "sales")
     sb = get_supabase()
-    sb.table("sales_pipeline").update({"is_active": False}).eq("id", deal_id).execute()
+    await run(lambda: sb.table("sales_pipeline").update({"is_active": False}).eq("id", deal_id).execute())
     asyncio.create_task(_audit("delete", user=user, entity_type="deal",
                                 entity_id=deal_id,
                                 ip=_get_ip(request), ua=request.headers.get("user-agent","")))
@@ -2293,7 +2282,7 @@ async def submit_weekly_review(body: SalesWeeklyReviewCreate, request: Request):
         "top_priorities": body.top_priorities,
     }
     sb = get_supabase()
-    res = sb.table("sales_weekly_review").upsert(row, on_conflict="week_number,year").execute()
+    res = await run(lambda: sb.table("sales_weekly_review").upsert(row, on_conflict="week_number,year").execute())
     return {"success": True, "data": (res.data or [{}])[0]}
 
 
@@ -2302,7 +2291,7 @@ async def get_weekly_reviews(request: Request, limit: int = 8):
     user = await get_current_user(request)
     _require_module(user, "sales")
     sb = get_supabase()
-    res = sb.table("sales_weekly_review").select("*")        .order("year", desc=True).order("week_number", desc=True).limit(limit).execute()
+    res = await run(lambda: sb.table("sales_weekly_review").select("*")        .order("year", desc=True).order("week_number", desc=True).limit(limit).execute())
     return res.data or []
 
 
@@ -2328,7 +2317,7 @@ async def submit_monthly_rollup(body: SalesMonthlyRollupCreate, request: Request
         "competitor_names":     body.competitor_names,
     }
     sb = get_supabase()
-    res = sb.table("sales_monthly_rollup").upsert(row, on_conflict="month,year").execute()
+    res = await run(lambda: sb.table("sales_monthly_rollup").upsert(row, on_conflict="month,year").execute())
     return {"success": True, "data": (res.data or [{}])[0]}
 
 
@@ -2337,7 +2326,7 @@ async def get_monthly_rollups(request: Request, limit: int = 6):
     user = await get_current_user(request)
     _require_module(user, "sales")
     sb = get_supabase()
-    res = sb.table("sales_monthly_rollup").select("*")        .order("year", desc=True).order("created_at", desc=True).limit(limit).execute()
+    res = await run(lambda: sb.table("sales_monthly_rollup").select("*")        .order("year", desc=True).order("created_at", desc=True).limit(limit).execute())
     return res.data or []
 
 
@@ -2826,14 +2815,16 @@ async def get_user_activity_log(
     if not date_to:
         date_to = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    res = await run(lambda: sb("audit_logs")
-        .select("user_id, user_name, user_email, created_at")
-        .gte("created_at", f"{date_from}T00:00:00Z")
-        .lte("created_at", f"{date_to}T23:59:59Z")
-        .not_.is_("user_id", "null")
-        .execute())
-
-    rows = res.data or []
+    # Paginated: every lead view writes an audit row, so 14 days easily exceeds the 1000-row cap
+    # and the activity windows were computed from a truncated sample.
+    rows = await fetch_all_rows(
+        "audit_logs", "id,user_id,user_name,user_email,created_at",
+        query_fn=lambda q: q.gte("created_at", f"{date_from}T00:00:00Z")
+                            .lte("created_at", f"{date_to}T23:59:59Z")
+                            .not_.is_("user_id", "null")
+                            .order("created_at").order("id"),
+        max_rows=100000,
+    )
 
     # Group by (user_id, calendar-date)
     from collections import defaultdict
@@ -3055,7 +3046,8 @@ async def submit_timesheet(timesheet_id: str, request: Request):
     if not ts_res.data:
         raise HTTPException(404, "Timesheet not found")
     ts = ts_res.data[0]
-    if ts["status"] not in ("draft",):
+    # A rejected timesheet is edited and resubmitted (the UI tells the worker to do exactly that).
+    if ts["status"] not in ("draft", "rejected"):
         raise HTTPException(400, f"Timesheet is already {ts['status']}")
 
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -3474,15 +3466,14 @@ async def get_expense_summary(
         live_eur_to_inr, live_fx_date = 91.5, "fallback"
 
     # Fetch all expenses for target year (+ previous year for YoY comparison)
-    raw = await run(
-        lambda: sb("expenses")
-        .select("id,title,vendor,amount,currency,category,expense_date,"
-                "worker_name,skill,source,created_at")
-        .gte("expense_date", f"{target_year - 1}-01-01")
-        .lte("expense_date", f"{target_year}-12-31")
-        .execute()
+    # Paginated past the 1000-row cap so two years of expenses are never silently truncated.
+    rows = await fetch_all_rows(
+        "expenses",
+        "id,title,vendor,amount,currency,category,expense_date,worker_name,skill,source,created_at",
+        query_fn=lambda q: q.gte("expense_date", f"{target_year - 1}-01-01")
+                            .lte("expense_date", f"{target_year}-12-31")
+                            .order("expense_date").order("id"),
     )
-    rows = raw.data or []
 
     # Pre-fetch historical FX rate for every unique expense date that has a cross-currency row.
     # Each expense is converted at the rate that was live on its own transaction date — not today's rate.
@@ -3918,29 +3909,30 @@ async def get_email_events_stats(request: Request):
     """Return open/click stats + hot leads (opened 3+ times)."""
     user = await get_current_user(request)
     _require_module(user, "sales")
-    sb_client = get_supabase()
-    events_res = await run(lambda: sb_client.table("email_events")
-        .select("*").order("created_at", desc=True).execute())
-    events = events_res.data or []
+    # Paginate past PostgREST's 1000-row cap — a single .execute() silently returned only the
+    # newest 1000 events, so open counts and "hot leads" were wrong once tracking grew.
+    events = await fetch_all_rows("email_events", "*",
+                                  query_fn=lambda q: q.order("created_at", desc=True))
     email_opens = {}
     email_clicks = {}
-    for ev in events:
-        email = ev.get("email_address", "").lower()
+    last_opened = {}
+    subjects = {}
+    for ev in events:   # newest first
+        email = (ev.get("email_address") or "").lower()
         if not email:
             continue
+        subjects.setdefault(email, ev.get("subject"))
         if ev.get("event_type") == "open":
             email_opens[email]  = email_opens.get(email, 0) + 1
+            last_opened.setdefault(email, ev.get("created_at"))
         if ev.get("event_type") == "click":
             email_clicks[email] = email_clicks.get(email, 0) + 1
     hot_leads = [
         {
             "email":       email,
             "open_count":  count,
-            "last_opened": max((ev["created_at"] for ev in events
-                                if ev.get("email_address","").lower() == email
-                                and ev.get("event_type") == "open"), default=None),
-            "subject":     next((ev.get("subject") for ev in events
-                                 if ev.get("email_address","").lower() == email), None),
+            "last_opened": last_opened.get(email),
+            "subject":     subjects.get(email),
         }
         for email, count in email_opens.items()
         if count >= 3
@@ -3954,13 +3946,11 @@ async def get_email_events_map(request: Request):
     """Return { email: { open_count, last_opened, click_count } } map."""
     user = await get_current_user(request)
     _require_module(user, "sales")
-    sb_client = get_supabase()
-    events_res = await run(lambda: sb_client.table("email_events")
-        .select("email_address,event_type,created_at").execute())
-    events = events_res.data or []
+    events = await fetch_all_rows("email_events", "email_address,event_type,created_at",
+                                  query_fn=lambda q: q.order("created_at", desc=True))
     result = {}
     for ev in events:
-        email = ev.get("email_address", "").lower()
+        email = (ev.get("email_address") or "").lower()
         if not email:
             continue
         if email not in result:
@@ -4339,7 +4329,7 @@ async def startup():
     scheduler.add_job(send_timesheet_reminder, CronTrigger(day_of_week="fri", hour=17, minute=0), id="timesheet_reminder", replace_existing=True)
     scheduler.add_job(send_draft_timesheet_reminder, CronTrigger(day_of_week="mon", hour=9, minute=0), id="draft_timesheet_reminder", replace_existing=True)
     # Capture the running event loop so APScheduler threads can submit coroutines to it
-    _bg_loop = asyncio.get_event_loop()
+    _bg_loop = asyncio.get_running_loop()
     scheduler.add_job(lambda: asyncio.run_coroutine_threadsafe(_sync_email_replies(), _bg_loop), trigger="interval", minutes=15, id="email_reply_sync", replace_existing=True)
     scheduler.add_job(lambda: asyncio.run_coroutine_threadsafe(_process_sequences(),   _bg_loop), trigger="interval", hours=1,   id="sequence_processor",  replace_existing=True)
     scheduler.add_job(lambda: asyncio.run_coroutine_threadsafe(_job_daily_insight(), _bg_loop), CronTrigger(hour=7, minute=0), id="ai_insight_daily", replace_existing=True)
@@ -4351,6 +4341,14 @@ async def startup():
     logger.info("[scheduler] Audit log cleanup scheduled at 03:00 daily (keeps 180 days)")
     logger.info(f"[scheduler] Daily digest scheduled at {digest_time}")
     logger.info("[scheduler] Timesheet reminder scheduled at Friday 17:00")
+
+    # A restart kills any in-flight Hiring Intel scan; free its "one active scan" slot.
+    try:
+        recovered = await _hiring_intel.recover_orphaned_runs()
+        if recovered:
+            logger.info(f"[hiring-intel] marked {recovered} interrupted scan(s) as failed")
+    except Exception as _hi_err:
+        logger.warning(f"[hiring-intel] startup recovery skipped: {_hi_err}")
 
     admin_email    = os.environ.get("ADMIN_EMAIL", "admin@nexuscrm.com")
     admin_password = os.environ.get("ADMIN_PASSWORD", "Admin123!")
@@ -5213,6 +5211,14 @@ async def integrations_dashboard(
                          "cloudtalk": _integ.cloudtalk_configured()},
     }
 
+
+# ── Hiring Intel (Irish Data & AI hiring signals → ICP contact sheet) ──
+# Lives in its own module; wired to the same Supabase helpers and auth guard.
+import hiring_intel as _hiring_intel
+app.include_router(_hiring_intel.init(
+    sb=sb, run=run, get_current_user=get_current_user,
+    require_module=_require_module, audit=_audit,
+))
 
 app.include_router(api_router)
 app.add_middleware(GZipMiddleware, minimum_size=512)  # compress JSON > 512 bytes

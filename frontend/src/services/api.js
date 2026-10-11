@@ -365,6 +365,18 @@ export const expensesAPI = {
   delete: (id) => api.delete(`/expenses/${id}`),
 };
 
+// Hiring Intel — Irish Data & AI hiring signals → ICP contact sheet
+export const hiringIntelAPI = {
+  getConfig:     ()               => api.get('/hiring-intel/config'),
+  listRuns:      ()               => api.get('/hiring-intel/runs'),
+  startRun:      (params)         => api.post('/hiring-intel/runs', params),
+  getRun:        (id, params)     => api.get(`/hiring-intel/runs/${id}`, { params }),
+  cancelRun:     (id)             => api.post(`/hiring-intel/runs/${id}/cancel`),
+  deleteRun:     (id)             => api.delete(`/hiring-intel/runs/${id}`),
+  refreshPhones: (id)             => api.post(`/hiring-intel/runs/${id}/refresh-phones`),
+  pushToCrm:     (id, companyKeys) => api.post(`/hiring-intel/runs/${id}/push-to-crm`, { company_keys: companyKeys }),
+};
+
 // Timesheet APIs
 export const timesheetAPI = {
   getCurrent:    ()                   => api.get('/timesheets/me/current'),
