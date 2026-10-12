@@ -305,6 +305,40 @@ def is_agency(name: Any, industry: Any = "") -> bool:
     return bool(_AGENCY_NAME.search(_ascii(name))) or company_key(name) in _AGENCY_KNOWN
 
 
+# Employers that post many Data/AI roles in Ireland but are far over 100 staff. Screening them out
+# BEFORE the Apollo lookup saves a credit each and stops them eating the lookup budget.
+# Exact company_key match only, so "Kerry" does not catch "Kerry Analytics".
+_KNOWN_LARGE = {
+    "google", "alphabet", "meta", "facebook", "microsoft", "amazon", "amazon web services", "aws", "apple",
+    "linkedin", "salesforce", "workday", "stripe", "intercom", "hubspot", "tiktok", "bytedance", "intel", "ibm",
+    "oracle", "sap", "dell", "dell technologies", "hp", "hewlett packard enterprise", "cisco", "vmware",
+    "broadcom", "qualcomm", "analog devices", "mastercard", "visa", "paypal", "fidelity", "fidelity investments",
+    "fidelity international", "state street", "citi", "citibank", "citigroup", "jpmorgan chase", "jpmorgan",
+    "j p morgan", "jp morgan", "bank of america", "barclays", "bny", "bny mellon", "northern trust",
+    "deutsche bank", "aib", "allied irish banks", "bank of ireland", "ptsb", "permanent tsb",
+    "central bank of ireland", "accenture", "deloitte", "pwc", "pricewaterhousecoopers", "ey", "ernst and young",
+    "kpmg", "grant thornton", "bdo", "forvis mazars", "mazars", "capgemini", "cognizant", "infosys",
+    "tata consultancy services", "tcs", "wipro", "hcltech", "hcl technologies", "version 1", "fexco", "pfizer",
+    "johnson and johnson", "medtronic", "boston scientific", "abbott", "stryker", "eli lilly", "msd", "novartis",
+    "roche", "icon", "iqvia", "ryanair", "aer lingus", "vodafone", "eir", "three", "esb", "bord gais energy",
+    "hse", "health service executive", "an post", "crh", "kerry", "glanbia", "smurfit kappa", "smurfit westrock",
+    "flutter", "flutter entertainment", "paddy power", "betfair", "primark", "tesco", "aldi", "lidl", "aviva",
+    "zurich", "axa", "allianz", "fbd", "irish life", "new ireland assurance", "chubb", "aig", "workhuman",
+    "kaseya", "fenergo", "optum", "unitedhealth", "elavon", "global payments", "fiserv", "worldline",
+}
+
+
+def is_known_large(name: Any) -> bool:
+    return company_key(name) in _KNOWN_LARGE
+
+
+def lookup_budget(max_companies: int) -> int:
+    """How many hiring companies may be looked up in Apollo per scan (~1 credit each, cached 21 days).
+    Deliberately decoupled from max_companies: most companies looked up turn out to be too big,
+    so finding N small ones needs several times N lookups. Mirrored in HiringIntel.js (creditHint)."""
+    return min(60, max(20, 3 * int(max_companies)))
+
+
 # ── Job identity / de-duplication ───────────────────────────────────────
 _TITLE_NOISE = {
     "m", "f", "d", "w", "x", "remote", "hybrid", "onsite", "on", "site", "ireland", "dublin", "cork",
@@ -773,6 +807,12 @@ class Company:
     city: str = ""
     phone: str = ""
     resolved: bool = False           # Apollo data attached
+    # Apollo's search returns slim organisation records that often lack headcount / country.
+    # When Apollo itself matched the company under an employee-range or HQ filter, that IS the
+    # verification, even if the number isn't in the payload.
+    size_ok: bool = False            # matched under organization_num_employees_ranges (< 100)
+    hq_ok: bool = False              # matched under organization_locations = Ireland
+    lookup_state: str = ""           # "" | matched | no_match | skipped | failed | cached
     discovered_by: set = field(default_factory=set)
     jobs: Dict[str, Dict[str, Any]] = field(default_factory=dict)   # title_key -> merged job
     reject_reason: str = ""
@@ -904,6 +944,10 @@ class CompanyRegistry:
         if into.size is None:
             into.size = other.size
         into.resolved = into.resolved or other.resolved
+        into.size_ok = into.size_ok or other.size_ok
+        into.hq_ok = into.hq_ok or other.hq_ok
+        if not into.lookup_state:
+            into.lookup_state = other.lookup_state
         other.merged_into = into
         if other in self.items:
             self.items.remove(other)
@@ -931,6 +975,8 @@ class CompanyRegistry:
         c.city = c.city or clean_text(org.get("city"), 80)
         primary = org.get("primary_phone") or {}
         c.phone = c.phone or str(org.get("sanitized_phone") or (primary.get("sanitized_number") if isinstance(primary, dict) else "") or org.get("phone") or "")
+        c.size_ok = c.size_ok or bool(org.get("size_ok"))
+        c.hq_ok = c.hq_ok or bool(org.get("hq_ok"))
         c.resolved = True
         self.reindex(c)
         return c
@@ -946,7 +992,7 @@ class RunParams(BaseModel):
     hq_ireland_only: bool = True
     require_verified_headcount: bool = True
     max_headcount: int = Field(99, ge=1, le=99)          # "< 100"
-    max_companies: int = Field(50, ge=5, le=150)          # cap on companies taken to the contact stage
+    max_companies: int = Field(50, ge=1, le=150)          # cap on companies taken to the contact stage
     contacts_per_company: int = Field(3, ge=1, le=5)
     reveal_phones: bool = False                           # Apollo charges ~8 credits per mobile
     sources: List[str] = Field(default_factory=lambda: list(ALL_SOURCES))
@@ -1029,8 +1075,10 @@ class RunContext:
             "sources": {},
             "filtered": {"not_data_ai": 0, "not_ireland": 0, "northern_ireland": 0, "employment_type": 0,
                          "headcount_too_big": 0, "headcount_unverified": 0, "agency": 0, "hq_outside_ireland": 0,
-                         "hq_unknown": 0, "no_qualifying_jobs": 0, "over_company_cap": 0, "older_than_window": 0},
-            "apollo": {"search_calls": 0, "lookup_calls": 0, "lookups_cached": 0, "job_posting_calls": 0,
+                         "hq_unknown": 0, "no_qualifying_jobs": 0, "over_company_cap": 0, "older_than_window": 0,
+                         "known_large": 0, "apollo_no_match": 0, "over_lookup_cap": 0},
+            "apollo": {"search_calls": 0, "lookup_calls": 0, "lookups_cached": 0, "lookups_skipped": 0,
+                       "job_posting_calls": 0,
                        "people_search_calls": 0, "enrich_calls": 0, "credits_consumed": 0.0, "contacts_reused": 0},
             "warnings": [],
         }
@@ -1200,7 +1248,7 @@ async def source_linkedin(ctx: RunContext, reg: CompanyRegistry) -> None:
                     r = await ctx.web_get(LINKEDIN_SEARCH_URL, params=params, headers=headers)
                     ctx.source_stat(name, requests=1)
                     if r is not None and r.status_code == 429 and attempt == 0:
-                        ctx.log("LinkedIn asked us to slow down — pausing 20s")
+                        ctx.log("LinkedIn rate limit — waiting 20s, then continuing (this is normal)")
                         await asyncio.sleep(20)
                         continue
                     break
@@ -1296,6 +1344,7 @@ async def source_apollo_companies(ctx: RunContext, reg: CompanyRegistry) -> None
         return
     ctx.source_stat(name, status="running")
     since = (date.today() - timedelta(days=ctx.p.days_back)).isoformat()
+    p_hq = bool(ctx.p.hq_ireland_only)
     found = 0
     for page in (1, 2, 3):
         ctx.check_cancel()
@@ -1317,7 +1366,11 @@ async def source_apollo_companies(ctx: RunContext, reg: CompanyRegistry) -> None
                                   linkedin=org.get("linkedin_url") or "",
                                   apollo_id=str(org.get("organization_id") or org.get("id") or ""))
             if c:
-                reg.apply_apollo_org(c, org)
+                # This search ran under the employee-range filter (and the Irish-HQ filter when that
+                # setting is on), so Apollo has already verified both even if the slim search
+                # record carries no headcount / country fields.
+                reg.apply_apollo_org(c, {**org, "size_ok": True, "hq_ok": p_hq})
+                c.lookup_state = "matched"
                 c.discovered_by.add(name)
                 found += 1
         pg = data.get("pagination") or {}
@@ -1403,17 +1456,59 @@ CACHE_MAX_AGE_DAYS = 21
 CACHE_MAX_ENTRIES = 1000
 
 
+def lookup_mode(p: "RunParams") -> str:
+    """Which Apollo filters a lookup runs under: 's' = employee ranges (< 100), 'h' = HQ in Ireland.
+    With "Only companies confirmed under 100 staff" OFF the lookup is unfiltered, so a company Apollo
+    doesn't know can still be kept (that is what the toggle promises)."""
+    if not p.require_verified_headcount:
+        return ""
+    return "s" + ("h" if p.hq_ireland_only else "")
+
+
+def lookup_params(name: str, mode: str) -> List[Tuple[str, Any]]:
+    params: List[Tuple[str, Any]] = [("q_organization_name", name), ("page", 1), ("per_page", 10)]
+    if "s" in mode:
+        params += [("organization_num_employees_ranges[]", r) for r in APOLLO_EMPLOYEE_RANGES]
+    if "h" in mode:
+        params += [("organization_locations[]", "Ireland")]
+    return params
+
+
 def _cache_put(ctx: RunContext, keys: List[str], org: Optional[Dict[str, Any]],
-               learned_at: Optional[str] = None) -> None:
-    """learned_at: keep the original lookup time when re-saving a cache hit, so entries really expire."""
-    entry = ({k: org.get(k) for k in CACHE_FIELDS if org.get(k) not in (None, "")} if org else {"unmatched": True})
+               learned_at: Optional[str] = None, mode: str = "") -> None:
+    """learned_at: keep the original lookup time when re-saving a cache hit, so entries really expire.
+    mode: the filters the lookup ran under — a 'no match' only means something under those filters."""
+    if org:
+        entry = {k: org.get(k) for k in CACHE_FIELDS if org.get(k) not in (None, "")}
+        if org.get("size_ok"):
+            entry["size_ok"] = True
+        if org.get("hq_ok"):
+            entry["hq_ok"] = True
+    else:
+        entry = {"unmatched": True}
+    entry["mode"] = mode
     entry["t"] = learned_at or _iso()
     for k in keys:
         if k and len(ctx.company_cache_out) < CACHE_MAX_ENTRIES:
             ctx.company_cache_out[k] = entry
 
 
-def _cache_get(ctx: RunContext, keys: List[str]) -> Optional[Dict[str, Any]]:
+def cache_entry_usable(e: Dict[str, Any], mode: str) -> bool:
+    """Can a cached lookup answer a lookup made under `mode`?
+    * 'no match' under fewer filters (or none) is still 'no match' under more filters.
+    * a match must carry the facts the current mode needs — the number itself or the filter flag.
+      (Entries written before this change have no mode: they were unfiltered lookups.)"""
+    emode = str(e.get("mode") or "")
+    if e.get("unmatched"):
+        return set(emode) <= set(mode)
+    if "s" in mode and not (e.get("size_ok") or e.get("estimated_num_employees") not in (None, "")):
+        return False
+    if "h" in mode and not (e.get("hq_ok") or e.get("country")):
+        return False
+    return True
+
+
+def _cache_get(ctx: RunContext, keys: List[str], mode: Optional[str] = None) -> Optional[Dict[str, Any]]:
     for k in keys:
         e = ctx.company_cache_in.get(k)
         if not e:
@@ -1422,8 +1517,11 @@ def _cache_get(ctx: RunContext, keys: List[str]) -> Optional[Dict[str, Any]]:
             age = _now() - datetime.fromisoformat(str(e.get("t")).replace("Z", "+00:00"))
         except Exception:
             continue
-        if age.days <= CACHE_MAX_AGE_DAYS:
-            return e
+        if age.days > CACHE_MAX_AGE_DAYS:
+            continue
+        if mode is not None and not cache_entry_usable(e, mode):
+            continue
+        return e
     return None
 
 
@@ -1449,9 +1547,20 @@ def _lookup_keys(c: Company) -> List[str]:
     return keys
 
 
+def lookup_order(companies: List[Company]) -> List[Company]:
+    """Who gets the limited Apollo lookups first. Companies with FEW open Data/AI roles first:
+    a firm posting 10+ data roles in a fortnight is almost never under 100 staff, and sorting the
+    other way round (as before) spent the whole budget on exactly those firms. A LinkedIn company
+    page breaks ties because it makes the Apollo match exact."""
+    return sorted(companies, key=lambda c: (len(c.jobs), 0 if linkedin_company_slug(c.linkedin) else 1,
+                                            c.name.lower()))
+
+
 async def resolve_companies(ctx: RunContext, reg: CompanyRegistry) -> None:
+    mode = lookup_mode(ctx.p)
     pending = [c for c in reg.items if not c.resolved and c.jobs
-               and not is_agency(c.name) and c.key not in OWN_COMPANY_KEYS]   # never spend a credit on a drop
+               and not is_agency(c.name) and c.key not in OWN_COMPANY_KEYS
+               and not is_known_large(c.name)]          # never spend a credit on a certain drop
     if not pending:
         return
     if ctx.apollo_disabled:
@@ -1460,21 +1569,29 @@ async def resolve_companies(ctx: RunContext, reg: CompanyRegistry) -> None:
     # Firmographics learned in a previous run are re-used (each Apollo lookup costs a credit).
     still: List[Company] = []
     for c in pending:
-        hit = _cache_get(ctx, _lookup_keys(c))
+        hit = _cache_get(ctx, _lookup_keys(c), mode)
         if hit is None:
             still.append(c)
             continue
         ctx.stats["apollo"]["lookups_cached"] += 1
-        _cache_put(ctx, _lookup_keys(c), None if hit.get("unmatched") else hit, learned_at=hit.get("t"))
-        if not hit.get("unmatched"):
+        _cache_put(ctx, _lookup_keys(c), None if hit.get("unmatched") else hit,
+                   learned_at=hit.get("t"), mode=str(hit.get("mode") or ""))
+        if hit.get("unmatched"):
+            c.lookup_state = "no_match" if hit.get("mode") else "unknown"
+        else:
             reg.apply_apollo_org(c, hit)
-    # Most active hirers first, so the credit cap drops the weakest signals.
-    still.sort(key=lambda c: -len(c.jobs))
-    batch = still[: ctx.p.max_companies * 2]
+            c.lookup_state = "cached"
+    still = lookup_order(still)
+    budget = lookup_budget(ctx.p.max_companies)
+    batch, skipped = still[:budget], still[budget:]
+    for c in skipped:
+        c.lookup_state = "skipped"
+    ctx.stats["apollo"]["lookups_skipped"] = len(skipped)
     if not batch:
         return
-    ctx.log(f"Looking up {len(batch)} hiring companies in Apollo for headcount and HQ"
-            f" ({ctx.stats['apollo']['lookups_cached']} already known from earlier scans)")
+    ctx.log(f"Checking {len(batch)} hiring companies in Apollo for headcount and HQ"
+            f" ({ctx.stats['apollo']['lookups_cached']} already known from earlier scans"
+            f"{f', {len(skipped)} over the lookup limit' if skipped else ''})")
     done = 0
 
     async def one(c: Company) -> None:
@@ -1482,53 +1599,88 @@ async def resolve_companies(ctx: RunContext, reg: CompanyRegistry) -> None:
         ctx.check_cancel()
         keys = _lookup_keys(c)
         data = await ctx.apollo_call("POST", "/mixed_companies/search", kind="lookup_calls",
-                                     params=[("q_organization_name", c.name), ("page", 1), ("per_page", 10)])
+                                     params=lookup_params(c.name, mode))
         done += 1
         ctx.bump(35 + 10 * done / len(batch))
         if data is None:
+            c.lookup_state = "failed"
             return                                   # failed call: don't cache, retry next scan
         org = _best_org_match(c, (data.get("organizations") or []) + (data.get("accounts") or []))
-        _cache_put(ctx, keys, org)
+        if org:
+            # Apollo matched it UNDER the filters, so the filters are verified facts about it.
+            org = {**org, "size_ok": "s" in mode, "hq_ok": "h" in mode}
+        _cache_put(ctx, keys, org, mode=mode)
         if org:
             reg.apply_apollo_org(c, org)
+            c.lookup_state = "matched"
+        else:
+            c.lookup_state = "no_match" if mode else "unknown"
 
     results = await asyncio.gather(*(one(c) for c in batch), return_exceptions=True)
     if any(isinstance(r, RunCancelled) for r in results):
         raise RunCancelled()
-    unresolved = len([c for c in batch if not c.resolved])
-    if unresolved:
-        ctx.log(f"{unresolved} companies could not be matched in Apollo (headcount unknown)")
+    matched = len([c for c in batch if c.resolved])
+    if mode:
+        ctx.log(f"Apollo confirmed {matched} of {len(batch)} as under 100 staff"
+                f"{' with an Irish HQ' if 'h' in mode else ''}")
+    elif matched < len(batch):
+        ctx.log(f"{len(batch) - matched} companies could not be matched in Apollo (headcount unknown)")
+
+
+FILTER_REASON_TEXT = {
+    "agency": "recruitment agencies",
+    "known_large": "known large employers",
+    "headcount_too_big": "100+ staff",
+    "apollo_no_match": "not confirmed under 100 staff / Irish HQ by Apollo",
+    "headcount_unverified": "headcount unknown",
+    "over_lookup_cap": "not checked (Apollo lookup limit)",
+    "hq_outside_ireland": "HQ outside Ireland",
+    "hq_unknown": "HQ unknown",
+}
 
 
 def qualify(ctx: RunContext, reg: CompanyRegistry) -> List[Company]:
     keep: List[Company] = []
     f = ctx.stats["filtered"]
+    dropped: Dict[str, int] = {}
+
+    def drop(c: Company, reason: str, key: str) -> None:
+        c.reject_reason = reason
+        f[key] = f.get(key, 0) + 1
+        dropped[key] = dropped.get(key, 0) + 1
+
     for c in reg.items:
         if c.key in OWN_COMPANY_KEYS:
             c.reject_reason = "own company"
             continue
         if is_agency(c.name, c.industry):
-            c.reject_reason = "recruitment agency"
-            f["agency"] += 1
+            drop(c, "recruitment agency", "agency")
             continue
-        if c.size is None:
-            if ctx.p.require_verified_headcount:
-                c.reject_reason = "headcount unknown"
-                f["headcount_unverified"] += 1
+        if c.size is not None:
+            if c.size > ctx.p.max_headcount or c.size < 1:
+                drop(c, f"headcount {c.size}", "headcount_too_big")
                 continue
-        elif c.size > ctx.p.max_headcount or c.size < 1:
-            c.reject_reason = f"headcount {c.size}"
-            f["headcount_too_big"] += 1
+        elif is_known_large(c.name):
+            drop(c, "known large employer", "known_large")
+            continue
+        elif not c.size_ok and ctx.p.require_verified_headcount:
+            if c.lookup_state == "skipped":
+                drop(c, "not checked — Apollo lookup limit", "over_lookup_cap")
+            elif c.lookup_state == "no_match":
+                drop(c, "not confirmed under 100 staff in Apollo", "apollo_no_match")
+            else:
+                drop(c, "headcount unknown", "headcount_unverified")
             continue
         if ctx.p.hq_ireland_only and c.country and not is_irish_country(c.country):
-            c.reject_reason = f"HQ in {c.country}"
-            f["hq_outside_ireland"] += 1
+            drop(c, f"HQ in {c.country}", "hq_outside_ireland")
             continue
-        if ctx.p.hq_ireland_only and not c.country and ctx.p.require_verified_headcount:
-            c.reject_reason = "HQ unknown"
-            f["hq_unknown"] += 1
+        if ctx.p.hq_ireland_only and not c.country and not c.hq_ok and ctx.p.require_verified_headcount:
+            drop(c, "HQ unknown", "hq_unknown")
             continue
         keep.append(c)
+    if dropped:
+        parts = [f"{n} {FILTER_REASON_TEXT.get(k, k)}" for k, n in sorted(dropped.items(), key=lambda kv: -kv[1])]
+        ctx.log("Dropped: " + ", ".join(parts))
     return keep
 
 
@@ -1647,8 +1799,16 @@ async def apollo_job_postings(ctx: RunContext, reg: CompanyRegistry, c: Company)
     return added
 
 
-async def stage_websites(ctx: RunContext, reg: CompanyRegistry, companies: List[Company]) -> None:
-    targets = companies[: ctx.p.max_companies]
+def website_targets(companies: List[Company], max_companies: int) -> List[Company]:
+    """Companies whose careers pages get read. Those with roles already found fill the cap first;
+    companies Apollo flagged as hiring (no role title yet) get their own allowance, because their
+    website / Apollo postings are the only way to find the actual roles."""
+    with_jobs = [c for c in companies if c.jobs][:max_companies]
+    without = [c for c in companies if not c.jobs][:max(max_companies, 10)]
+    return with_jobs + without
+
+
+async def stage_websites(ctx: RunContext, reg: CompanyRegistry, targets: List[Company]) -> None:
     done = 0
 
     async def one(c: Company) -> None:
@@ -2035,17 +2195,23 @@ async def pipeline(ctx: RunContext) -> Dict[str, int]:
     candidates = qualify(ctx, reg)
     # Companies Apollo found as hiring come in with no jobs yet — they stay candidates for the website stage.
     candidates.sort(key=lambda c: (-len(c.jobs), c.name.lower()))
-    if len(candidates) > p.max_companies:
-        ctx.stats["filtered"]["over_company_cap"] += len(candidates) - p.max_companies
     ctx.log(f"{len(candidates)} companies pass the headcount / Ireland / non-agency checks")
+    if not candidates:
+        ctx.warn("No company passed the checks — open “How this scan found and filtered results” to see why. "
+                 "A longer “Posted within” window or a higher “Max companies” gives Apollo more to check.")
     ctx.check_cancel()
 
     # 3 ── COMPANY WEBSITES (+ Apollo job postings as a fallback)
     ctx.set_stage("websites", 45)
-    await stage_websites(ctx, reg, candidates)
-    final = [c for c in candidates[: p.max_companies] if c.jobs]
-    ctx.stats["filtered"]["no_qualifying_jobs"] += len([c for c in candidates[: p.max_companies] if not c.jobs])
-    final.sort(key=lambda c: (-len(c.jobs), c.name.lower()))
+    targets = website_targets(candidates, p.max_companies)
+    await stage_websites(ctx, reg, targets)
+    with_roles = [c for c in targets if c.jobs]
+    ctx.stats["filtered"]["no_qualifying_jobs"] += len([c for c in targets if not c.jobs])
+    with_roles.sort(key=lambda c: (-len(c.jobs), c.name.lower()))
+    final = with_roles[: p.max_companies]
+    over_cap = len(with_roles) - len(final) + len([c for c in candidates if c not in targets])
+    if over_cap > 0:
+        ctx.stats["filtered"]["over_company_cap"] += over_cap
     ctx.log(f"{len(final)} companies with {sum(len(c.jobs) for c in final)} matching open roles")
     ctx.check_cancel()
 

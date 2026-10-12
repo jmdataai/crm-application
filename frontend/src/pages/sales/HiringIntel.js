@@ -93,6 +93,40 @@ const storeParams = (p) => {
   try { localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(p)); } catch { /* private mode */ }
 };
 
+// Limits mirror RunParams in backend/hiring_intel.py — a value outside them makes the scan request fail (422).
+const NUM_LIMITS = {
+  max_companies: { min: 1, max: 150 },
+  contacts_per_company: { min: 1, max: 5 },
+};
+const clampInt = (v, { min, max }, fallback) => {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+};
+// Settings remembered on this device can be stale (older limits, removed options, hand-edited
+// storage). Rebuild them on top of the server defaults so a bad value can never break a scan.
+const sanitizeParams = (stored, defaults) => {
+  const s = stored && typeof stored === 'object' ? stored : {};
+  const out = { ...defaults };
+  if (DAYS_OPTIONS.some((o) => o.v === s.days_back)) out.days_back = s.days_back;
+  Object.entries(NUM_LIMITS).forEach(([k, lim]) => {
+    if (s[k] !== undefined) out[k] = clampInt(s[k], lim, defaults[k]);
+  });
+  ['include_unspecified_type', 'hq_ireland_only', 'require_verified_headcount', 'reveal_phones'].forEach((k) => {
+    if (typeof s[k] === 'boolean') out[k] = s[k];
+  });
+  if (Array.isArray(s.employment_types)) {
+    const t = ['Permanent', 'Contract'].filter((x) => s.employment_types.includes(x));
+    if (t.length) out.employment_types = t;
+  }
+  if (Array.isArray(s.sources)) out.sources = s.sources.filter((x) => typeof x === 'string');
+  if (Array.isArray(s.extra_keywords)) {
+    out.extra_keywords = s.extra_keywords.filter((x) => typeof x === 'string' && x.trim()).slice(0, 8);
+  }
+  return out;
+};
+const parseKeywords = (text) => String(text || '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 8);
+
 // ── small building blocks ─────────────────────────────────────
 const StatusChip = ({ status }) => {
   const s = STATUS_STYLE[status] || STATUS_STYLE.cancelled;
@@ -118,6 +152,39 @@ const Toggle = ({ checked, onChange, label, sub, disabled }) => (
     </span>
   </label>
 );
+
+// Whole-number input you can actually type into: the text is kept as typed (empty is allowed while
+// editing), valid values are applied immediately, and the value is clamped only when you leave the
+// field or press Enter. Clamping on every keystroke made "10" impossible to type (1 -> clamped to 5).
+const NumberField = ({ label, value, min, max, onCommit, hint }) => {
+  const [draft, setDraft] = useState(String(value));
+  const [focused, setFocused] = useState(false);
+  useEffect(() => { if (!focused) setDraft(String(value)); }, [value, focused]);
+  const parsed = draft.trim() === '' ? NaN : Number(draft);
+  const valid = Number.isInteger(parsed) && parsed >= min && parsed <= max;
+  const commit = () => {
+    const n = clampInt(draft.trim() === '' ? value : draft, { min, max }, value);
+    setDraft(String(n));
+    if (n !== value) onCommit(n);
+  };
+  return (
+    <label>
+      <span className="hi-field-label">{label}</span>
+      <input className={`input${!valid && focused ? ' hi-input-invalid' : ''}`} type="number" inputMode="numeric"
+             min={min} max={max} step={1} value={draft}
+             onFocus={(e) => { setFocused(true); e.target.select(); }}
+             onChange={(e) => {
+               const t = e.target.value;
+               setDraft(t);
+               const n = Number(t);
+               if (t.trim() !== '' && Number.isInteger(n) && n >= min && n <= max && n !== value) onCommit(n);
+             }}
+             onBlur={() => { setFocused(false); commit(); }}
+             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }} />
+      <span className={`hi-field-hint${!valid && focused ? ' is-error' : ''}`}>{hint || `${min}–${max}`}</span>
+    </label>
+  );
+};
 
 const Kpi = ({ icon, label, value, sub, tone }) => (
   <div className="hi-kpi" style={{ '--tone': tone || 'var(--primary)' }}>
@@ -196,6 +263,7 @@ export default function HiringIntel() {
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [params, setParams] = useState(null);
+  const [kwDraft, setKwDraft] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [starting, setStarting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -265,11 +333,12 @@ export default function HiringIntel() {
         if (!alive) return;
         setConfig(data);
         const stored = readStoredParams();
-        const merged = { ...data.defaults, ...(stored || {}) };
+        const merged = sanitizeParams(stored, data.defaults);
         // never carry a source that is no longer configured
         merged.sources = (merged.sources || []).filter((s) => data.sources?.[s]?.configured);
         if (!merged.sources.length) merged.sources = data.defaults.sources;
         setParams(merged);
+        setKwDraft((merged.extra_keywords || []).join(', '));
       } catch (e) {
         if (alive) setLoadError(formatApiError(e));
       }
@@ -516,7 +585,8 @@ export default function HiringIntel() {
   const creditHint = useMemo(() => {
     if (!params) return '';
     const contacts = params.max_companies * params.contacts_per_company;
-    const lookups = params.max_companies * 2;
+    // mirrors lookup_budget() in backend/hiring_intel.py
+    const lookups = Math.min(60, Math.max(20, 3 * params.max_companies));
     let s = `Worst case ≈ ${lookups + 3} search + ${contacts} email credits`;
     if (params.reveal_phones) s += ` + ${contacts * 8} phone credits`;
     return `${s}. Companies and contacts already looked up in the last 5 scans are re-used free.`;
@@ -626,9 +696,10 @@ export default function HiringIntel() {
                       label="Include roles with no stated type" sub="Many careers pages don't say permanent or contract" />
               <div className="hi-field-label" style={{ marginTop: '0.875rem' }}>Extra search keywords</div>
               <input className="input" placeholder="e.g. dbt, Databricks, data platform"
-                     key={(params.extra_keywords || []).join('|')}
-                     defaultValue={(params.extra_keywords || []).join(', ')}
-                     onBlur={(e) => updateParams({ extra_keywords: e.target.value.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 8) })} />
+                     value={kwDraft} maxLength={500}
+                     onChange={(e) => { setKwDraft(e.target.value); updateParams({ extra_keywords: parseKeywords(e.target.value) }); }}
+                     onBlur={() => setKwDraft((params.extra_keywords || []).join(', '))} />
+              <span className="hi-field-hint">Comma-separated, up to 8. Each one adds LinkedIn searches.</span>
             </section>
 
             <section>
@@ -662,16 +733,12 @@ export default function HiringIntel() {
             <section>
               <h3 className="hi-h3">Contacts &amp; Apollo credits</h3>
               <div className="hi-number-row">
-                <label>
-                  <span className="hi-field-label">Max companies</span>
-                  <input className="input" type="number" min={5} max={150} value={params.max_companies}
-                         onChange={(e) => updateParams({ max_companies: Math.max(5, Math.min(150, Number(e.target.value) || 5)) })} />
-                </label>
-                <label>
-                  <span className="hi-field-label">Contacts / company</span>
-                  <input className="input" type="number" min={1} max={5} value={params.contacts_per_company}
-                         onChange={(e) => updateParams({ contacts_per_company: Math.max(1, Math.min(5, Number(e.target.value) || 1)) })} />
-                </label>
+                <NumberField label="Max companies" value={params.max_companies}
+                             {...NUM_LIMITS.max_companies}
+                             onCommit={(n) => updateParams({ max_companies: n })} />
+                <NumberField label="Contacts / company" value={params.contacts_per_company}
+                             {...NUM_LIMITS.contacts_per_company}
+                             onCommit={(n) => updateParams({ contacts_per_company: n })} />
               </div>
               <Toggle checked={params.reveal_phones} onChange={(v) => updateParams({ reveal_phones: v })}
                       disabled={!apolloReady}
@@ -684,6 +751,7 @@ export default function HiringIntel() {
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button className="btn-ghost" onClick={() => {
                 updateParams({ ...config.defaults });
+                setKwDraft((config.defaults.extra_keywords || []).join(', '));
               }}>Reset to defaults</button>
               <button className="btn-primary" onClick={startScan} disabled={starting || isActive}>
                 <Icon name="play_arrow" filled /> Run scan
@@ -976,8 +1044,11 @@ function FunnelNote({ stats }) {
     ['Northern Ireland', f.northern_ireland],
     ['Part-time / internship / type not wanted', f.employment_type],
     ['Recruitment agency', f.agency],
+    ['Known large employer (no credits spent)', f.known_large],
     ['100+ employees', f.headcount_too_big],
+    ['Not confirmed under 100 staff / Irish HQ by Apollo', f.apollo_no_match],
     ['Headcount unknown in Apollo', f.headcount_unverified],
+    ['Not checked — Apollo lookup limit reached', f.over_lookup_cap],
     ['HQ outside Ireland', f.hq_outside_ireland],
     ['HQ location unknown', f.hq_unknown],
     ['Posted before the time window', f.older_than_window],
@@ -1014,6 +1085,7 @@ function FunnelNote({ stats }) {
             <div className="hi-field-label">Apollo usage</div>
             <div className="hi-funnel-row"><span>Company searches / lookups</span><strong>{(a.search_calls || 0) + (a.lookup_calls || 0)}</strong></div>
             <div className="hi-funnel-row"><span>Lookups re-used from earlier scans</span><strong>{a.lookups_cached || 0}</strong></div>
+            {a.lookups_skipped ? <div className="hi-funnel-row"><span>Companies not checked (lookup limit)</span><strong>{a.lookups_skipped}</strong></div> : null}
             <div className="hi-funnel-row"><span>People searches (free)</span><strong>{a.people_search_calls || 0}</strong></div>
             <div className="hi-funnel-row"><span>Contacts re-used (no credits)</span><strong>{a.contacts_reused || 0}</strong></div>
             <div className="hi-funnel-row"><span>Enrichment credits reported by Apollo</span><strong>{Number(a.credits_consumed || 0).toLocaleString('en-IE')}</strong></div>
@@ -1241,6 +1313,9 @@ const HI_CSS = `
 .hi-switch.on span { transform: translateX(14px); }
 .hi-toggle input:focus-visible + span .hi-toggle-label, .hi-toggle:focus-within .hi-switch { outline: 2px solid rgba(68,104,176,.35); outline-offset: 2px; }
 .hi-number-row { display:grid; grid-template-columns: 1fr 1fr; gap:.75rem; }
+.hi-field-hint { display:block; margin-top:.3rem; font-size:.6875rem; color: var(--on-surface-variant); }
+.hi-field-hint.is-error { color: var(--error); }
+.hi-input-invalid { border-color: var(--error) !important; box-shadow: 0 0 0 3px rgba(220,38,38,.12) !important; }
 .hi-live { border-color: rgba(68,104,176,.35); background: linear-gradient(180deg, rgba(68,104,176,.06), var(--surface-container-lowest) 60%); }
 .hi-live-head { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; margin-bottom:.875rem; }
 .hi-live-title { font-weight:700; font-size:1rem; }
