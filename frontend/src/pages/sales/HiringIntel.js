@@ -587,7 +587,9 @@ export default function HiringIntel() {
     const contacts = params.max_companies * params.contacts_per_company;
     // mirrors lookup_budget() in backend/hiring_intel.py
     const lookups = Math.min(60, Math.max(20, 3 * params.max_companies));
-    let s = `Worst case ≈ ${lookups + 3} search + ${contacts} email credits`;
+    // mirrors verify_budget(): real headcount / industry / parent group for the shortlist
+    const enrich = Math.min(60, 2 * params.max_companies + 10);
+    let s = `Worst case ≈ ${lookups + 3} search + ${enrich} company-check + ${contacts} email credits`;
     if (params.reveal_phones) s += ` + ${contacts * 8} phone credits`;
     return `${s}. Companies and contacts already looked up in the last 5 scans are re-used free.`;
   }, [params]);
@@ -726,8 +728,10 @@ export default function HiringIntel() {
                   );
                 })}
               </div>
-              <p className="hi-note"><Icon name="shield" style={{ fontSize: '0.9rem' }} /> Recruitment agencies and JM Data
-                Talent itself are always excluded.</p>
+              <p className="hi-note"><Icon name="shield" style={{ fontSize: '0.9rem' }} /> Always excluded: staffing,
+                recruitment and HR firms (checked by name, website, LinkedIn page, Apollo industry and the job ad
+                itself), known large employers and JM Data Talent. With the first toggle on, companies that belong to
+                a larger group are excluded too.</p>
             </section>
 
             <section>
@@ -1034,7 +1038,15 @@ export default function HiringIntel() {
 // ── "How this scan filtered" — makes every number traceable ──
 function FunnelNote({ stats }) {
   const [open, setOpen] = useState(false);
+  const [rq, setRq] = useState('');
   if (!stats) return null;
+  // over-the-cap entries are not a judgement on the company, so list them last
+  const rejected = [...(stats.rejected || [])].sort((x, y) =>
+    (x.reason.startsWith('over the company cap') ? 1 : 0) - (y.reason.startsWith('over the company cap') ? 1 : 0));
+  const rql = rq.trim().toLowerCase();
+  const rejectedShown = rql
+    ? rejected.filter((r) => `${r.company} ${r.reason}`.toLowerCase().includes(rql))
+    : rejected;
   const f = stats.filtered || {};
   const a = stats.apollo || {};
   const sources = stats.sources || {};
@@ -1043,12 +1055,15 @@ function FunnelNote({ stats }) {
     ['Outside the Republic of Ireland', f.not_ireland],
     ['Northern Ireland', f.northern_ireland],
     ['Part-time / internship / type not wanted', f.employment_type],
-    ['Recruitment agency', f.agency],
+    ['Staffing / recruitment / HR firm', f.agency],
     ['Known large employer (no credits spent)', f.known_large],
     ['100+ employees', f.headcount_too_big],
     ['Not confirmed under 100 staff / Irish HQ by Apollo', f.apollo_no_match],
     ['Headcount unknown in Apollo', f.headcount_unverified],
     ['Not checked — Apollo lookup limit reached', f.over_lookup_cap],
+    ['Part of a larger group', f.subsidiary],
+    ['Apollo record was a different company', f.identity_mismatch],
+    ['LinkedIn page registered outside Ireland', f.foreign_linkedin],
     ['HQ outside Ireland', f.hq_outside_ireland],
     ['HQ location unknown', f.hq_unknown],
     ['Posted before the time window', f.older_than_window],
@@ -1086,10 +1101,28 @@ function FunnelNote({ stats }) {
             <div className="hi-funnel-row"><span>Company searches / lookups</span><strong>{(a.search_calls || 0) + (a.lookup_calls || 0)}</strong></div>
             <div className="hi-funnel-row"><span>Lookups re-used from earlier scans</span><strong>{a.lookups_cached || 0}</strong></div>
             {a.lookups_skipped ? <div className="hi-funnel-row"><span>Companies not checked (lookup limit)</span><strong>{a.lookups_skipped}</strong></div> : null}
+            <div className="hi-funnel-row"><span>Companies verified in Apollo (headcount, industry, group)</span><strong>{a.orgs_enriched || 0}</strong></div>
+            <div className="hi-funnel-row"><span>Verifications re-used from earlier scans</span><strong>{a.orgs_enrich_cached || 0}</strong></div>
+            <div className="hi-funnel-row"><span>LinkedIn job pages read (free)</span><strong>{stats.linkedin_pages?.checked || 0}</strong></div>
             <div className="hi-funnel-row"><span>People searches (free)</span><strong>{a.people_search_calls || 0}</strong></div>
             <div className="hi-funnel-row"><span>Contacts re-used (no credits)</span><strong>{a.contacts_reused || 0}</strong></div>
-            <div className="hi-funnel-row"><span>Enrichment credits reported by Apollo</span><strong>{Number(a.credits_consumed || 0).toLocaleString('en-IE')}</strong></div>
+            <div className="hi-funnel-row"><span>Contact credits reported by Apollo</span><strong>{Number(a.credits_consumed || 0).toLocaleString('en-IE')}</strong></div>
           </div>
+          {rejected.length > 0 && (
+            <div className="hi-rejected">
+              <div className="hi-field-label">Companies left out, and why ({rejected.length})</div>
+              <input className="input hi-rejected-search" placeholder="Find a company…" value={rq}
+                     onChange={(e) => setRq(e.target.value)} />
+              <div className="hi-rejected-list">
+                {rejectedShown.map((r, i) => (
+                  <div key={`${r.company}-${i}`} className="hi-funnel-row">
+                    <span>{r.company}</span><span className="hi-muted hi-rejected-why">{r.reason}</span>
+                  </div>
+                ))}
+                {!rejectedShown.length && <div className="hi-muted">No match.</div>}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1172,7 +1205,7 @@ function ContactsTable({ rows, selected, onToggle, allSelected, onToggleAll, sel
                         {l.is_new_company && <span className="hi-new">NEW</span>}
                       </div>
                       <div className="hi-sub">
-                        {[l.company_size ? `${l.company_size} staff` : null, l.company_city].filter(Boolean).join(' · ')}
+                        {[l.company_size ? `${l.company_size} staff` : null, l.company_city, l.company_industry].filter(Boolean).join(' · ')}
                       </div>
                       <div className="hi-icons">
                         {l.company_website && <a href={l.company_website} target="_blank" rel="noreferrer" title={hostOf(l.company_website)}><Icon name="language" style={{ fontSize: '1rem' }} /></a>}
@@ -1313,6 +1346,10 @@ const HI_CSS = `
 .hi-switch.on span { transform: translateX(14px); }
 .hi-toggle input:focus-visible + span .hi-toggle-label, .hi-toggle:focus-within .hi-switch { outline: 2px solid rgba(68,104,176,.35); outline-offset: 2px; }
 .hi-number-row { display:grid; grid-template-columns: 1fr 1fr; gap:.75rem; }
+.hi-rejected { grid-column: 1 / -1; }
+.hi-rejected-search { max-width: 320px; margin-bottom: .5rem; }
+.hi-rejected-list { max-height: 280px; overflow-y: auto; border: 1px solid var(--outline-variant, #e5e7eb); border-radius: 8px; padding: .25rem .75rem; }
+.hi-rejected-why { text-align: right; max-width: 60%; }
 .hi-field-hint { display:block; margin-top:.3rem; font-size:.6875rem; color: var(--on-surface-variant); }
 .hi-field-hint.is-error { color: var(--error); }
 .hi-input-invalid { border-color: var(--error) !important; box-shadow: 0 0 0 3px rgba(220,38,38,.12) !important; }

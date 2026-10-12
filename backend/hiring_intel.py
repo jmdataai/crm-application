@@ -259,7 +259,9 @@ _LEGAL_TOKENS = {
 
 def company_key(name: Any) -> str:
     """Stable, punctuation-free key for a company name ("Acme Analytics Ltd." -> "acme analytics")."""
-    s = _ascii(name).lower().replace("&", " and ")
+    s = _ascii(name).lower()
+    s = s.split(" | ")[0].split("|")[0]          # "Barden | B Corp" -> "barden" (LinkedIn taglines)
+    s = s.replace("&", " and ")
     s = re.sub(r"\(.*?\)", " ", s)
     tokens = re.findall(r"[a-z0-9]+", s)
     while tokens and tokens[-1] in _LEGAL_TOKENS:
@@ -286,23 +288,123 @@ def linkedin_company_slug(url: Any) -> str:
     return m.group(1).lower() if m else ""
 
 
+def _slug_norm(slug: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (slug or "").lower())
+
+
+def slugs_conflict(a: Any, b: Any) -> bool:
+    """Two LinkedIn company URLs that name DIFFERENT pages = two different companies, whatever their names.
+    This is what stops 'emagine' (Danish consultancy, /company/emagine) being merged with a small Irish
+    'Emagine' in Apollo. Numeric page ids can't be compared with vanity names, so they never conflict."""
+    sa, sb = _slug_norm(linkedin_company_slug(a)), _slug_norm(linkedin_company_slug(b))
+    if not sa or not sb or sa.isdigit() or sb.isdigit():
+        return False
+    return sa != sb
+
+
+def linkedin_locale(url: Any) -> str:
+    """'dk' for https://dk.linkedin.com/company/emagine; '' for www / no subdomain.
+    LinkedIn serves a company page on its home-country subdomain, so a non-Irish one is an HQ hint."""
+    m = re.match(r"(?i)\s*(?:https?://)?([a-z]{2})\.linkedin\.com/", str(url or ""))
+    return m.group(1).lower() if m else ""
+
+
+# ── Staffing / recruitment / HR firms ───────────────────────────────────
+# These post Data & AI roles on behalf of clients, so they flood LinkedIn results but are never
+# prospects. They are caught by five independent signals, cheapest first:
+#   1. the company name             ("Sigmar Recruitment", "DOMINO HR", "IT Search")
+#   2. the website domain           (rittsrecruitment.ie)
+#   3. the LinkedIn company slug    (/company/sabeoitresourcing)
+#   4. Apollo industry / keywords / description   ("staffing & recruiting")
+#   5. the LinkedIn job page        (Industries: "Staffing and Recruiting", "on behalf of our client")
 _AGENCY_NAME = re.compile(
-    r"\b(?:recruit\w*|staffing|resourcing|headhunt\w*|personnel|talent\s+(?:solutions|partners|group)"
-    r"|executive\s+search|search\s+(?:partners|group)|hr\s+solutions)\b", re.I)
+    r"\b(?:recruit\w*|staffing|resourcing|headhunt\w*|personnel|placements?|selection"
+    r"|talent\s+(?:solutions|partners|group|search|acquisition|international|hub|network)"
+    r"|executive\s+search|(?:it|tech|technical|technology|executive|talent|data|digital|engineering)\s+search"
+    r"|search\s+(?:partners|group|associates|consultants)|hr(?!\s+(?:tech|software|platform|analytics|systems))|human\s+resources"
+    r"|employment\s+(?:agency|solutions|services))\b", re.I)
+# On a domain / slug with separators removed ("it-search---dublin-2" -> "itsearchdublin2").
+_AGENCY_COMPACT = re.compile(
+    r"recruit|staffing|resourcing|headhunt|personnel|talentsearch|talentsolutions|talentpartners"
+    r"|execsearch|executivesearch|itsearch|techsearch|datasearch|digitalsearch", re.I)
+# Whole tokens of a domain / slug ("domino-hr-international-ireland", "acme-jobs.ie").
+_AGENCY_TOKENS = {"hr", "jobs", "job", "careers", "recruitment", "recruiters", "staffing", "selection",
+                  "placements", "headhunters", "resourcing", "personnel"}
 _AGENCY_KNOWN = {
-    "cpl", "hays", "morgan mckinley", "harvey nash", "sigmar", "reperio human capital", "stelfox",
-    "collins mcnicholas", "brightwater", "osborne", "computer futures", "jefferson frank", "nigel frank",
-    "frank recruitment", "abrivia", "hunter savage", "lincoln", "excel", "hamilton barnes", "code red",
-    "jobbio", "robert walters", "michael page", "page personnel", "randstad", "adecco", "manpower",
-    "hirect", "solas it", "lex consultancy", "berkley", "eden",
+    "cpl", "cpl resources", "hays", "morgan mckinley", "harvey nash", "sigmar", "sigmar recruitment",
+    "reperio human capital", "stelfox", "collins mcnicholas", "brightwater", "osborne", "computer futures",
+    "jefferson frank", "nigel frank", "frank recruitment", "abrivia", "hunter savage", "lincoln",
+    "lincoln recruitment", "excel", "hamilton barnes", "code red", "jobbio", "robert walters", "michael page",
+    "page personnel", "randstad", "adecco", "manpower", "hirect", "solas it", "lex consultancy", "berkley",
+    "eden", "the panel", "next generation", "franklin fitch", "prosperity", "barden", "sabeo", "ritts",
+    "it search", "domino hr", "domino hr international", "emagine", "experis", "modis", "akkodis",
+    "gi group", "kelly services", "hudson", "orion", "orion group", "spring", "real staffing", "nextgen",
+    "kforce", "allegis", "aerotek", "teksystems", "robert half", "walters people", "hydrogen", "oscar",
+    "salt", "venquis", "understanding recruitment", "tenth revolution", "cartesian", "huxley",
 }
+_AGENCY_INDUSTRY = re.compile(
+    r"staffing|recruit|human\s+resources|employment\s+(?:services|agenc)|executive\s+search|headhunt", re.I)
+_AGENCY_DESCRIPTION = re.compile(
+    r"\b(?:recruitment|recruiting|staffing|talent|executive\s+search|headhunting|resourcing)\s+"
+    r"(?:agency|agencies|consultancy|consultancies|consultants?|firm|company|specialists?|business|partner)\b"
+    r"|\bwe\s+(?:place|recruit|source)\s+(?:candidates|talent|professionals|contractors)\b"
+    r"|\bcontract(?:or)?\s+staffing\b|\bpermanent\s+(?:and|&)\s+contract\s+recruitment\b", re.I)
+_AGENCY_KEYWORDS = re.compile(
+    r"^(?:recruitment|recruiting|staffing|staffing\s*(?:&|and)\s*recruiting|talent\s+acquisition|executive\s+search"
+    r"|headhunting|it\s+recruitment|tech(?:nology)?\s+recruitment|contract\s+staffing|permanent\s+recruitment"
+    r"|recruitment\s+agency|recruitment\s+services|staffing\s+services|rpo|recruitment\s+process\s+outsourcing)$", re.I)
+# Wording that marks a job ad as posted for someone else.
+_CLIENT_STRONG = re.compile(
+    r"\bon\s+behalf\s+of\s+(?:our|a|my|an|one\s+of\s+our)\s+(?:client|leading|well|growing|global|innovative)"
+    r"|\bmy\s+client\b|\b(?:recruitment|staffing)\s+(?:agency|consultancy|consultancies)\b"
+    r"|\bemployment\s+agency\b|\bexclusively\s+(?:partnered|partnering|retained)\b"
+    r"|\b(?:is|are)\s+(?:exclusively\s+)?recruiting\s+on\s+behalf\b", re.I)
+_CLIENT_WEAK = re.compile(r"\bour\s+client\b|\bthe\s+client\s+is\b|\bclient\s+(?:is|are)\s+(?:a|an|seeking|looking)\b",
+                          re.I)
 
 
-def is_agency(name: Any, industry: Any = "") -> bool:
-    ind = _ascii(industry).lower()
-    if "staffing" in ind or "recruit" in ind:
+def _host_or_slug_agency(value: str) -> bool:
+    v = _ascii(value).lower()
+    if not v:
+        return False
+    compact = re.sub(r"[^a-z0-9]", "", v)
+    if _AGENCY_COMPACT.search(compact):
         return True
-    return bool(_AGENCY_NAME.search(_ascii(name))) or company_key(name) in _AGENCY_KNOWN
+    return bool(_AGENCY_TOKENS & set(re.split(r"[^a-z0-9]+", v)))
+
+
+def agency_reason(name: Any = "", industry: Any = "", domain: Any = "", linkedin: Any = "",
+                  keywords: Any = None, description: Any = "", job_industry: Any = "",
+                  job_text: Any = "") -> str:
+    """Why a company looks like a staffing / recruitment / HR firm ('' when it doesn't)."""
+    n = _ascii(name)
+    if company_key(n) in _AGENCY_KNOWN:
+        return "known recruitment firm"
+    if _AGENCY_NAME.search(n) or _AGENCY_COMPACT.search(re.sub(r"[^a-z0-9]", "", n.lower())):
+        return "recruitment/HR name"
+    if _AGENCY_INDUSTRY.search(_ascii(industry)):
+        return f"industry: {clean_text(industry, 60)}"
+    if _AGENCY_INDUSTRY.search(_ascii(job_industry)):
+        return f"LinkedIn industry: {clean_text(job_industry, 60)}"
+    if _host_or_slug_agency(clean_domain(domain)):
+        return f"website {clean_domain(domain)}"
+    slug = linkedin_company_slug(linkedin)
+    if slug and _host_or_slug_agency(slug):
+        return f"LinkedIn page /{slug}"
+    kws = keywords if isinstance(keywords, (list, tuple)) else re.split(r"[,;|]", str(keywords or ""))
+    hits = [k for k in (clean_text(x, 60) for x in kws) if k and _AGENCY_KEYWORDS.match(k)]
+    if len(hits) >= 2 or (hits and len([k for k in kws if str(k).strip()]) <= 4):
+        return f"Apollo keywords: {', '.join(hits[:2])}"
+    if _AGENCY_DESCRIPTION.search(_ascii(description)):
+        return "describes itself as a recruitment firm"
+    jt = _ascii(job_text)
+    if _CLIENT_STRONG.search(jt) or len(_CLIENT_WEAK.findall(jt)) >= 2:
+        return "job ad posted on behalf of a client"
+    return ""
+
+
+def is_agency(name: Any, industry: Any = "", domain: Any = "", linkedin: Any = "") -> bool:
+    return bool(agency_reason(name, industry, domain, linkedin))
 
 
 # Employers that post many Data/AI roles in Ireland but are far over 100 staff. Screening them out
@@ -813,6 +915,14 @@ class Company:
     size_ok: bool = False            # matched under organization_num_employees_ranges (< 100)
     hq_ok: bool = False              # matched under organization_locations = Ireland
     lookup_state: str = ""           # "" | matched | no_match | skipped | failed | cached
+    # Verification (second pass, before contact credits are spent)
+    enriched: bool = False           # Apollo organisation enrichment attached (real headcount etc.)
+    keywords: List[str] = field(default_factory=list)
+    description: str = ""
+    parent: str = ""                 # parent / ultimate parent organisation, if Apollo knows one
+    li_industry: str = ""            # "Industries" on the company's LinkedIn job page
+    li_text: str = ""                # job description text from that page
+    mismatch: str = ""               # Apollo record turned out to be a different company
     discovered_by: set = field(default_factory=set)
     jobs: Dict[str, Dict[str, Any]] = field(default_factory=dict)   # title_key -> merged job
     reject_reason: str = ""
@@ -889,8 +999,9 @@ class CompanyRegistry:
         if name:
             probes.append(f"n:{company_key(name)}")
         for p in probes:
-            if p in self._by:
-                return self._by[p]
+            hit = self._by.get(p)
+            if hit is not None and not (linkedin and slugs_conflict(hit.linkedin, linkedin)):
+                return hit
         return None
 
     def get_or_create(self, name: str, domain: str = "", linkedin: str = "", apollo_id: str = "") -> Optional[Company]:
@@ -921,6 +1032,8 @@ class CompanyRegistry:
         for k in self._keys(c):
             other = self._by.get(k)
             if other is not None and other is not c:
+                if slugs_conflict(c.linkedin, other.linkedin):
+                    continue                 # same name, different company: keep both, first keeps the key
                 self._merge(into=c, other=other)
             self._by[k] = c
 
@@ -958,6 +1071,9 @@ class CompanyRegistry:
     def apply_apollo_org(self, c: Company, org: Dict[str, Any]) -> Company:
         """Attach Apollo firmographics; Apollo's name becomes canonical (stable across runs)."""
         c = self.canon(c)
+        if slugs_conflict(c.linkedin, org.get("linkedin_url")):
+            c.mismatch = linkedin_company_slug(org.get("linkedin_url"))
+            return c
         if org.get("name"):
             c.name = clean_text(org["name"], 160)
             c.key = company_key(org["name"]) or c.key
@@ -1076,11 +1192,14 @@ class RunContext:
             "filtered": {"not_data_ai": 0, "not_ireland": 0, "northern_ireland": 0, "employment_type": 0,
                          "headcount_too_big": 0, "headcount_unverified": 0, "agency": 0, "hq_outside_ireland": 0,
                          "hq_unknown": 0, "no_qualifying_jobs": 0, "over_company_cap": 0, "older_than_window": 0,
-                         "known_large": 0, "apollo_no_match": 0, "over_lookup_cap": 0},
+                         "known_large": 0, "apollo_no_match": 0, "over_lookup_cap": 0,
+                         "subsidiary": 0, "identity_mismatch": 0, "foreign_linkedin": 0},
+            "rejected": [],              # [{company, reason, stage}] — every company dropped, and why
             "apollo": {"search_calls": 0, "lookup_calls": 0, "lookups_cached": 0, "lookups_skipped": 0,
-                       "job_posting_calls": 0,
+                       "job_posting_calls": 0, "org_enrich_calls": 0, "orgs_enriched": 0, "orgs_enrich_cached": 0,
                        "people_search_calls": 0, "enrich_calls": 0, "credits_consumed": 0.0, "contacts_reused": 0},
             "warnings": [],
+            "linkedin_pages": {"checked": 0, "failed": 0},
         }
         self.web: Optional[httpx.AsyncClient] = None
         self.apollo: Optional[httpx.AsyncClient] = None
@@ -1090,9 +1209,11 @@ class RunContext:
         self.company_cache_out: Dict[str, Dict[str, Any]] = {}   # saved with this run
         self.apollo_disabled = "" if apollo_key() else "APOLLO_API_KEY not set"
         self.job_postings_disabled = False
+        self.enrich_disabled = False
         self._dirty = True
         self._write_lock = asyncio.Lock()
         self.finished = False      # once set, the ticker may no longer write (final status wins)
+        self._stage_drops: Dict[str, Dict[str, int]] = {}
 
     # ── logging ──
     def log(self, msg: str, level: str = "info") -> None:
@@ -1124,6 +1245,24 @@ class RunContext:
         p = max(self.progress, min(99, int(progress)))
         if p != self.progress:
             self.progress, self._dirty = p, True
+
+    def reject(self, c: "Company", reason: str, key: str, stage: str) -> None:
+        """Drop a company: count it, remember who and why (shown in the UI), and say so in the log."""
+        c.reject_reason = reason
+        f = self.stats["filtered"]
+        f[key] = f.get(key, 0) + 1
+        rej = self.stats.setdefault("rejected", [])
+        if len(rej) < 400:
+            rej.append({"company": c.name, "reason": reason, "stage": stage})
+        self._stage_drops.setdefault(stage, {}).setdefault(key, 0)
+        self._stage_drops[stage][key] += 1
+        self._dirty = True
+
+    def log_drops(self, stage: str) -> None:
+        drops = self._stage_drops.pop(stage, {})
+        if drops:
+            parts = [f"{n} {FILTER_REASON_TEXT.get(k, k)}" for k, n in sorted(drops.items(), key=lambda kv: -kv[1])]
+            self.log(f"Dropped at {stage}: " + ", ".join(parts))
 
     def check_cancel(self) -> None:
         if self.cancelled or self.deleted:
@@ -1436,8 +1575,10 @@ def _best_org_match(c: Company, orgs: List[Dict[str, Any]]) -> Optional[Dict[str
     for o in orgs:
         if not isinstance(o, dict):
             continue
+        if slugs_conflict(c.linkedin, o.get("linkedin_url")):
+            continue                     # a namesake, not this company
         score = 0
-        if slug and linkedin_company_slug(o.get("linkedin_url")) == slug:
+        if slug and _slug_norm(linkedin_company_slug(o.get("linkedin_url"))) == _slug_norm(slug):
             score += 10
         if company_key(o.get("name")) == c.key:
             score += 5
@@ -1559,7 +1700,7 @@ def lookup_order(companies: List[Company]) -> List[Company]:
 async def resolve_companies(ctx: RunContext, reg: CompanyRegistry) -> None:
     mode = lookup_mode(ctx.p)
     pending = [c for c in reg.items if not c.resolved and c.jobs
-               and not is_agency(c.name) and c.key not in OWN_COMPANY_KEYS
+               and not company_agency_reason(c) and c.key not in OWN_COMPANY_KEYS
                and not is_known_large(c.name)]          # never spend a credit on a certain drop
     if not pending:
         return
@@ -1580,7 +1721,7 @@ async def resolve_companies(ctx: RunContext, reg: CompanyRegistry) -> None:
             c.lookup_state = "no_match" if hit.get("mode") else "unknown"
         else:
             reg.apply_apollo_org(c, hit)
-            c.lookup_state = "cached"
+            c.lookup_state = "cached" if c.resolved else ("no_match" if mode else "unknown")
     still = lookup_order(still)
     budget = lookup_budget(ctx.p.max_companies)
     batch, skipped = still[:budget], still[budget:]
@@ -1612,7 +1753,7 @@ async def resolve_companies(ctx: RunContext, reg: CompanyRegistry) -> None:
         _cache_put(ctx, keys, org, mode=mode)
         if org:
             reg.apply_apollo_org(c, org)
-            c.lookup_state = "matched"
+            c.lookup_state = "matched" if c.resolved else ("no_match" if mode else "unknown")
         else:
             c.lookup_state = "no_match" if mode else "unknown"
 
@@ -1628,7 +1769,7 @@ async def resolve_companies(ctx: RunContext, reg: CompanyRegistry) -> None:
 
 
 FILTER_REASON_TEXT = {
-    "agency": "recruitment agencies",
+    "agency": "staffing / recruitment / HR firms",
     "known_large": "known large employers",
     "headcount_too_big": "100+ staff",
     "apollo_no_match": "not confirmed under 100 staff / Irish HQ by Apollo",
@@ -1636,51 +1777,332 @@ FILTER_REASON_TEXT = {
     "over_lookup_cap": "not checked (Apollo lookup limit)",
     "hq_outside_ireland": "HQ outside Ireland",
     "hq_unknown": "HQ unknown",
+    "subsidiary": "part of a larger group",
+    "identity_mismatch": "Apollo record was a different company",
+    "foreign_linkedin": "LinkedIn page registered outside Ireland",
+    "over_company_cap": "over the company cap",
 }
 
 
+def company_agency_reason(c: Company) -> str:
+    return agency_reason(c.name, c.industry, c.domain, c.linkedin, c.keywords, c.description,
+                         c.li_industry, c.li_text)
+
+
 def qualify(ctx: RunContext, reg: CompanyRegistry) -> List[Company]:
+    """First pass, on what discovery + the Apollo lookup told us."""
     keep: List[Company] = []
-    f = ctx.stats["filtered"]
-    dropped: Dict[str, int] = {}
-
-    def drop(c: Company, reason: str, key: str) -> None:
-        c.reject_reason = reason
-        f[key] = f.get(key, 0) + 1
-        dropped[key] = dropped.get(key, 0) + 1
-
+    stage = "qualify"
     for c in reg.items:
         if c.key in OWN_COMPANY_KEYS:
             c.reject_reason = "own company"
             continue
-        if is_agency(c.name, c.industry):
-            drop(c, "recruitment agency", "agency")
+        why = company_agency_reason(c)
+        if why:
+            ctx.reject(c, f"staffing/recruitment firm ({why})", "agency", stage)
             continue
         if c.size is not None:
             if c.size > ctx.p.max_headcount or c.size < 1:
-                drop(c, f"headcount {c.size}", "headcount_too_big")
+                ctx.reject(c, f"{c.size} staff", "headcount_too_big", stage)
                 continue
         elif is_known_large(c.name):
-            drop(c, "known large employer", "known_large")
+            ctx.reject(c, "known large employer", "known_large", stage)
             continue
         elif not c.size_ok and ctx.p.require_verified_headcount:
-            if c.lookup_state == "skipped":
-                drop(c, "not checked — Apollo lookup limit", "over_lookup_cap")
+            if c.mismatch:
+                ctx.reject(c, f"Apollo's record is a different company (/{c.mismatch})", "identity_mismatch", stage)
+            elif c.lookup_state == "skipped":
+                ctx.reject(c, "not checked — Apollo lookup limit", "over_lookup_cap", stage)
             elif c.lookup_state == "no_match":
-                drop(c, "not confirmed under 100 staff in Apollo", "apollo_no_match")
+                ctx.reject(c, "not confirmed under 100 staff / Irish HQ in Apollo", "apollo_no_match", stage)
             else:
-                drop(c, "headcount unknown", "headcount_unverified")
+                ctx.reject(c, "headcount unknown", "headcount_unverified", stage)
             continue
         if ctx.p.hq_ireland_only and c.country and not is_irish_country(c.country):
-            drop(c, f"HQ in {c.country}", "hq_outside_ireland")
+            ctx.reject(c, f"HQ in {c.country}", "hq_outside_ireland", stage)
             continue
         if ctx.p.hq_ireland_only and not c.country and not c.hq_ok and ctx.p.require_verified_headcount:
-            drop(c, "HQ unknown", "hq_unknown")
+            ctx.reject(c, "HQ unknown", "hq_unknown", stage)
             continue
         keep.append(c)
-    if dropped:
-        parts = [f"{n} {FILTER_REASON_TEXT.get(k, k)}" for k, n in sorted(dropped.items(), key=lambda kv: -kv[1])]
-        ctx.log("Dropped: " + ", ".join(parts))
+    ctx.log_drops(stage)
+    return keep
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Verify — a stricter second pass on the shortlist, before contact credits are spent
+#   * the company's own LinkedIn job page (free): industry + "on behalf of our client" wording
+#   * Apollo organisation enrichment (1 credit, cached 21 days): REAL headcount, industry,
+#     keywords, parent group. Search results only say "matched the < 100 filter", which a small
+#     Irish arm of a 500-person group (DOMINO HR) or a namesake (emagine) also does.
+# ════════════════════════════════════════════════════════════════════════
+LINKEDIN_JOB_URL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{}"
+
+
+def parse_linkedin_job_page(html: str) -> Dict[str, str]:
+    out = {"industries": "", "description": "", "company": "", "company_url": ""}
+    if not html or "<" not in html:
+        return out
+    soup = BeautifulSoup(html, "html.parser")
+    for item in soup.select(".description__job-criteria-item"):
+        head = clean_text((item.select_one(".description__job-criteria-subheader") or item).get_text(" "), 60).lower()
+        val = item.select_one(".description__job-criteria-text")
+        if "industr" in head and val:
+            out["industries"] = clean_text(val.get_text(" "), 200)
+    if not out["industries"]:
+        # layout fallback: the criteria list rendered as plain lines ("Industries" / "Staffing and Recruiting")
+        lines = [ln.strip() for ln in soup.get_text("\n").splitlines() if ln.strip()]
+        for i, ln in enumerate(lines[:-1]):
+            if ln.lower() in ("industries", "industry"):
+                out["industries"] = clean_text(lines[i + 1], 200)
+                break
+    desc = soup.select_one(".show-more-less-html__markup") or soup.select_one(".description__text")
+    if desc:
+        out["description"] = clean_text(desc.get_text(" "), 6000)
+    org = soup.select_one("a.topcard__org-name-link") or soup.select_one(".topcard__flavor a")
+    if org:
+        out["company"] = clean_text(org.get_text(" "), 160)
+        out["company_url"] = (org.get("href") or "").split("?")[0]
+    return out
+
+
+def _linkedin_job_id(url: str) -> str:
+    m = re.search(r"linkedin\.com/jobs/view/(?:[^/?#]*?-)?(\d{6,})", url or "")
+    return m.group(1) if m else ""
+
+
+async def check_linkedin_job_pages(ctx: RunContext, companies: List[Company]) -> None:
+    """One job page per company, sequential and slow (LinkedIn rate-limits guests). Best effort:
+    if LinkedIn blocks us the companies simply keep the verdict from the other checks."""
+    headers = {"User-Agent": BROWSER_UA, "Accept-Language": "en-IE,en;q=0.9", "Accept": "text/html,*/*;q=0.8"}
+    stats = ctx.stats["linkedin_pages"]
+    strikes = 0
+    for c in companies:
+        if c.li_industry or c.li_text:
+            continue
+        job_id = next((jid for jid in (_linkedin_job_id(j.get("url", "")) or next(
+            (_linkedin_job_id(u) for u in j.get("other_urls", []) if _linkedin_job_id(u)), "")
+            for j in c.jobs.values()) if jid), "")
+        if not job_id:
+            continue
+        ctx.check_cancel()
+        r = await ctx.web_get(LINKEDIN_JOB_URL.format(job_id), headers=headers)
+        if r is not None and r.status_code == 429 and strikes == 0:
+            strikes += 1
+            ctx.log("LinkedIn rate limit while checking job pages — waiting 15s")
+            await asyncio.sleep(15)
+            r = await ctx.web_get(LINKEDIN_JOB_URL.format(job_id), headers=headers)
+        if r is None or r.status_code != 200:
+            stats["failed"] += 1
+            if r is not None and r.status_code in (429, 999, 403):
+                ctx.warn("LinkedIn stopped answering job-page checks; the rest rely on Apollo data and names.")
+                return
+            continue
+        page = await asyncio.to_thread(parse_linkedin_job_page, r.text)
+        stats["checked"] += 1
+        c.li_industry, c.li_text = page["industries"], page["description"]
+        if page["company_url"]:
+            if not c.linkedin:
+                c.linkedin = page["company_url"]
+            elif slugs_conflict(c.linkedin, page["company_url"]):
+                c.mismatch = linkedin_company_slug(c.linkedin)
+        await asyncio.sleep(random.uniform(0.8, 1.6))
+
+
+ENRICH_FIELDS = ("estimated_num_employees", "industry", "country", "city", "linkedin_url", "primary_domain",
+                 "short_description", "parent")
+
+
+def org_parent(org: Dict[str, Any]) -> str:
+    """Name of the parent / ultimate parent organisation in an Apollo enrichment record ('' if none)."""
+    for k in ("owned_by_organization", "ultimate_parent_organization"):
+        v = org.get(k)
+        if isinstance(v, dict) and (v.get("name") or v.get("id")):
+            if str(v.get("id") or "") and str(v.get("id")) == str(org.get("id") or ""):
+                continue                 # some records list themselves as their own ultimate parent
+            return clean_text(v.get("name") or "a parent company", 120)
+    chain = org.get("owned_by_chain")
+    if isinstance(chain, list) and [x for x in chain if x and str(x) != str(org.get("id") or "")]:
+        return "a parent company"
+    if org.get("owned_by_organization_id") and str(org["owned_by_organization_id"]) != str(org.get("id") or ""):
+        return "a parent company"
+    return clean_text(org.get("parent") or "", 120)
+
+
+def apply_enrichment(c: Company, org: Dict[str, Any]) -> None:
+    if slugs_conflict(c.linkedin, org.get("linkedin_url")):
+        c.mismatch = linkedin_company_slug(org.get("linkedin_url"))
+        return
+    size = org.get("estimated_num_employees")
+    try:
+        if size not in (None, ""):
+            c.size = int(size)           # enrichment is authoritative over the search filter
+    except (TypeError, ValueError):
+        pass
+    c.industry = clean_text(org.get("industry"), 120) or c.industry
+    kws = org.get("keywords") or []
+    c.keywords = [clean_text(k, 60) for k in kws if k][:25] if isinstance(kws, list) else c.keywords
+    c.description = clean_text(org.get("short_description") or org.get("seo_description"), 600) or c.description
+    if org.get("country"):
+        c.country = clean_text(org["country"], 80)
+    c.city = clean_text(org.get("city"), 80) or c.city
+    c.linkedin = c.linkedin or (org.get("linkedin_url") or "")
+    c.parent = org_parent(org)
+    c.enriched = True
+
+
+def _enrich_cache_keys(c: Company) -> List[str]:
+    keys = [f"x:n:{c.key}"]
+    if c.domain:
+        keys.insert(0, f"x:d:{c.domain}")
+    return keys
+
+
+def _org_matches(c: Company, org: Dict[str, Any]) -> bool:
+    if not isinstance(org, dict):
+        return False
+    od = clean_domain(org.get("primary_domain") or org.get("website_url") or "")
+    if c.domain and od and od == c.domain:
+        return True
+    oslug, cslug = _slug_norm(linkedin_company_slug(org.get("linkedin_url"))), _slug_norm(linkedin_company_slug(c.linkedin))
+    if oslug and cslug and oslug == cslug:
+        return True
+    return bool(c.key) and company_key(org.get("name")) == c.key
+
+
+async def enrich_orgs(ctx: RunContext, companies: List[Company]) -> None:
+    a = ctx.stats["apollo"]
+    todo: List[Company] = []
+    for c in companies:
+        if c.enriched:
+            continue
+        hit = _cache_get(ctx, _enrich_cache_keys(c))
+        if hit and not hit.get("unmatched"):
+            apply_enrichment(c, hit)
+            a["orgs_enrich_cached"] += 1
+            for k in _enrich_cache_keys(c):
+                ctx.company_cache_out[k] = hit
+        elif hit:
+            a["orgs_enrich_cached"] += 1   # Apollo had nothing more last time — don't pay again
+        else:
+            todo.append(c)
+    if not todo or ctx.apollo_disabled or getattr(ctx, "enrich_disabled", False):
+        return
+    for i in range(0, len(todo), 10):
+        ctx.check_cancel()
+        chunk = todo[i:i + 10]
+        details = []
+        for c in chunk:
+            d = {"name": c.name}
+            if c.domain:
+                d["domain"] = c.domain
+            if c.linkedin and linkedin_company_slug(c.linkedin):
+                d["linkedin_url"] = "https://www.linkedin.com/company/" + linkedin_company_slug(c.linkedin)
+            details.append(d)
+        data = await ctx.apollo_call("POST", "/organizations/bulk_enrich", kind="org_enrich_calls",
+                                     json_body={"details": details})
+        if data is None:
+            ctx.enrich_disabled = True     # type: ignore[attr-defined]
+            ctx.warn("Apollo company enrichment didn't answer — real headcount and parent-group checks were "
+                     "skipped for the rest of this scan (the < 100 search filter still applied).")
+            return
+        orgs = [o for o in (data.get("organizations") or []) if isinstance(o, dict)]
+        for c in chunk:
+            org = next((o for o in orgs if _org_matches(c, o)), None)
+            if org is None:
+                for k in _enrich_cache_keys(c):
+                    ctx.company_cache_out[k] = {"unmatched": True, "t": _iso()}
+                continue
+            a["orgs_enriched"] += 1
+            apply_enrichment(c, org)
+            entry = {k: org.get(k) for k in ENRICH_FIELDS if org.get(k) not in (None, "")}
+            entry["keywords"] = c.keywords
+            entry["parent"] = c.parent
+            entry["t"] = _iso()
+            for k in _enrich_cache_keys(c):
+                if len(ctx.company_cache_out) < CACHE_MAX_ENTRIES:
+                    ctx.company_cache_out[k] = entry
+
+
+def verify_budget(max_companies: int) -> int:
+    """At most this many shortlisted companies are enriched per scan (1 Apollo credit each, cached).
+    Mirrored in HiringIntel.js (creditHint)."""
+    return min(60, 2 * int(max_companies) + 10)
+
+
+def verify_reject(ctx: RunContext, c: Company) -> Tuple[str, str]:
+    """(reason, filter key) or ('', '') if the company survives the stricter checks."""
+    why = company_agency_reason(c)
+    if why:
+        return f"staffing/recruitment firm ({why})", "agency"
+    if c.mismatch:
+        return f"Apollo's record is a different company (/{c.mismatch})", "identity_mismatch"
+    if c.size is not None and (c.size > ctx.p.max_headcount or c.size < 1):
+        return f"{c.size} staff (Apollo)", "headcount_too_big"
+    if is_known_large(c.name):
+        return "known large employer", "known_large"
+    if c.parent and ctx.p.require_verified_headcount:
+        return f"part of {c.parent}", "subsidiary"
+    if ctx.p.hq_ireland_only:
+        if c.country and not is_irish_country(c.country):
+            return f"HQ in {c.country}", "hq_outside_ireland"
+        loc = linkedin_locale(c.linkedin)
+        if loc and loc != "ie" and not (c.enriched and is_irish_country(c.country)):
+            return f"LinkedIn page is registered in {loc.upper()}", "foreign_linkedin"
+    return "", ""
+
+
+async def verify_companies(ctx: RunContext, candidates: List[Company]) -> List[Company]:
+    """Walk the shortlist in priority order, 10 at a time, until enough companies survive."""
+    stage = "verify"
+    # Companies with a known role first; among them, ones already enriched in an earlier scan first
+    # (free), so re-running a scan doesn't buy new enrichments just because the order shifted.
+    rank = {id(c): i for i, c in enumerate(candidates)}
+    order = sorted(candidates, key=lambda c: (0 if c.jobs else 1,
+                                              0 if _cache_get(ctx, _enrich_cache_keys(c)) else 1, rank[id(c)]))
+    budget = verify_budget(ctx.p.max_companies)      # paid enrichments allowed this scan
+    want_with_jobs = ctx.p.max_companies
+    keep: List[Company] = []
+    checked = paid = 0
+    use_linkedin = "linkedin" in ctx.p.sources
+    is_free = lambda c: bool(_cache_get(ctx, _enrich_cache_keys(c)) or company_agency_reason(c))  # noqa: E731
+    while checked < len(order) and checked < 3 * budget:
+        have = len([c for c in keep if c.jobs])
+        if have >= want_with_jobs:
+            break
+        # Batch: every free company next in line, plus only as many paid ones as are still needed.
+        need = min(10, want_with_jobs - have)
+        chunk: List[Company] = []
+        new_paid = 0
+        while checked + len(chunk) < len(order) and len(chunk) < 30:
+            c = order[checked + len(chunk)]
+            free = is_free(c)
+            if not free and (new_paid >= need or paid + new_paid >= budget):
+                break
+            chunk.append(c)
+            new_paid += 0 if free else 1
+        if not chunk:
+            break
+        checked += len(chunk)
+        if use_linkedin:
+            await check_linkedin_job_pages(ctx, chunk)
+        # never pay to enrich a company the free checks already ruled out
+        to_enrich = [c for c in chunk if not company_agency_reason(c)]
+        paid += len([c for c in to_enrich if not _cache_get(ctx, _enrich_cache_keys(c))])
+        await enrich_orgs(ctx, to_enrich)
+        for c in chunk:
+            reason, key = verify_reject(ctx, c)
+            if reason:
+                ctx.reject(c, reason, key, stage)
+            else:
+                keep.append(c)
+        ctx.bump(40 + 5 * min(1.0, checked / max(1, len(order))))
+    for c in order[checked:]:
+        ctx.reject(c, "over the company cap (enough companies already verified)", "over_company_cap", stage)
+    ctx.log_drops(stage)
+    lp, a = ctx.stats["linkedin_pages"], ctx.stats["apollo"]
+    ctx.log(f"Verified {checked} shortlisted companies ({lp['checked']} LinkedIn job pages read, "
+            f"{a['orgs_enriched']} enriched in Apollo, {a['orgs_enrich_cached']} re-used): {len(keep)} kept")
     return keep
 
 
@@ -1998,16 +2420,48 @@ async def _poll_once(client: httpx.AsyncClient, request_id: str) -> Tuple[str, A
 
 
 def _phones_from_poll(data: Any) -> Dict[str, Optional[str]]:
-    """{person_id: phone or None} from a webhook/poll payload (people[].phone_numbers[])."""
+    """{person_id: phone or None} from an Apollo poll / webhook payload.
+    Apollo doesn't document this body, and it differs between phone and waterfall enrichment
+    (people[].phone_numbers, matches[].phone_numbers, person.contact.phone_numbers,
+    people[].waterfall.phone_numbers …). So walk the whole payload: any object carrying a person id
+    owns the phone numbers found anywhere beneath it."""
     out: Dict[str, Optional[str]] = {}
-    if not isinstance(data, dict):
-        return out
-    people = data.get("people") or data.get("matches") or []
-    if not people and isinstance(data.get("person"), dict):
-        people = [data["person"]]
-    for p in people:
-        if isinstance(p, dict) and p.get("id"):
-            out[str(p["id"])] = pick_phone(p.get("phone_numbers"))
+
+    def numbers_under(node: Any, depth: int = 0) -> List[Any]:
+        found: List[Any] = []
+        if depth > 4:
+            return found
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if k in ("phone_numbers", "mobile_phone_numbers") and isinstance(v, list):
+                    found.extend(v)
+                elif k in ("sanitized_phone", "mobile_phone", "direct_phone") and isinstance(v, str) and v:
+                    found.append({"sanitized_number": v, "type_cd": "mobile" if "mobile" in k else "direct"})
+                elif isinstance(v, (dict, list)) and k not in ("organization", "account", "employment_history"):
+                    found.extend(numbers_under(v, depth + 1))
+        elif isinstance(node, list):
+            for v in node:
+                found.extend(numbers_under(v, depth + 1))
+        return found
+
+    def walk(node: Any, depth: int = 0) -> None:
+        if depth > 6:
+            return
+        if isinstance(node, dict):
+            pid = node.get("id") or node.get("person_id")
+            looks_like_person = pid and any(k in node for k in ("phone_numbers", "first_name", "name", "contact",
+                                                                "waterfall", "status", "linkedin_url"))
+            # Apollo person ids are hex strings; a bare number here is a request_id, not a person
+            if looks_like_person and (not str(pid).isdigit() or "phone_numbers" in node):
+                out[str(pid)] = pick_phone(numbers_under(node)) or out.get(str(pid))
+                return
+            for v in node.values():
+                walk(v, depth + 1)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, depth + 1)
+
+    walk(data)
     return out
 
 
@@ -2026,7 +2480,11 @@ async def poll_phone_results(ctx: RunContext, request_ids: List[str], by_id: Dic
                 next_wait = min(next_wait, max(3.0, retry))
                 continue
             waiting.remove(rid)
-            for pid, phone in _phones_from_poll(data).items():
+            parsed = _phones_from_poll(data)
+            ctx.log(f"Apollo phone result: {len(parsed)} people, {len([v for v in parsed.values() if v])} with a "
+                    f"number" + ("" if parsed or state != "ready" else
+                                 f" (unrecognised payload; keys: {', '.join(list(data)[:8]) if isinstance(data, dict) else type(data).__name__})"))
+            for pid, phone in parsed.items():
                 p = by_id.get(pid)
                 if p is not None:
                     p["phone"] = phone or p.get("phone")
@@ -2196,6 +2654,9 @@ async def pipeline(ctx: RunContext) -> Dict[str, int]:
     # Companies Apollo found as hiring come in with no jobs yet — they stay candidates for the website stage.
     candidates.sort(key=lambda c: (-len(c.jobs), c.name.lower()))
     ctx.log(f"{len(candidates)} companies pass the headcount / Ireland / non-agency checks")
+    ctx.check_cancel()
+    if candidates:
+        candidates = await verify_companies(ctx, candidates)
     if not candidates:
         ctx.warn("No company passed the checks — open “How this scan found and filtered results” to see why. "
                  "A longer “Posted within” window or a higher “Max companies” gives Apollo more to check.")
