@@ -119,6 +119,13 @@ CREATE INDEX IF NOT EXISTS idx_hiring_intel_leads_run
 
 ALTER TABLE hiring_intel_leads ADD COLUMN IF NOT EXISTS enriched_at timestamptz;
 
+-- v2 (free-first contacts): where a contact came from, whether its name is still
+-- partly hidden until Reveal, and how the company's headcount was established.
+ALTER TABLE hiring_intel_leads ADD COLUMN IF NOT EXISTS contact_source text;     -- Apollo | Company website | LinkedIn search
+ALTER TABLE hiring_intel_leads ADD COLUMN IF NOT EXISTS name_hidden   boolean NOT NULL DEFAULT false;
+ALTER TABLE hiring_intel_leads ADD COLUMN IF NOT EXISTS size_status   text;     -- verified | unverified
+ALTER TABLE hiring_intel_leads ADD COLUMN IF NOT EXISTS size_label    text;     -- e.g. "11 to 50 staff · Indeed"
+
 -- Lets a new run re-use contact data already paid for in a previous run
 -- instead of spending Apollo credits on the same person again.
 CREATE INDEX IF NOT EXISTS idx_hiring_intel_leads_person

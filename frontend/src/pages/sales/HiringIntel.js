@@ -23,10 +23,10 @@ const Icon = ({ name, style = {}, filled = false, className = '' }) => (
 );
 
 const STAGES = [
-  { key: 'discover', label: 'Discover',        icon: 'travel_explore', hint: 'LinkedIn · Apollo · portals' },
-  { key: 'qualify',  label: 'Qualify',         icon: 'filter_alt',     hint: '<100 staff · Irish · no agencies' },
-  { key: 'websites', label: 'Careers pages',   icon: 'language',       hint: 'Company sites & ATS boards' },
-  { key: 'contacts', label: 'Decision-makers', icon: 'badge',          hint: 'CEO · CTO · Founder · Data head' },
+  { key: 'discover', label: 'Job boards',      icon: 'travel_explore', hint: 'LinkedIn · Indeed · CareerJet · JobsIreland' },
+  { key: 'qualify',  label: 'Qualify',         icon: 'filter_alt',     hint: '<100 staff · Irish · free checks' },
+  { key: 'websites', label: 'Company sites',   icon: 'language',       hint: 'Careers & team pages' },
+  { key: 'contacts', label: 'Decision-makers', icon: 'badge',          hint: 'Found free · reveal on click' },
   { key: 'save',     label: 'Save',            icon: 'inventory_2',    hint: 'De-duplicate & store' },
 ];
 
@@ -40,6 +40,7 @@ const STATUS_STYLE = {
 
 const ROLE_RANK = { 'Data Head': 1, CTO: 2, CEO: 3, 'Co-Founder': 4, Founder: 4 };
 const ROLE_TONE = { 'Data Head': '#7C3AED', CTO: '#4468B0', CEO: '#006243', 'Co-Founder': '#B45309', Founder: '#B45309' };
+const SOURCE_TONE = { Apollo: '#4468B0', 'Company website': '#006243', 'LinkedIn search': '#0A66C2' };
 const TYPE_TONE = { Permanent: '#006243', Contract: '#B45309', Unspecified: '#6B7280' };
 const CATEGORY_TONE = {
   'Data Engineering': '#4468B0', 'Data Science': '#7C3AED', 'AI / ML': '#DB2777',
@@ -47,12 +48,23 @@ const CATEGORY_TONE = {
 };
 const DAYS_OPTIONS = [{ v: 1, l: '24 hours' }, { v: 7, l: '7 days' }, { v: 14, l: '14 days' }, { v: 30, l: '30 days' }];
 const SOURCE_META = {
-  linkedin: { label: 'LinkedIn jobs', icon: 'work' },
-  websites: { label: 'Careers pages', icon: 'language' },
-  apollo:   { label: 'Apollo', icon: 'rocket_launch' },
-  jooble:   { label: 'Jooble portal', icon: 'travel_explore' },
+  linkedin:         { label: 'LinkedIn', icon: 'work' },
+  indeed:           { label: 'Indeed', icon: 'search' },
+  careerjet:        { label: 'CareerJet', icon: 'hub' },
+  jobsireland:      { label: 'JobsIreland', icon: 'flag' },
+  jooble:           { label: 'Jooble', icon: 'travel_explore' },
+  websites:         { label: 'Careers & team pages', icon: 'language' },
+  apollo_discovery: { label: 'Apollo discovery', icon: 'toll' },
 };
-const PARAMS_STORAGE_KEY = 'hiringIntel.params.v1';
+const SOURCE_STATUS = {
+  ok:             { label: 'OK', tone: '#15803D' },
+  partial:        { label: 'Partial', tone: '#B45309' },
+  blocked:        { label: 'Blocked', tone: '#B91C1C' },
+  error:          { label: 'Error', tone: '#B91C1C' },
+  not_configured: { label: 'Not set up', tone: '#6B7280' },
+  running:        { label: 'Running', tone: '#4468B0' },
+};
+const PARAMS_STORAGE_KEY = 'hiringIntel.params.v2';   // v2: new boards + free-first contacts
 const ACTIVE = ['queued', 'running'];
 
 // ── formatting helpers ────────────────────────────────────────
@@ -93,40 +105,6 @@ const storeParams = (p) => {
   try { localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(p)); } catch { /* private mode */ }
 };
 
-// Limits mirror RunParams in backend/hiring_intel.py — a value outside them makes the scan request fail (422).
-const NUM_LIMITS = {
-  max_companies: { min: 1, max: 150 },
-  contacts_per_company: { min: 1, max: 5 },
-};
-const clampInt = (v, { min, max }, fallback) => {
-  const n = Math.round(Number(v));
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(min, Math.min(max, n));
-};
-// Settings remembered on this device can be stale (older limits, removed options, hand-edited
-// storage). Rebuild them on top of the server defaults so a bad value can never break a scan.
-const sanitizeParams = (stored, defaults) => {
-  const s = stored && typeof stored === 'object' ? stored : {};
-  const out = { ...defaults };
-  if (DAYS_OPTIONS.some((o) => o.v === s.days_back)) out.days_back = s.days_back;
-  Object.entries(NUM_LIMITS).forEach(([k, lim]) => {
-    if (s[k] !== undefined) out[k] = clampInt(s[k], lim, defaults[k]);
-  });
-  ['include_unspecified_type', 'hq_ireland_only', 'require_verified_headcount', 'reveal_phones'].forEach((k) => {
-    if (typeof s[k] === 'boolean') out[k] = s[k];
-  });
-  if (Array.isArray(s.employment_types)) {
-    const t = ['Permanent', 'Contract'].filter((x) => s.employment_types.includes(x));
-    if (t.length) out.employment_types = t;
-  }
-  if (Array.isArray(s.sources)) out.sources = s.sources.filter((x) => typeof x === 'string');
-  if (Array.isArray(s.extra_keywords)) {
-    out.extra_keywords = s.extra_keywords.filter((x) => typeof x === 'string' && x.trim()).slice(0, 8);
-  }
-  return out;
-};
-const parseKeywords = (text) => String(text || '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 8);
-
 // ── small building blocks ─────────────────────────────────────
 const StatusChip = ({ status }) => {
   const s = STATUS_STYLE[status] || STATUS_STYLE.cancelled;
@@ -153,39 +131,6 @@ const Toggle = ({ checked, onChange, label, sub, disabled }) => (
   </label>
 );
 
-// Whole-number input you can actually type into: the text is kept as typed (empty is allowed while
-// editing), valid values are applied immediately, and the value is clamped only when you leave the
-// field or press Enter. Clamping on every keystroke made "10" impossible to type (1 -> clamped to 5).
-const NumberField = ({ label, value, min, max, onCommit, hint }) => {
-  const [draft, setDraft] = useState(String(value));
-  const [focused, setFocused] = useState(false);
-  useEffect(() => { if (!focused) setDraft(String(value)); }, [value, focused]);
-  const parsed = draft.trim() === '' ? NaN : Number(draft);
-  const valid = Number.isInteger(parsed) && parsed >= min && parsed <= max;
-  const commit = () => {
-    const n = clampInt(draft.trim() === '' ? value : draft, { min, max }, value);
-    setDraft(String(n));
-    if (n !== value) onCommit(n);
-  };
-  return (
-    <label>
-      <span className="hi-field-label">{label}</span>
-      <input className={`input${!valid && focused ? ' hi-input-invalid' : ''}`} type="number" inputMode="numeric"
-             min={min} max={max} step={1} value={draft}
-             onFocus={(e) => { setFocused(true); e.target.select(); }}
-             onChange={(e) => {
-               const t = e.target.value;
-               setDraft(t);
-               const n = Number(t);
-               if (t.trim() !== '' && Number.isInteger(n) && n >= min && n <= max && n !== value) onCommit(n);
-             }}
-             onBlur={() => { setFocused(false); commit(); }}
-             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }} />
-      <span className={`hi-field-hint${!valid && focused ? ' is-error' : ''}`}>{hint || `${min}–${max}`}</span>
-    </label>
-  );
-};
-
 const Kpi = ({ icon, label, value, sub, tone }) => (
   <div className="hi-kpi" style={{ '--tone': tone || 'var(--primary)' }}>
     <div className="hi-kpi-icon"><Icon name={icon} /></div>
@@ -211,8 +156,11 @@ async function exportSheet({ run, leads, jobs }) {
     'Email': l.email || '',
     'Email status': l.email_status || '',
     'Phone': l.phone || '',
+    'Contact found via': l.contact_source || '',
+    'Revealed': l.enriched_at ? 'Yes' : 'No',
     'Company': l.company_name,
-    'Headcount': l.company_size ?? '',
+    'Headcount': l.size_label || (l.company_size ?? ''),
+    'Headcount verified': l.size_status === 'verified' ? 'Yes' : 'No',
     'City': l.company_city || '',
     'Hiring for': (l.hiring_for || []).join('; '),
     'Job link(s)': (l.job_links || []).filter(Boolean).join('\n'),
@@ -240,7 +188,7 @@ async function exportSheet({ run, leads, jobs }) {
   }));
   const wb = XLSX.utils.book_new();
   const ws1 = XLSX.utils.json_to_sheet(contactRows.length ? contactRows : [{ Name: 'No contacts in this view' }]);
-  ws1['!cols'] = [22, 26, 11, 28, 12, 16, 26, 10, 12, 50, 50, 18, 24, 36, 28, 36, 16, 11, 8].map((wch) => ({ wch }));
+  ws1['!cols'] = [22, 26, 11, 28, 12, 16, 16, 9, 26, 22, 10, 12, 50, 50, 18, 24, 36, 28, 36, 16, 11, 8].map((wch) => ({ wch }));
   const ws2 = XLSX.utils.json_to_sheet(jobRows.length ? jobRows : [{ Company: 'No roles in this view' }]);
   ws2['!cols'] = [26, 40, 18, 15, 28, 11, 11, 6, 50, 50, 30].map((wch) => ({ wch }));
   XLSX.utils.book_append_sheet(wb, ws1, 'Contacts');
@@ -263,7 +211,6 @@ export default function HiringIntel() {
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [params, setParams] = useState(null);
-  const [kwDraft, setKwDraft] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [starting, setStarting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -278,6 +225,7 @@ export default function HiringIntel() {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [newOnly, setNewOnly] = useState(false);
   const [emailOnly, setEmailOnly] = useState(false);
+  const [showUnverified, setShowUnverified] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
 
   const toastTimer = useRef(null);
@@ -298,7 +246,12 @@ export default function HiringIntel() {
     setDetailLoading(true);
     try {
       const { data } = await hiringIntelAPI.getRun(id);
-      if (seq === openSeq.current) setDetail(data);
+      if (seq === openSeq.current) {
+        setDetail(data);
+        // If nothing could be size-verified (e.g. Apollo unavailable), don't hide every company.
+        const s = data?.run?.stats?.summary;
+        if (s && s.verified_companies === 0 && (data.leads || []).length) setShowUnverified(true);
+      }
     } catch (e) {
       if (seq !== openSeq.current) return;
       setDetail(null);
@@ -333,12 +286,11 @@ export default function HiringIntel() {
         if (!alive) return;
         setConfig(data);
         const stored = readStoredParams();
-        const merged = sanitizeParams(stored, data.defaults);
+        const merged = { ...data.defaults, ...(stored || {}) };
         // never carry a source that is no longer configured
         merged.sources = (merged.sources || []).filter((s) => data.sources?.[s]?.configured);
         if (!merged.sources.length) merged.sources = data.defaults.sources;
         setParams(merged);
-        setKwDraft((merged.extra_keywords || []).join(', '));
       } catch (e) {
         if (alive) setLoadError(formatApiError(e));
       }
@@ -405,7 +357,7 @@ export default function HiringIntel() {
       setActiveRun(data);
       setActiveId(data.id);
       await loadRuns();
-      notify('Scan started — this usually takes 3 to 8 minutes. You can leave this page.', 'info');
+      notify('Scan started — this usually takes 5 to 12 minutes. You can leave this page.', 'info');
     } catch (e) {
       const d = e?.response?.data?.detail;
       if (e?.response?.status === 409 && d?.active_run_id) {
@@ -451,14 +403,26 @@ export default function HiringIntel() {
     }
   };
 
-  const refreshPhones = async () => {
-    if (!selectedId) return;
-    setBusy('phones');
+  const reveal = async (leadIds) => {
+    if (!selectedId || !leadIds.length) return;
+    setBusy('reveal');
     try {
-      const { data } = await hiringIntelAPI.refreshPhones(selectedId);
-      notify(data.still_pending
-        ? `${data.updated} phone number(s) added; Apollo is still preparing ${data.still_pending}.`
-        : `${data.updated} phone number(s) added.`, 'success');
+      // the backend accepts 60 contacts per request
+      const data = { revealed: 0, reused_free: 0, with_email: 0, credits_used: 0, errors: [] };
+      for (let i = 0; i < leadIds.length; i += 60) {
+        const { data: part } = await hiringIntelAPI.revealContacts(selectedId, leadIds.slice(i, i + 60));
+        data.revealed += part.revealed || 0;
+        data.reused_free += part.reused_free || 0;
+        data.with_email += part.with_email || 0;
+        data.credits_used += Number(part.credits_used || 0);
+        data.errors = data.errors.concat(part.errors || []);
+      }
+      const parts = [];
+      if (data.revealed) parts.push(`${data.revealed} revealed`);
+      if (data.reused_free) parts.push(`${data.reused_free} already paid for earlier (free)`);
+      if (data.with_email != null) parts.push(`${data.with_email} with email`);
+      parts.push(`${Number(data.credits_used || 0)} Apollo credit${Number(data.credits_used) === 1 ? '' : 's'} used`);
+      notify(parts.join(' · '), data.errors?.length ? 'error' : 'success');
       openRun(selectedId);
     } catch (e) {
       notify(formatApiError(e), 'error');
@@ -502,6 +466,7 @@ export default function HiringIntel() {
       if (categoryFilter !== 'all' && !(l.categories || []).includes(categoryFilter)) return false;
       if (newOnly && !l.is_new_company) return false;
       if (emailOnly && !l.email) return false;
+      if (!showUnverified && l.size_status === 'unverified') return false;
       if (!q) return true;
       const hay = [l.person_name, l.person_title, l.company_name, l.email, l.company_city, ...(l.hiring_for || [])]
         .filter(Boolean).join(' ').toLowerCase();
@@ -512,15 +477,23 @@ export default function HiringIntel() {
     leads.forEach((l) => { if (!order.has(l.company_key)) order.set(l.company_key, order.size); });
     return rows.sort((a, b) => (order.get(a.company_key) - order.get(b.company_key))
       || ((ROLE_RANK[a.icp_role] || 9) - (ROLE_RANK[b.icp_role] || 9)));
-  }, [leads, typeFilter, categoryFilter, newOnly, emailOnly, q]);
+  }, [leads, typeFilter, categoryFilter, newOnly, emailOnly, showUnverified, q]);
+
+  const unverifiedCompanies = useMemo(() => {
+    const set = new Set();
+    leads.forEach((l) => { if (l.size_status === 'unverified') set.add(l.company_key); });
+    return set;
+  }, [leads]);
 
   const filteredJobs = useMemo(() => jobs.filter((j) => {
+    if (!showUnverified && unverifiedCompanies.has(j.company_key)) return false;
     if (typeFilter !== 'all' && j.employment_type !== typeFilter) return false;
     if (categoryFilter !== 'all' && j.category !== categoryFilter) return false;
     if (newOnly && !j.is_new) return false;
     if (!q) return true;
     return [j.title, j.company_name, j.location].filter(Boolean).join(' ').toLowerCase().includes(q);
-  }).sort((a, b) => String(b.posted_at || '').localeCompare(String(a.posted_at || ''))), [jobs, typeFilter, categoryFilter, newOnly, q]);
+  }).sort((a, b) => String(b.posted_at || '').localeCompare(String(a.posted_at || ''))),
+  [jobs, typeFilter, categoryFilter, newOnly, q, showUnverified, unverifiedCompanies]);
 
   const visibleCompanyKeys = useMemo(() => {
     const keys = [];
@@ -529,6 +502,20 @@ export default function HiringIntel() {
   }, [filteredLeads]);
 
   const summary = detailRun?.stats?.summary || {};
+  // contacts of the selected companies that haven't been revealed yet (what Reveal will buy)
+  // Only what is VISIBLE: hidden (filtered-out) contacts are never bought.
+  const revealable = useMemo(() => filteredLeads
+    .filter((l) => l.person_key && !l.enriched_at && selected.has(l.company_key))
+    .map((l) => l.id), [filteredLeads, selected]);
+
+  // A filter change must not leave invisible companies selected (Reveal / Add to CRM act on the selection).
+  useEffect(() => {
+    setSelected((prev) => {
+      const visible = new Set(visibleCompanyKeys);
+      const next = new Set([...prev].filter((k) => visible.has(k)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [visibleCompanyKeys]);
   const filtersActive = typeFilter !== 'all' || categoryFilter !== 'all' || newOnly || emailOnly || !!q;
   const allVisibleSelected = visibleCompanyKeys.length > 0 && visibleCompanyKeys.every((k) => selected.has(k));
 
@@ -579,22 +566,19 @@ export default function HiringIntel() {
 
   const resetFilters = () => {
     setSearch(''); setTypeFilter('all'); setCategoryFilter('all'); setNewOnly(false); setEmailOnly(false);
+    setShowUnverified(false);
   };
 
   // credit estimate shown before a scan
   const creditHint = useMemo(() => {
     if (!params) return '';
-    const contacts = params.max_companies * params.contacts_per_company;
-    // mirrors lookup_budget() in backend/hiring_intel.py
-    const lookups = Math.min(60, Math.max(20, 3 * params.max_companies));
-    // mirrors verify_budget(): real headcount / industry / parent group for the shortlist
-    const enrich = Math.min(60, 2 * params.max_companies + 10);
-    let s = `Worst case ≈ ${lookups + 3} search + ${enrich} company-check + ${contacts} email credits`;
-    if (params.reveal_phones) s += ` + ${contacts * 8} phone credits`;
-    return `${s}. Companies and contacts already looked up in the last 5 scans are re-used free.`;
+    const paid = (params.apollo_company_lookups || 0) + (params.sources.includes('apollo_discovery') ? 2 : 0);
+    return paid
+      ? `This scan may use up to ${paid} Apollo credit${paid === 1 ? '' : 's'} on company lookups. Names & emails are only bought when you click Reveal (≈1 credit each).`
+      : 'This scan uses 0 Apollo credits. Names & emails are only bought when you click Reveal (≈1 credit each); anything revealed in the last 5 scans is reused free.';
   }, [params]);
 
-  const apolloReady = !!config?.sources?.apollo?.configured;
+  const apolloReady = !!config?.integrations?.apollo;
   const isActive = !!activeId;
   const activeStageIdx = activeRun ? STAGES.findIndex((s) => s.key === activeRun.stage) : -1;
 
@@ -629,15 +613,14 @@ export default function HiringIntel() {
       {/* ── Source readiness ── */}
       {config && (
         <div className="hi-sources">
-          {Object.entries(SOURCE_META).map(([key, meta]) => {
+          {Object.entries(SOURCE_META).filter(([key]) => key !== 'apollo_discovery').map(([key, meta]) => {
             const cfg = config.sources?.[key];
             const on = cfg?.configured;
             const used = params?.sources?.includes(key);
             return (
               <div key={key} className={`hi-source${on ? '' : ' is-off'}`}
                    title={on ? (used ? 'Included in the next scan' : 'Turned off in scan settings')
-                     : key === 'apollo' ? 'Set APOLLO_API_KEY on the backend Space'
-                       : 'Optional: set JOOBLE_API_KEY on the backend Space'}>
+                     : `Optional: set ${cfg?.setup || 'its key'} on the backend Space`}>
                 <span className="hi-dot" style={{ background: on ? (used ? '#16A34A' : '#9CA3AF') : '#D1D5DB' }} />
                 <Icon name={meta.icon} style={{ fontSize: '1rem' }} />
                 <span>{meta.label}</span>
@@ -645,6 +628,25 @@ export default function HiringIntel() {
               </div>
             );
           })}
+          <div className={`hi-source${apolloReady ? '' : ' is-off'}`}
+               title="Apollo people search is free; credits are spent only when you click Reveal">
+            <span className="hi-dot" style={{ background: apolloReady ? '#16A34A' : '#D1D5DB' }} />
+            <Icon name="person_search" style={{ fontSize: '1rem' }} />
+            <span>Apollo · free search, paid reveal</span>
+          </div>
+          {config.integrations?.serper && (
+            <div className="hi-source" title="Google search finds company websites and founders' LinkedIn profiles">
+              <span className="hi-dot" style={{ background: '#16A34A' }} />
+              <Icon name="travel_explore" style={{ fontSize: '1rem' }} /><span>Google search</span>
+            </div>
+          )}
+          {(config.blocked_boards || []).length > 0 && (
+            <div className="hi-source is-off" title={config.blocked_boards.map((b) => `${b.name}: ${b.reason} — covered via ${b.covered_by}`).join('\n')}>
+              <Icon name="block" style={{ fontSize: '1rem' }} />
+              <span>{config.blocked_boards.map((b) => b.name).join(', ')}</span>
+              <span className="hi-source-note">block bots · covered via CareerJet & Indeed</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -652,8 +654,8 @@ export default function HiringIntel() {
         <div className="hi-banner hi-banner-warn">
           <Icon name="key_off" />
           <div>
-            <strong>Apollo isn't connected.</strong> Scans will still find roles, but headcount can't be verified and
-            no decision-maker contacts can be pulled. Add <code>APOLLO_API_KEY</code> to the backend Space secrets.
+            <strong>Apollo isn't connected.</strong> Scans still find roles and website contacts, but headcount checks and
+            Reveal need <code>APOLLO_API_KEY</code> in the backend Space secrets.
           </div>
         </div>
       )}
@@ -698,17 +700,13 @@ export default function HiringIntel() {
                       label="Include roles with no stated type" sub="Many careers pages don't say permanent or contract" />
               <div className="hi-field-label" style={{ marginTop: '0.875rem' }}>Extra search keywords</div>
               <input className="input" placeholder="e.g. dbt, Databricks, data platform"
-                     value={kwDraft} maxLength={500}
-                     onChange={(e) => { setKwDraft(e.target.value); updateParams({ extra_keywords: parseKeywords(e.target.value) }); }}
-                     onBlur={() => setKwDraft((params.extra_keywords || []).join(', '))} />
-              <span className="hi-field-hint">Comma-separated, up to 8. Each one adds LinkedIn searches.</span>
+                     key={(params.extra_keywords || []).join('|')}
+                     defaultValue={(params.extra_keywords || []).join(', ')}
+                     onBlur={(e) => updateParams({ extra_keywords: e.target.value.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 8) })} />
             </section>
 
             <section>
               <h3 className="hi-h3">Companies</h3>
-              <Toggle checked={params.require_verified_headcount} onChange={(v) => updateParams({ require_verified_headcount: v })}
-                      label="Only companies confirmed under 100 staff"
-                      sub="Off = also keep companies Apollo doesn't know (headcount unverified)" />
               <Toggle checked={params.hq_ireland_only} onChange={(v) => updateParams({ hq_ireland_only: v })}
                       label="Irish-headquartered only" sub="Off = also foreign start-ups hiring in Ireland" />
               <div className="hi-field-label" style={{ marginTop: '0.875rem' }}>Sources</div>
@@ -728,25 +726,30 @@ export default function HiringIntel() {
                   );
                 })}
               </div>
-              <p className="hi-note"><Icon name="shield" style={{ fontSize: '0.9rem' }} /> Always excluded: staffing,
-                recruitment and HR firms (checked by name, website, LinkedIn page, Apollo industry and the job ad
-                itself), known large employers and JM Data Talent. With the first toggle on, companies that belong to
-                a larger group are excluded too.</p>
+              <p className="hi-note"><Icon name="shield" style={{ fontSize: '0.9rem' }} /> Recruitment agencies and JM Data
+                Talent itself are always excluded.</p>
             </section>
 
             <section>
-              <h3 className="hi-h3">Contacts &amp; Apollo credits</h3>
+              <h3 className="hi-h3">Contacts &amp; credits</h3>
               <div className="hi-number-row">
-                <NumberField label="Max companies" value={params.max_companies}
-                             {...NUM_LIMITS.max_companies}
-                             onCommit={(n) => updateParams({ max_companies: n })} />
-                <NumberField label="Contacts / company" value={params.contacts_per_company}
-                             {...NUM_LIMITS.contacts_per_company}
-                             onCommit={(n) => updateParams({ contacts_per_company: n })} />
+                <label>
+                  <span className="hi-field-label">Max companies</span>
+                  <input className="input" type="number" min={5} max={150} value={params.max_companies}
+                         onChange={(e) => updateParams({ max_companies: Math.max(5, Math.min(150, Number(e.target.value) || 5)) })} />
+                </label>
+                <label>
+                  <span className="hi-field-label">Contacts / company</span>
+                  <input className="input" type="number" min={1} max={5} value={params.contacts_per_company}
+                         onChange={(e) => updateParams({ contacts_per_company: Math.max(1, Math.min(5, Number(e.target.value) || 1)) })} />
+                </label>
               </div>
-              <Toggle checked={params.reveal_phones} onChange={(v) => updateParams({ reveal_phones: v })}
-                      disabled={!apolloReady}
-                      label="Reveal mobile numbers" sub="Apollo charges up to 8 credits per number found" />
+              <label style={{ display: 'block', marginTop: '0.75rem' }}>
+                <span className="hi-field-label">Paid Apollo company lookups</span>
+                <input className="input" type="number" min={0} max={100} value={params.apollo_company_lookups || 0}
+                       onChange={(e) => updateParams({ apollo_company_lookups: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} />
+                <span className="hi-toggle-sub">0 = free checks only. Above 0, companies with no website found are looked up by name (1 credit each).</span>
+              </label>
               <p className="hi-note"><Icon name="toll" style={{ fontSize: '0.9rem' }} /> {creditHint}</p>
             </section>
           </div>
@@ -755,7 +758,6 @@ export default function HiringIntel() {
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button className="btn-ghost" onClick={() => {
                 updateParams({ ...config.defaults });
-                setKwDraft((config.defaults.extra_keywords || []).join(', '));
               }}>Reset to defaults</button>
               <button className="btn-primary" onClick={startScan} disabled={starting || isActive}>
                 <Icon name="play_arrow" filled /> Run scan
@@ -870,8 +872,9 @@ export default function HiringIntel() {
               <div className="hi-empty-art"><Icon name="radar" style={{ fontSize: '2.25rem' }} /></div>
               <h3>{runs.length ? 'Pick a scan on the left' : 'Run your first scan'}</h3>
               <p>
-                We'll look across LinkedIn, Apollo and company careers pages for Data &amp; AI roles in Ireland at
-                companies under 100 people, then find who to call.
+                We'll look across LinkedIn, Indeed, CareerJet, JobsIreland and company websites for Data &amp; AI roles
+                in Ireland at companies under 100 people, then find who to call — without spending Apollo credits
+                until you choose to reveal a contact.
               </p>
               {!runs.length && (
                 <button className="btn-primary" onClick={startScan} disabled={!params || starting || isActive}>
@@ -916,10 +919,12 @@ export default function HiringIntel() {
                          sub={summary.new_companies != null ? `${summary.new_companies} new since last scan` : null} />
                     <Kpi icon="work" label="Open Data & AI roles" value={detailRun.jobs_count} tone="#7C3AED"
                          sub={summary.new_jobs != null ? `${summary.new_jobs} new` : null} />
-                    <Kpi icon="badge" label="Decision-makers" value={detailRun.contacts_count} tone="#006243" />
-                    <Kpi icon="mail" label="With email" value={summary.with_email ?? '—'} tone="#0891B2" />
-                    <Kpi icon="call" label="With phone" value={summary.with_phone ?? '—'} tone="#B45309"
-                         sub={summary.phones_pending ? `${summary.phones_pending} pending` : null} />
+                    <Kpi icon="verified" label="Confirmed under 100 staff" value={summary.verified_companies ?? '—'} tone="#15803D"
+                         sub={summary.verified_companies != null ? `${detailRun.companies_count - summary.verified_companies} unverified` : null} />
+                    <Kpi icon="badge" label="Decision-makers" value={detailRun.contacts_count} tone="#006243"
+                         sub={summary.with_linkedin != null ? `${summary.with_linkedin} with LinkedIn` : null} />
+                    <Kpi icon="mail" label="Revealed · with email" value={`${summary.revealed ?? 0} · ${summary.with_email ?? 0}`} tone="#0891B2"
+                         sub={summary.to_reveal ? `${summary.to_reveal} still to reveal` : null} />
                   </div>
 
                   <FunnelNote stats={detailRun.stats} />
@@ -936,9 +941,12 @@ export default function HiringIntel() {
                       </button>
                     </div>
                     <div className="hi-toolbar-actions">
-                      {summary.phones_pending > 0 && (
-                        <button className="btn-ghost" onClick={refreshPhones} disabled={busy === 'phones'}>
-                          <Icon name="sync" /> Refresh phones
+                      {tab === 'contacts' && apolloReady && (
+                        <button className="btn-secondary" onClick={() => reveal(revealable)} disabled={!revealable.length || busy === 'reveal'}
+                                title="Buys full name + work email from Apollo for the contacts of the selected companies (≈1 credit each; free if already revealed in a kept scan)">
+                          <Icon name="lock_open" /> {busy === 'reveal' ? 'Revealing…'
+                            : revealable.length ? `Reveal ${revealable.length} · ≈${revealable.length} credit${revealable.length === 1 ? '' : 's'}`
+                              : 'Reveal (tick companies)'}
                         </button>
                       )}
                       {tab === 'contacts' && (
@@ -984,6 +992,10 @@ export default function HiringIntel() {
                         <Icon name="alternate_email" style={{ fontSize: '1rem' }} /> Has email
                       </button>
                     )}
+                    <button className={`hi-pick${showUnverified ? ' on' : ''}`} onClick={() => setShowUnverified((v) => !v)}
+                            title="Companies whose headcount no free source could confirm">
+                      <Icon name="help" style={{ fontSize: '1rem' }} /> Include unverified size
+                    </button>
                     {filtersActive && <button className="btn-ghost" onClick={resetFilters}>Clear</button>}
                   </div>
 
@@ -991,7 +1003,8 @@ export default function HiringIntel() {
                     <ContactsTable rows={filteredLeads} selected={selected} onToggle={toggleCompany}
                                    allSelected={allVisibleSelected} onToggleAll={toggleAllVisible}
                                    selectable={visibleCompanyKeys.length > 0}
-                                   onOpenLead={(id) => navigate(`/sales/leads/${id}`)} />
+                                   onOpenLead={(id) => navigate(`/sales/leads/${id}`)}
+                                   onReveal={reveal} canReveal={apolloReady} revealing={busy === 'reveal'} />
                   ) : (
                     <RolesTable rows={filteredJobs} />
                   )}
@@ -1038,15 +1051,7 @@ export default function HiringIntel() {
 // ── "How this scan filtered" — makes every number traceable ──
 function FunnelNote({ stats }) {
   const [open, setOpen] = useState(false);
-  const [rq, setRq] = useState('');
   if (!stats) return null;
-  // over-the-cap entries are not a judgement on the company, so list them last
-  const rejected = [...(stats.rejected || [])].sort((x, y) =>
-    (x.reason.startsWith('over the company cap') ? 1 : 0) - (y.reason.startsWith('over the company cap') ? 1 : 0));
-  const rql = rq.trim().toLowerCase();
-  const rejectedShown = rql
-    ? rejected.filter((r) => `${r.company} ${r.reason}`.toLowerCase().includes(rql))
-    : rejected;
   const f = stats.filtered || {};
   const a = stats.apollo || {};
   const sources = stats.sources || {};
@@ -1055,15 +1060,9 @@ function FunnelNote({ stats }) {
     ['Outside the Republic of Ireland', f.not_ireland],
     ['Northern Ireland', f.northern_ireland],
     ['Part-time / internship / type not wanted', f.employment_type],
-    ['Staffing / recruitment / HR firm', f.agency],
-    ['Known large employer (no credits spent)', f.known_large],
+    ['Recruitment agency', f.agency],
     ['100+ employees', f.headcount_too_big],
-    ['Not confirmed under 100 staff / Irish HQ by Apollo', f.apollo_no_match],
-    ['Headcount unknown in Apollo', f.headcount_unverified],
-    ['Not checked — Apollo lookup limit reached', f.over_lookup_cap],
-    ['Part of a larger group', f.subsidiary],
-    ['Apollo record was a different company', f.identity_mismatch],
-    ['LinkedIn page registered outside Ireland', f.foreign_linkedin],
+    ['Kept, but headcount unverified', f.headcount_unverified],
     ['HQ outside Ireland', f.hq_outside_ireland],
     ['HQ location unknown', f.hq_unknown],
     ['Posted before the time window', f.older_than_window],
@@ -1079,16 +1078,21 @@ function FunnelNote({ stats }) {
         <div className="hi-funnel-body hi-fade">
           <div>
             <div className="hi-field-label">Sources</div>
-            {Object.entries(sources).map(([name, s]) => (
-              <div key={name} className="hi-funnel-row">
-                <span>{name}</span>
-                <span className="hi-muted">
-                  {s.status === 'not_configured' ? 'not set up'
-                    : s.status === 'blocked' ? `blocked part-way · ${s.jobs || 0} roles`
-                      : `${s.jobs || 0} roles${s.companies ? ` · ${s.companies} companies` : ''}`}
-                </span>
-              </div>
-            ))}
+            {Object.entries(sources).map(([name, s]) => {
+              const st = SOURCE_STATUS[s.status] || SOURCE_STATUS.ok;
+              return (
+                <div key={name} className="hi-funnel-row" title={s.note || ''}>
+                  <span>{name}</span>
+                  <span>
+                    <span className="hi-muted">
+                      {s.status === 'not_configured' ? (s.note || 'not set up')
+                        : `${s.jobs || 0} roles${s.companies ? ` · ${s.companies} cos` : ''}`}
+                    </span>{' '}
+                    {s.status !== 'not_configured' && <strong style={{ color: st.tone }}>{st.label}</strong>}
+                  </span>
+                </div>
+              );
+            })}
           </div>
           <div>
             <div className="hi-field-label">Filtered out</div>
@@ -1098,38 +1102,19 @@ function FunnelNote({ stats }) {
           </div>
           <div>
             <div className="hi-field-label">Apollo usage</div>
-            <div className="hi-funnel-row"><span>Company searches / lookups</span><strong>{(a.search_calls || 0) + (a.lookup_calls || 0)}</strong></div>
-            <div className="hi-funnel-row"><span>Lookups re-used from earlier scans</span><strong>{a.lookups_cached || 0}</strong></div>
-            {a.lookups_skipped ? <div className="hi-funnel-row"><span>Companies not checked (lookup limit)</span><strong>{a.lookups_skipped}</strong></div> : null}
-            <div className="hi-funnel-row"><span>Companies verified in Apollo (headcount, industry, group)</span><strong>{a.orgs_enriched || 0}</strong></div>
-            <div className="hi-funnel-row"><span>Verifications re-used from earlier scans</span><strong>{a.orgs_enrich_cached || 0}</strong></div>
-            <div className="hi-funnel-row"><span>LinkedIn job pages read (free)</span><strong>{stats.linkedin_pages?.checked || 0}</strong></div>
             <div className="hi-funnel-row"><span>People searches (free)</span><strong>{a.people_search_calls || 0}</strong></div>
-            <div className="hi-funnel-row"><span>Contacts re-used (no credits)</span><strong>{a.contacts_reused || 0}</strong></div>
-            <div className="hi-funnel-row"><span>Contact credits reported by Apollo</span><strong>{Number(a.credits_consumed || 0).toLocaleString('en-IE')}</strong></div>
+            <div className="hi-funnel-row"><span>Paid company lookups / discovery</span><strong>{(a.search_calls || 0) + (a.lookup_calls || 0)}</strong></div>
+            <div className="hi-funnel-row"><span>Contacts already revealed earlier (free)</span><strong>{a.contacts_reused || 0}</strong></div>
+            <div className="hi-funnel-row"><span>Credits spent on Reveal</span><strong>{Number(a.reveal_credits || 0).toLocaleString('en-IE')}</strong></div>
+            {stats.serper_queries ? <div className="hi-funnel-row"><span>Google searches (Serper)</span><strong>{stats.serper_queries}</strong></div> : null}
           </div>
-          {rejected.length > 0 && (
-            <div className="hi-rejected">
-              <div className="hi-field-label">Companies left out, and why ({rejected.length})</div>
-              <input className="input hi-rejected-search" placeholder="Find a company…" value={rq}
-                     onChange={(e) => setRq(e.target.value)} />
-              <div className="hi-rejected-list">
-                {rejectedShown.map((r, i) => (
-                  <div key={`${r.company}-${i}`} className="hi-funnel-row">
-                    <span>{r.company}</span><span className="hi-muted hi-rejected-why">{r.reason}</span>
-                  </div>
-                ))}
-                {!rejectedShown.length && <div className="hi-muted">No match.</div>}
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
   );
 }
 
-function ContactsTable({ rows, selected, onToggle, allSelected, onToggleAll, selectable, onOpenLead }) {
+function ContactsTable({ rows, selected, onToggle, allSelected, onToggleAll, selectable, onOpenLead, onReveal, canReveal, revealing }) {
   if (!rows.length) {
     return <div className="hi-card hi-empty-small" style={{ padding: '2rem' }}><Icon name="filter_alt_off" /> Nothing matches these filters.</div>;
   }
@@ -1145,7 +1130,7 @@ function ContactsTable({ rows, selected, onToggle, allSelected, onToggleAll, sel
             </th>
             <th>Name</th>
             <th>Email</th>
-            <th>Phone</th>
+            <th>Found via</th>
             <th>Company</th>
             <th>Hiring for</th>
             <th>Job link</th>
@@ -1174,7 +1159,10 @@ function ContactsTable({ rows, selected, onToggle, allSelected, onToggleAll, sel
                         {(l.person_name || '?').split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()}
                       </div>
                       <div style={{ minWidth: 0 }}>
-                        <div className="hi-strong">{l.person_name}</div>
+                        <div className="hi-strong">
+                          {l.person_name}
+                          {l.name_hidden && <Icon name="lock" style={{ fontSize: '0.8rem', color: 'var(--on-surface-variant)' }} />}
+                        </div>
                         <div className="hi-sub" title={l.person_title || ''}>{l.person_title}</div>
                         {l.icp_role && <Tag tone={ROLE_TONE[l.icp_role]}>{l.icp_role}</Tag>}
                       </div>
@@ -1189,13 +1177,18 @@ function ContactsTable({ rows, selected, onToggle, allSelected, onToggleAll, sel
                       {l.email}
                       {l.email_status === 'verified' && <Icon name="verified" filled style={{ fontSize: '0.875rem', color: '#16A34A', marginLeft: 4 }} />}
                     </a>
-                  ) : <span className="hi-muted">—</span>}
+                  ) : l.person_key && !l.enriched_at && canReveal ? (
+                    <button className="hi-reveal" onClick={() => onReveal([l.id])} disabled={revealing}
+                            title="Buy full name + work email from Apollo (≈1 credit; free if Apollo has nothing)">
+                      <Icon name="lock_open" style={{ fontSize: '0.875rem' }} /> Reveal
+                    </button>
+                  ) : l.enriched_at ? <span className="hi-muted" title="Apollo has no email for this person">not found</span>
+                    : <span className="hi-muted">—</span>}
                 </td>
                 <td className="hi-nowrap">
-                  {l.phone ? <a className="hi-link" href={`tel:${l.phone}`}>{l.phone}</a>
-                    : l.phone_status === 'pending' ? <span className="hi-muted"><Icon name="schedule" style={{ fontSize: '0.875rem' }} /> pending</span>
-                      : l.company_phone && firstOfCompany ? <span className="hi-muted" title="Company switchboard">{l.company_phone} <small>(office)</small></span>
-                        : <span className="hi-muted">—</span>}
+                  {l.contact_source ? <Tag tone={SOURCE_TONE[l.contact_source] || '#6B7280'}>{l.contact_source}</Tag>
+                    : <span className="hi-muted">—</span>}
+                  {l.phone && <div><a className="hi-link" href={`tel:${l.phone}`}>{l.phone}</a></div>}
                 </td>
                 <td>
                   {firstOfCompany ? (
@@ -1205,8 +1198,10 @@ function ContactsTable({ rows, selected, onToggle, allSelected, onToggleAll, sel
                         {l.is_new_company && <span className="hi-new">NEW</span>}
                       </div>
                       <div className="hi-sub">
-                        {[l.company_size ? `${l.company_size} staff` : null, l.company_city, l.company_industry].filter(Boolean).join(' · ')}
+                        {[l.size_label || (l.company_size ? `${l.company_size} staff` : null), l.company_city].filter(Boolean).join(' · ')}
                       </div>
+                      {l.size_status === 'verified' && <Tag tone="#15803D" title="Headcount confirmed under 100">size verified</Tag>}
+                      {l.size_status === 'unverified' && <Tag tone="#B45309" title="No free source could confirm the headcount">size unverified</Tag>}
                       <div className="hi-icons">
                         {l.company_website && <a href={l.company_website} target="_blank" rel="noreferrer" title={hostOf(l.company_website)}><Icon name="language" style={{ fontSize: '1rem' }} /></a>}
                         {l.company_linkedin && <a href={l.company_linkedin} target="_blank" rel="noreferrer" title="Company LinkedIn"><Icon name="corporate_fare" style={{ fontSize: '1rem' }} /></a>}
@@ -1346,13 +1341,6 @@ const HI_CSS = `
 .hi-switch.on span { transform: translateX(14px); }
 .hi-toggle input:focus-visible + span .hi-toggle-label, .hi-toggle:focus-within .hi-switch { outline: 2px solid rgba(68,104,176,.35); outline-offset: 2px; }
 .hi-number-row { display:grid; grid-template-columns: 1fr 1fr; gap:.75rem; }
-.hi-rejected { grid-column: 1 / -1; }
-.hi-rejected-search { max-width: 320px; margin-bottom: .5rem; }
-.hi-rejected-list { max-height: 280px; overflow-y: auto; border: 1px solid var(--outline-variant, #e5e7eb); border-radius: 8px; padding: .25rem .75rem; }
-.hi-rejected-why { text-align: right; max-width: 60%; }
-.hi-field-hint { display:block; margin-top:.3rem; font-size:.6875rem; color: var(--on-surface-variant); }
-.hi-field-hint.is-error { color: var(--error); }
-.hi-input-invalid { border-color: var(--error) !important; box-shadow: 0 0 0 3px rgba(220,38,38,.12) !important; }
 .hi-live { border-color: rgba(68,104,176,.35); background: linear-gradient(180deg, rgba(68,104,176,.06), var(--surface-container-lowest) 60%); }
 .hi-live-head { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; margin-bottom:.875rem; }
 .hi-live-title { font-weight:700; font-size:1rem; }
@@ -1452,6 +1440,9 @@ const HI_CSS = `
 .hi-links { display:flex; flex-direction:column; gap:.25rem; align-items:flex-start; }
 .hi-linkchip { display:inline-flex; align-items:center; gap:.2rem; font-size:.72rem; color: var(--primary); text-decoration:none; border:1px solid rgba(68,104,176,.3); border-radius:.4rem; padding:.08rem .4rem; text-transform: capitalize; }
 .hi-linkchip:hover { background: rgba(68,104,176,.08); }
+.hi-reveal { display:inline-flex; align-items:center; gap:.2rem; border:1px dashed rgba(68,104,176,.55); background: rgba(68,104,176,.06); color: var(--primary); border-radius:.45rem; padding:.15rem .5rem; font-size:.72rem; font-weight:600; font-family: var(--font-ui); cursor:pointer; white-space:nowrap; }
+.hi-reveal:hover:not(:disabled) { background: rgba(68,104,176,.14); }
+.hi-reveal:disabled { opacity:.5; cursor:wait; }
 .hi-li { display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:5px; background:#0A66C2; color:#fff; font-weight:800; font-size:.75rem; text-decoration:none; font-family: Arial, sans-serif; }
 .hi-li:hover { filter: brightness(1.1); }
 .hi-skeleton { background: linear-gradient(90deg, var(--surface-container) 0, var(--surface-container-high) 40%, var(--surface-container) 80%); background-size: 800px 100%; animation: hi-shimmer 1.4s infinite linear; margin-bottom:.4rem; }

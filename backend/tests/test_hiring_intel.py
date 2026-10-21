@@ -190,14 +190,6 @@ def test_pick_phone_prefers_mobile_and_skips_invalid():
     assert hi.pick_phone(None) is None
 
 
-def test_phones_from_poll_payload():
-    payload = {"status": "success", "people": [
-        {"id": "p1", "status": "success", "phone_numbers": [{"sanitized_number": "+353861234567", "type_cd": "mobile"}]},
-        {"id": "p2", "status": "success", "phone_numbers": []},
-    ]}
-    assert hi._phones_from_poll(payload) == {"p1": "+353861234567", "p2": None}
-
-
 # ── Parsers ─────────────────────────────────────────────────────────────
 LINKEDIN_FRAGMENT = """
 <li>
@@ -327,8 +319,8 @@ def test_build_rows_dedupes_and_flags_new():
     c.add_job(hi.Job("Data Engineer", "u1", "Dublin", "LinkedIn", "Permanent", "Data Engineering", "2026-10-01"))
     c.add_job(hi.Job("ML Engineer", "u2", "Dublin", "LinkedIn", "Contract", "AI / ML", "2026-10-05"))
     contacts = {"acme": [
-        {"id": "p1", "name": "Jane Doe", "title": "CTO", "role": "CTO", "email": "jane@acme.ie", "phone": None,
-         "phone_status": "not_requested", "linkedin_url": "https://linkedin.com/in/jane"},
+        {"person_key": "p1", "apollo_person_id": "p1", "name": "Jane Doe", "title": "CTO", "role": "CTO",
+         "email": "jane@acme.ie", "linkedin_url": "https://linkedin.com/in/jane", "source": "Apollo"},
     ]}
     prev = {hi.job_fingerprint("acme", "Data Engineer"): "2026-09-20T00:00:00+00:00"}
     jobs, leads = hi.build_rows("run1", [c], contacts, prev, {"acme"}, "2026-10-10T00:00:00+00:00")
@@ -343,6 +335,7 @@ def test_build_rows_dedupes_and_flags_new():
     assert lead["job_links"] == ["u2", "u1"]
     assert set(lead["employment_types"]) == {"Permanent", "Contract"}
     assert lead["person_key"] == "p1" and lead["is_new_company"] is False
+    assert lead["contact_source"] == "Apollo" and lead["size_status"] == "unverified" and lead["name_hidden"] is False
 
 
 def test_build_rows_company_without_contacts_keeps_one_row():
@@ -355,12 +348,16 @@ def test_build_rows_company_without_contacts_keeps_one_row():
 # ── Params ──────────────────────────────────────────────────────────────
 def test_run_params_validation():
     p = hi.RunParams()
-    assert p.employment_types == ["Permanent", "Contract"] and p.max_headcount == 99 and p.reveal_phones is False
+    assert p.employment_types == ["Permanent", "Contract"] and p.max_headcount == 99 and p.apollo_company_lookups == 0
     assert hi.RunParams(employment_types=["contract"]).employment_types == ["Contract"]
     with pytest.raises(Exception):
         hi.RunParams(employment_types=["internship"])
     with pytest.raises(Exception):
         hi.RunParams(sources=["myspace"])
+    with pytest.raises(Exception):
+        hi.RunParams(sources=["websites"])            # careers pages alone can't find companies
+    assert "apollo_discovery" not in hi.RunParams().sources   # paid discovery is opt-in
+    assert hi.RunParams(sources=["apollo", "linkedin"]).sources == ["linkedin"]   # old saved settings
     with pytest.raises(Exception):
         hi.RunParams(max_headcount=500)
     assert hi.RunParams(extra_keywords=["  dbt  ", "data engineer", "dbt"]).extra_keywords == ["dbt"]
@@ -394,6 +391,162 @@ def test_safe_public_host_rejects_short_ip_forms_and_schemes():
 
 
 def test_contact_summary():
-    rows = [{"email": "a@b.ie", "phone": "+3531", "phone_status": "found"},
-            {"email": None, "phone": None, "phone_status": "pending"}, {}]
-    assert hi.contact_summary(rows) == {"with_email": 1, "with_phone": 1, "phones_pending": 1}
+    rows = [{"person_key": "a", "email": "a@b.ie", "linkedin_url": "x", "enriched_at": "t"},
+            {"person_key": "b", "email": None}, {"person_key": ""}]
+    assert hi.contact_summary(rows) == {"with_email": 1, "with_linkedin": 1, "revealed": 1, "to_reveal": 1}
+
+
+
+# ── Free contacts: merging Apollo (hidden surnames) with website / X-ray finds ──
+def test_merge_contacts_fills_hidden_surname_and_ranks():
+    apollo = [{"apollo_person_id": "a1", "name": "Ciara By***e", "title": "Co-Founder & CTO", "role": "CTO",
+               "rank": 2, "source": "Apollo", "needs_reveal": True, "linkedin_url": ""},
+              {"apollo_person_id": "a2", "name": "Sean K***y", "title": "CEO", "role": "CEO", "rank": 3,
+               "source": "Apollo", "needs_reveal": True}]
+    site = [{"name": "Ciara Byrne", "title": "CTO & Co-founder", "linkedin_url": "https://www.linkedin.com/in/ciarab",
+             "source": "Company website"},
+            {"name": "Aoife Walsh", "title": "Head of Data", "linkedin_url": "", "source": "Company website"},
+            {"name": "Tom Office", "title": "Office Manager", "source": "Company website"}]
+    out = hi.merge_contacts(apollo, site, [], cap=3)
+    assert [p["name"] for p in out] == ["Aoife Walsh", "Ciara Byrne", "Sean K***y"]
+    ciara = out[1]
+    assert ciara["apollo_person_id"] == "a1" and ciara["needs_reveal"] is False
+    assert ciara["linkedin_url"] == "https://www.linkedin.com/in/ciarab"
+    assert out[0]["person_key"].startswith("n:") and ciara["person_key"] == "a1"
+
+
+def test_apollo_people_parsing_and_company_guard():
+    c = hi.Company(name="Acme Analytics", key="acme analytics", domain="acme.ie")
+    data = {"people": [
+        {"id": "p1", "first_name": "Ciara", "last_name_obfuscated": "By***e", "title": "CTO",
+         "organization": {"name": "Acme Analytics", "primary_domain": "acme.ie"}},
+        {"id": "p2", "first_name": "Bob", "last_name_obfuscated": "S***h", "title": "Software Engineer",
+         "organization": {"name": "Acme Analytics"}},
+        {"id": "p3", "first_name": "Eve", "last_name_obfuscated": "X***", "title": "CEO",
+         "organization": {"name": "Other Corp", "primary_domain": "other.com"}},
+    ], "total_entries": 3}
+    people = hi._apollo_people(data, c)
+    assert [p["apollo_person_id"] for p in people] == ["p1"]
+    assert people[0]["name"] == "Ciara By***e" and people[0]["needs_reveal"] is True
+    assert hi._total_entries(data) == 3 and hi._total_entries({"pagination": {"total_entries": "7"}}) == 7
+
+
+def test_split_name_refuses_hidden_surnames():
+    assert hi._split_name("Ciara Byrne") == ("Ciara", "Byrne")
+    assert hi._split_name("Dr. Aoife Mary Walsh") == ("Aoife", "Walsh")
+    assert hi._split_name("Sean K***y") == ("Sean", "")
+
+
+def test_build_rows_all_lead_rows_share_the_same_keys():
+    """Regression: PostgREST bulk inserts NULL for keys missing from some rows (NOT NULL name_hidden broke)."""
+    a = hi.Company(name="A", key="a")
+    a.add_job(hi.Job("Data Engineer", "u", "Dublin", "LinkedIn", "Permanent", "Data Engineering"))
+    b = hi.Company(name="B", key="b")
+    b.add_job(hi.Job("Data Analyst", "u2", "Cork", "Indeed", "Permanent", "Analytics / BI"))
+    contacts = {"a": [{"person_key": "p1", "name": "Jane Doe", "title": "CTO", "role": "CTO", "source": "Apollo",
+                       "needs_reveal": True}]}
+    _, leads = hi.build_rows("r", [a, b], contacts, {}, set(), "2026-10-20T00:00:00+00:00")
+    assert len({tuple(sorted(r)) for r in leads}) == 1
+    assert [r["name_hidden"] for r in leads] == [True, False]
+
+
+def test_display_company_name():
+    assert hi.display_company_name("BRIGHTWAVE ANALYTICS LIMITED") == "Brightwave Analytics Limited"
+    assert hi.display_company_name("KESTREL AI DAC") == "Kestrel AI DAC"
+    assert hi.display_company_name("Acme Analytics") == "Acme Analytics"
+    assert hi.display_company_name("IBM") == "IBM"
+
+
+
+def test_same_person_respects_apollo_obfuscation():
+    assert hi._same_person({"name": "Ciara By***e"}, {"name": "Ciara Byrne"})
+    assert not hi._same_person({"name": "Ciara By***e"}, {"name": "Ciara Brennan"})
+    assert not hi._same_person({"name": "Ciara"}, {"name": "Ciara Byrne"})
+    assert hi._same_person({"name": "Sean Kelly"}, {"name": "Sean Kelly"})
+
+
+def test_person_keys_are_company_scoped():
+    a = hi._person_key({"name": "John Smith"}, "acme")
+    b = hi._person_key({"name": "John Smith"}, "beta")
+    assert a != b and a.startswith("n:acme:")
+    assert hi._person_key({"name": "x", "apollo_person_id": "p1"}, "acme") == "p1"
+    assert hi._person_key({"name": "x", "linkedin_url": "https://ie.linkedin.com/in/JaneD/"}, "acme") == "li:janed"
+
+
+def test_redact_hides_new_keys_and_proxy_passwords(monkeypatch):
+    monkeypatch.setenv("SERPER_API_KEY", "serper-secret-123")
+    msg = hi.redact("failed http://user:pa55w0rd@proxy.example:8080 with key serper-secret-123")
+    assert "pa55w0rd" not in msg and "serper-secret-123" not in msg and "***@proxy.example" in msg
+
+
+class _FakeCtx:
+    """Just enough RunContext for apollo_size_and_people."""
+    def __init__(self, responses, hq=True, max_hc=99):
+        self.responses = list(responses)
+        self.calls = []
+        self.apollo_disabled = ""
+        self.p = hi.RunParams(hq_ireland_only=hq, max_headcount=max_hc)
+        self.warnings = []
+
+    async def apollo_call(self, method, path, *, kind, params=None, json_body=None):
+        self.calls.append(params)
+        return self.responses.pop(0) if self.responses else {"people": [], "total_entries": 0}
+
+    def warn(self, msg):
+        self.warnings.append(msg)
+
+
+def _co():
+    return hi.Company(name="Acme Analytics", key="acme analytics", domain="acme.ie")
+
+
+def test_apollo_check_rate_limit_never_rejects():
+    import asyncio as _a
+    c = _co()
+    ctx = _FakeCtx([{"people": [], "total_entries": 0}, None, {"people": [], "total_entries": 50}])
+    _a.run(hi.apollo_size_and_people(ctx, c))
+    assert c.size_status == "" and len(ctx.calls) == 2      # stopped at the failed call; NOT too_big
+
+
+def test_apollo_check_rejects_only_on_positive_proof():
+    import asyncio as _a
+    c = _co()      # no execs, not in range, but found ABOVE the limit -> too big
+    ctx = _FakeCtx([{"people": []}, {"people": [], "total_entries": 0}, {"people": [], "total_entries": 12}])
+    _a.run(hi.apollo_size_and_people(ctx, c))
+    assert c.size_status == "too_big" and "over 100" in c.reject_reason
+    assert ("organization_num_employees_ranges[]", "101,200") in ctx.calls[2]
+
+    c2 = _co()     # in range anywhere, but not with the Ireland filter -> HQ outside Ireland
+    ctx2 = _FakeCtx([{"people": []}, {"total_entries": 0}, {"total_entries": 0}, {"total_entries": 9}])
+    _a.run(hi.apollo_size_and_people(ctx2, c2))
+    assert c2.size_status == "too_big" and "HQ" in c2.reject_reason
+
+    c3 = _co()     # Apollo simply doesn't know it -> stays unverified
+    ctx3 = _FakeCtx([{"people": []}, {"total_entries": 0}, {"total_entries": 0}, {"total_entries": 0}])
+    _a.run(hi.apollo_size_and_people(ctx3, c3))
+    assert c3.size_status == ""
+
+
+def test_apollo_check_verified_path_applies_ireland_filter():
+    import asyncio as _a
+    c = _co()
+    c.size_status = "verified"            # e.g. Indeed said "11 to 50"
+    ctx = _FakeCtx([{"people": []}, {"total_entries": 30}, {"total_entries": 0}])
+    _a.run(hi.apollo_size_and_people(ctx, c))
+    assert ("organization_locations[]", "Ireland") in ctx.calls[0]
+    assert c.size_status == "too_big" and "HQ outside Ireland" in c.reject_reason
+
+
+def test_verification_cache_rules():
+    ctx = _FakeCtx([], hq=True, max_hc=99)
+    ctx.company_cache_in = {"ver:acme.ie": {"domain": "acme.ie", "size_status": "verified", "max_hc": 99,
+                                            "hq": True, "t": hi._iso()}}
+    assert hi._verification_hit(ctx, _co())
+    other = hi.Company(name="Kerry Group", key="kerry", domain="kerrygroup.com")
+    assert hi._verification_hit(ctx, other) is None                     # keyed by website, not name
+    ctx.company_cache_in["ver:acme.ie"]["hq"] = False
+    assert hi._verification_hit(ctx, _co()) is None                     # checked without the HQ rule
+    ctx.company_cache_in["ver:acme.ie"].update({"hq": True, "max_hc": 200})
+    assert hi._verification_hit(ctx, _co()) is None                     # checked against a looser limit
+    ctx.company_cache_in["ver:acme.ie"].update({"max_hc": 99, "t": "2026-01-01T00:00:00+00:00"})
+    assert hi._verification_hit(ctx, _co()) is None                     # expired

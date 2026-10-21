@@ -373,7 +373,7 @@ export const hiringIntelAPI = {
   getRun:        (id, params)     => api.get(`/hiring-intel/runs/${id}`, { params }),
   cancelRun:     (id)             => api.post(`/hiring-intel/runs/${id}/cancel`),
   deleteRun:     (id)             => api.delete(`/hiring-intel/runs/${id}`),
-  refreshPhones: (id)             => api.post(`/hiring-intel/runs/${id}/refresh-phones`),
+  revealContacts:(id, leadIds)    => api.post(`/hiring-intel/runs/${id}/reveal`, { lead_ids: leadIds }),
   pushToCrm:     (id, companyKeys) => api.post(`/hiring-intel/runs/${id}/push-to-crm`, { company_keys: companyKeys }),
 };
 

@@ -72,3 +72,7 @@ msal>=1.29.0
 
 # Hiring Intel — parse LinkedIn job cards and careers pages (pure-python parser, no lxml)
 beautifulsoup4>=4.12.3
+# Hiring Intel job boards: JobSpy (MIT, github.com/speedyapply/JobSpy) for Indeed, and curl_cffi
+# (browser-grade TLS, also used by JobSpy) for LinkedIn's public job search.
+python-jobspy==1.4.0
+curl_cffi>=0.16.2
