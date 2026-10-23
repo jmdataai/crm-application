@@ -33,6 +33,22 @@ DESIGN RULES
 Env vars (HuggingFace Space secrets):
     APOLLO_API_KEY       (already used by integrations.py)
     JOOBLE_API_KEY       optional — enables the Jooble job-portal source
+    CAREERJET_API_KEY    optional — enables CareerJet (aggregates IrishJobs.ie / Jobs.ie)
+    SERPER_API_KEY       optional — Google search for websites + LinkedIn X-ray
+
+v3 (22 Oct 2026) — why only 2 of 15 companies were "verified" in the first live scans, and the fixes:
+    * Most companies had no website, and every free size check needed one. Websites now also come
+      from Clearbit's free name autocomplete (exact name only), Wikidata, Indeed/Glassdoor apply links
+      and the LinkedIn company slug, before the old guessing.
+    * Apollo's people search matches a domain as a CURRENT OR PREVIOUS employer, so raw counts mixed in
+      alumni: a startup whose ex-staff now work at Google looked "too big", and a bank whose alumni
+      founded startups looked "small". Every Apollo check now keeps only people whose CURRENT
+      organisation is this company (by name) before deciding anything.
+    * Apollo's free people search also filters on open job postings, so one call finds small Irish
+      companies hiring Data/AI people, already size- and HQ-checked by Apollo.
+    * LinkedIn job pages (the slow part) are read only for companies that survived qualification,
+      and their text now settles Contract vs Permanent and catches "on behalf of our client" agencies.
+    * Every dropped company is listed with its reason (stats.rejected) so the numbers can be traced.
 """
 
 from __future__ import annotations
@@ -83,9 +99,14 @@ LINKEDIN_KEYWORDS = [
     "data engineer", "data scientist", "data analyst", "machine learning", "AI engineer",
     "analytics engineer", "head of data", "business intelligence",
 ]
-LINKEDIN_TIME_BUDGET = 540          # seconds for LinkedIn search + job pages, incl. back-off pauses
-LINKEDIN_DETAIL_CAP = 70            # job pages read for the true employment type / industry
+LINKEDIN_TIME_BUDGET = 330          # seconds for the LinkedIn SEARCH pages, incl. back-off pauses
+LINKEDIN_DETAIL_BUDGET = 240        # seconds for job pages — read later, only for companies that qualified
+LINKEDIN_DETAIL_CAP = 60            # job pages read for the true employment type / industry / agency wording
 SOURCE_TIME_BUDGET = 360            # every other board
+GLASSDOOR_TERMS = [
+    "data engineer", "data scientist", "data analyst", "machine learning engineer", "AI engineer",
+    "business intelligence", "analytics engineer", "head of data",
+]
 INDEED_TERMS = [
     "data engineer", "data scientist", "data analyst", "machine learning engineer", "AI engineer",
     "analytics engineer", "business intelligence developer", "head of data", "MLOps", "data architect",
@@ -112,12 +133,15 @@ APOLLO_ICP_TITLES = [
 ]
 
 EMPLOYMENT_TYPES = ("Permanent", "Contract")
-ALL_SOURCES = ("linkedin", "indeed", "careerjet", "jobsireland", "websites", "jooble", "apollo_discovery")
-DEFAULT_SOURCES = ("linkedin", "indeed", "careerjet", "jobsireland", "websites", "jooble")
+ALL_SOURCES = ("linkedin", "indeed", "glassdoor", "careerjet", "jobsireland", "websites", "jooble",
+               "apollo_discovery")
+DEFAULT_SOURCES = ("linkedin", "indeed", "glassdoor", "careerjet", "jobsireland", "websites", "jooble")
 SOURCE_LABELS = {
-    "linkedin": "LinkedIn", "indeed": "Indeed", "careerjet": "CareerJet", "jobsireland": "JobsIreland",
-    "websites": "Company websites", "jooble": "Jooble", "apollo_discovery": "Apollo discovery",
+    "linkedin": "LinkedIn", "indeed": "Indeed", "glassdoor": "Glassdoor", "careerjet": "CareerJet",
+    "jobsireland": "JobsIreland", "websites": "Company websites", "jooble": "Jooble",
+    "apollo_discovery": "Apollo discovery",
 }
+BIG_HINT_ROLES = 4                  # a company with this many open Data/AI roles is checked for "too big" first
 
 # Our own company must never appear as a prospect.
 OWN_COMPANY_KEYS = {"jm data talent", "jmdatatalent", "jm data"}
@@ -257,6 +281,32 @@ def ireland_location(loc: Any) -> str:
             return ""
         return "IE"
     return ""
+
+
+_US_STATE_TAIL = re.compile(
+    r",\s*(?:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY"
+    r"|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\b(?:\s+\d{5})?")
+_FOREIGN_HQ = re.compile(
+    r"\b(?:united\s+states|usa|u\.s\.a?|united\s+kingdom|uk|england|scotland|wales|london|manchester|"
+    r"germany|deutschland|france|paris|spain|madrid|netherlands|amsterdam|belgium|brussels|poland|india|"
+    r"bangalore|bengaluru|canada|toronto|australia|sydney|sweden|stockholm|denmark|copenhagen|norway|finland|"
+    r"switzerland|zurich|italy|milan|israel|tel\s+aviv|singapore|japan|tokyo|china|brazil|portugal|lisbon|"
+    r"austria|vienna|czech|prague|romania|united\s+arab\s+emirates|uae|dubai|luxembourg|estonia|lithuania)\b",
+    re.I)
+
+
+def hq_in_ireland(address: Any) -> Optional[bool]:
+    """Headquarters address from Indeed / Glassdoor: True (Republic of Ireland), False (clearly elsewhere,
+    incl. Northern Ireland), None (can't tell)."""
+    a = _ascii(address).strip()
+    if not a:
+        return None
+    where = ireland_location(a)
+    if where == "IE":
+        return True
+    if where == "NI" or _US_STATE_TAIL.search(a) or _FOREIGN_HQ.search(a):
+        return False
+    return None
 
 
 def is_irish_country(country: Any) -> bool:
@@ -479,6 +529,8 @@ _ATS_PATTERNS: List[Tuple[str, "re.Pattern[str]"]] = [
     ("recruitee",  re.compile(r"([A-Za-z0-9-]+)\.recruitee\.com", re.I)),
     ("personio",   re.compile(r"([A-Za-z0-9-]+)\.jobs\.personio\.(?:de|com)", re.I)),
     ("bamboohr",   re.compile(r"([A-Za-z0-9-]+)\.bamboohr\.com", re.I)),
+    ("smartrecruiters", re.compile(r"(?:careers|jobs)\.smartrecruiters\.com/([A-Za-z0-9_-]+)", re.I)),
+    ("breezy",     re.compile(r"([A-Za-z0-9-]+)\.breezy\.hr", re.I)),
 ]
 _ATS_SLUG_BLOCKLIST = {"api", "j", "embed", "www", "jobs", "careers", "static", "assets", "app", "widget", "v1"}
 _CAREERS_LINK = re.compile(
@@ -693,6 +745,47 @@ def parse_bamboohr(data: Any, slug: str) -> List[Dict[str, Any]]:
     return out
 
 
+def parse_smartrecruiters(data: Any, slug: str) -> List[Dict[str, Any]]:
+    """GET api.smartrecruiters.com/v1/companies/{slug}/postings (public, no key)."""
+    out = []
+    for j in ((data or {}).get("content") or []) if isinstance(data, dict) else []:
+        if not isinstance(j, dict):
+            continue
+        loc = j.get("location") or {}
+        parts = [loc.get("fullLocation") or ", ".join(str(x) for x in (loc.get("city"), loc.get("region")) if x)]
+        country = str(loc.get("country") or "")
+        if country:
+            parts.append("Ireland" if country.lower() == "ie" else country)
+        if loc.get("remote"):
+            parts.append("Remote")
+        out.append({
+            "title": clean_text(j.get("name"), 200),
+            "url": f"https://jobs.smartrecruiters.com/{slug}/{j.get('id')}",
+            "location": clean_text(", ".join(p for p in parts if p), 250),
+            "employment_raw": (j.get("typeOfEmployment") or {}).get("label") if isinstance(j.get("typeOfEmployment"), dict) else None,
+            "posted_at": to_date_str(j.get("releasedDate")),
+        })
+    return out
+
+
+def parse_breezy(data: Any, slug: str) -> List[Dict[str, Any]]:
+    """GET {slug}.breezy.hr/json (public)."""
+    out = []
+    for j in data if isinstance(data, list) else []:
+        if not isinstance(j, dict):
+            continue
+        loc = j.get("location") or {}
+        country = ((loc.get("country") or {}).get("name") if isinstance(loc.get("country"), dict) else loc.get("country")) or ""
+        out.append({
+            "title": clean_text(j.get("name"), 200),
+            "url": j.get("url") or f"https://{slug}.breezy.hr/",
+            "location": clean_text(", ".join(str(x) for x in (loc.get("name"), country) if x), 250),
+            "employment_raw": (j.get("type") or {}).get("name") if isinstance(j.get("type"), dict) else j.get("type"),
+            "posted_at": to_date_str(j.get("published_date")),
+        })
+    return out
+
+
 def parse_apollo_job_postings(data: Any) -> List[Dict[str, Any]]:
     """Apollo does not document this response; accept any list of dicts carrying a title."""
     if not isinstance(data, dict):
@@ -815,6 +908,16 @@ class Company:
     apollo_people: List[Dict[str, Any]] = field(default_factory=list)
     site_people: List[Dict[str, Any]] = field(default_factory=list)
     xray_people: List[Dict[str, Any]] = field(default_factory=list)
+    hq_text: str = ""                         # headquarters as a job board states it ("Dublin, Ireland")
+    hq_ie: Optional[bool] = None              # True / False when a board's HQ address settles it
+    agency_reason: str = ""                   # evidence from ad text that the poster is an agency
+    wikidata_employees: Optional[int] = None
+    apply_domain: str = ""                    # employer site seen in an "apply on company site" link
+    # True when the website is known to be THIS employer (job board said so, apply link, LinkedIn slug,
+    # Irish homepage). A looked-up website that is only a name match may belong to a foreign namesake,
+    # so it can VERIFY (its staff carry this exact name) but never alone REJECT a company.
+    domain_trusted: bool = False
+    ats_refs: List[Tuple[str, str]] = field(default_factory=list)   # (ats, slug) seen in apply links
 
     def add_job(self, job: Job) -> bool:
         tk = title_key(job.title) or job.title.lower()
@@ -901,6 +1004,7 @@ class CompanyRegistry:
             self.items.append(c)
         if domain and not c.domain:
             c.domain = clean_domain(domain)
+            c.domain_trusted = True
         if linkedin and not c.linkedin:
             c.linkedin = linkedin
         if apollo_id and not c.apollo_id:
@@ -937,15 +1041,24 @@ class CompanyRegistry:
                     merged["other_urls"].append(u)
         into.discovered_by |= other.discovered_by
         for attr in ("domain", "website", "linkedin", "apollo_id", "industry", "country", "city", "phone",
-                     "domain_source", "size_label", "size_source", "size_status"):
+                     "domain_source", "size_label", "size_source", "size_status", "hq_text", "agency_reason",
+                     "apply_domain", "reject_reason"):
             if not getattr(into, attr) and getattr(other, attr):
                 setattr(into, attr, getattr(other, attr))
-        for attr in ("size", "size_lo", "size_hi"):
+        # a positive "too big" proof on either record wins over "unverified"
+        if other.domain_trusted and other.domain == into.domain:
+            into.domain_trusted = True
+        if other.size_status == "too_big" and into.size_status != "too_big":
+            into.size_status, into.reject_reason = "too_big", other.reject_reason or into.reject_reason
+        for attr in ("size", "size_lo", "size_hi", "hq_ie", "wikidata_employees"):
             if getattr(into, attr) is None:
                 setattr(into, attr, getattr(other, attr))
         into.apollo_people += other.apollo_people
         into.site_people += other.site_people
         into.xray_people += other.xray_people
+        for ref in other.ats_refs:
+            if ref not in into.ats_refs:
+                into.ats_refs.append(ref)
         into.resolved = into.resolved or other.resolved
         other.merged_into = into
         if other in self.items:
@@ -975,6 +1088,7 @@ class CompanyRegistry:
         primary = org.get("primary_phone") or {}
         c.phone = c.phone or str(org.get("sanitized_phone") or (primary.get("sanitized_number") if isinstance(primary, dict) else "") or org.get("phone") or "")
         c.resolved = True
+        c.domain_trusted = c.domain_trusted or bool(c.domain)
         self.reindex(c)
         return c
 
@@ -1090,8 +1204,14 @@ class RunContext:
                          "hq_unknown": 0, "no_qualifying_jobs": 0, "over_company_cap": 0, "older_than_window": 0},
             "apollo": {"search_calls": 0, "lookup_calls": 0, "lookups_cached": 0,
                        "people_search_calls": 0, "credits_consumed": 0.0, "contacts_reused": 0},
+            "domains": {"board": 0, "apply_link": 0, "clearbit": 0, "wikidata": 0, "guessed": 0, "google": 0,
+                        "cache": 0, "none": 0},
             "warnings": [],
+            "rejected": [],          # [{company, reason, stage}] — every company dropped after discovery
         }
+        self.li_client: Optional["hs.LinkedInClient"] = None
+        self.li_pending: List[Tuple["Company", str, str]] = []   # (company, title_key, LinkedIn job id)
+        self.lookups_off: set = set()          # free lookup services that refused us this scan
         self.web: Optional[httpx.AsyncClient] = None
         self.apollo: Optional[httpx.AsyncClient] = None
         self.apollo_sem = asyncio.Semaphore(2)
@@ -1118,6 +1238,12 @@ class RunContext:
         if msg not in self.stats["warnings"]:
             self.stats["warnings"].append(msg[:240])
         self.log(msg, "warn")
+
+    def reject(self, c: "Company", reason: str, stage: str) -> None:
+        rows = self.stats["rejected"]
+        if len(rows) < 300 and not any(r["company"] == c.name and r["stage"] == stage for r in rows):
+            rows.append({"company": c.name, "reason": clean_text(reason, 120), "stage": stage})
+        self._dirty = True
 
     def source_stat(self, name: str, **kw: Any) -> None:
         s = self.stats["sources"].setdefault(name, {"jobs": 0, "requests": 0, "status": "ok"})
@@ -1214,6 +1340,9 @@ class RunContext:
             res = await _integ._request(self.apollo, method, f"{APOLLO_BASE}{path}",
                                         params=params, json=json_body)
             await asyncio.sleep(0.6)           # ~3 calls/s: well under Apollo's per-minute limits
+            left = str((res.get("rate") or {}).get("x-minute-requests-left") or "")
+            if left.isdigit() and int(left) <= 3:
+                await asyncio.sleep(20)        # Apollo says this minute's budget is nearly spent
         if res.get("ok"):
             return res.get("data") or {}
         err = str(res.get("error") or "unknown error")
@@ -1253,47 +1382,91 @@ def _record_source(ctx: RunContext, res: "hs.SourceResult") -> None:
 
 
 async def source_linkedin(ctx: RunContext, reg: CompanyRegistry) -> None:
+    """Search pages only. The job pages (true employment type, industry, ad text) are read later by
+    linkedin_job_pages(), and only for companies that survived qualification — in the first live
+    scans most of the ~70 pages read were for agencies and multinationals that were dropped anyway."""
     ctx.source_stat("LinkedIn", status="running")
     client = hs.LinkedInClient(proxies=hs.proxies_from_env(), time_budget=LINKEDIN_TIME_BUDGET,
                                cancelled=lambda: ctx.cancelled or ctx.deleted)
-    try:
-        res = await hs.linkedin_search(client, LINKEDIN_KEYWORDS + ctx.p.extra_keywords, ctx.p.days_back,
-                                       parse_cards=parse_linkedin_cards,
-                                       on_progress=lambda f: ctx.bump(5 + 22 * f))
-        ctx.check_cancel()
-        kept: List[Tuple[Company, str, str]] = []          # (company, title_key, linkedin job id)
-        for card in res.rows:
-            hit = _ingest(ctx, reg, source="LinkedIn", title=card["title"], company=card["company"],
-                          company_linkedin=card["company_url"], location=card["location"], url=card["url"],
-                          posted_at=card["posted_at"], defer_type=True)
-            if hit:
-                kept.append((hit[0], hit[1], card["id"]))
-        # The guest job page carries the REAL employment type and the industry — free, but paced.
-        ids = [jid for _, _, jid in kept if jid][:LINKEDIN_DETAIL_CAP]
-        details = await hs.linkedin_details(client, ids) if ids else {}
-        ctx.check_cancel()
-        for comp, tk, jid in kept:
-            comp = CompanyRegistry.canon(comp)
-            job = comp.jobs.get(tk)
-            if job is None:
-                continue
-            d = details.get(jid) or {}
-            if d.get("employment_type"):
-                etype = normalize_employment_type(d["employment_type"], job["title"])
-                if etype != "Unspecified":
-                    job["employment_type"] = etype
-            if d.get("industries") and not comp.industry:
-                comp.industry = d["industries"]
-            if not _type_allowed(ctx, job["employment_type"]) and job["sources"] == ["LinkedIn"]:
-                del comp.jobs[tk]
-                ctx.stats["filtered"]["employment_type"] += 1
-                ctx.source_stat("LinkedIn", jobs=-1)
-        res.requests = client.requests
-        if details:
-            ctx.log(f"LinkedIn: checked {len(details)} job pages for employment type and industry")
-        _record_source(ctx, res)
-    finally:
-        await client.close()
+    ctx.li_client = client                   # closed by execute_run()
+    res = await hs.linkedin_search(client, LINKEDIN_KEYWORDS + ctx.p.extra_keywords, ctx.p.days_back,
+                                   parse_cards=parse_linkedin_cards,
+                                   on_progress=lambda f: ctx.bump(5 + 30 * f))
+    ctx.check_cancel()
+    for card in res.rows:
+        hit = _ingest(ctx, reg, source="LinkedIn", title=card["title"], company=card["company"],
+                      company_linkedin=card["company_url"], location=card["location"], url=card["url"],
+                      posted_at=card["posted_at"], defer_type=True)
+        if hit and card.get("id"):
+            ctx.li_pending.append((hit[0], hit[1], card["id"]))
+    res.requests = client.requests
+    _record_source(ctx, res)
+
+
+async def linkedin_job_pages(ctx: RunContext, companies: List[Company]) -> None:
+    """Read LinkedIn's guest job page for roles at the qualified companies: real employment type
+    (also from the ad text — 'Full-time' is often a 12-month contract), industry, agency wording."""
+    client, pending = ctx.li_client, ctx.li_pending
+    if client is None or not pending:
+        return
+    keep = {id(CompanyRegistry.canon(c)) for c in companies}
+    items: List[Tuple[Company, str, str]] = []
+    seen_ids: set = set()
+    for comp, tk, jid in pending:
+        comp = CompanyRegistry.canon(comp)
+        if id(comp) in keep and jid not in seen_ids and tk in comp.jobs:
+            seen_ids.add(jid)
+            items.append((comp, tk, jid))
+    # verified companies first, then the smaller hirers (fewest roles) — the likeliest prospects
+    items.sort(key=lambda x: (x[0].size_status != "verified", len(x[0].jobs)))
+    ids = [jid for _, _, jid in items[:LINKEDIN_DETAIL_CAP]]
+    details: Dict[str, Dict[str, Any]] = {}
+    if ids and client.renew_budget(LINKEDIN_DETAIL_BUDGET):
+        details = await hs.linkedin_details(client, ids)
+    elif ids:
+        ctx.log("LinkedIn job pages skipped — LinkedIn refused requests earlier in this scan", "warn")
+    ctx.check_cancel()
+    retyped = 0
+    for comp, tk, jid in items:
+        job = comp.jobs.get(tk)
+        if job is None:
+            continue
+        d = details.get(jid) or {}
+        crit = d.get("employment_type") or ""
+        etype = normalize_employment_type(crit, job["title"]) if crit else job["employment_type"]
+        from_text = d.get("type_from_text") if "type_from_text" in d else (
+            hs.employment_from_text(d.get("description")) if d.get("description") else None)
+        if from_text and (etype == "Unspecified" or (etype == "Permanent" and "permanent" not in crit.lower())):
+            retyped += int(from_text != etype)
+            etype = from_text
+        # only LinkedIn-only roles (typed from the title) are re-typed; another board's stated type stands
+        if etype != "Unspecified" and (job["employment_type"] == "Unspecified" or job["sources"] == ["LinkedIn"]):
+            job["employment_type"] = etype
+        if d.get("industries") and not comp.industry:
+            comp.industry = d["industries"]
+        agency_text = d["agency_text"] if "agency_text" in d else bool(d.get("description") and hs.agency_from_text(d["description"]))
+        if agency_text and not comp.agency_reason:
+            comp.agency_reason = "recruits on behalf of a client (LinkedIn ad text)"
+    # employment-type filter for every LinkedIn-only role at these companies (read or not)
+    for comp, tk, _jid in items:
+        job = comp.jobs.get(tk)
+        if job is not None and job["sources"] == ["LinkedIn"] and not _type_allowed(ctx, job["employment_type"]):
+            del comp.jobs[tk]
+            ctx.stats["filtered"]["employment_type"] += 1
+            ctx.source_stat("LinkedIn", jobs=-1)
+    ctx.stats["sources"].setdefault("LinkedIn", {})["requests"] = client.requests
+    if details:
+        ctx.log(f"LinkedIn: read {len(details)} job pages for the qualified companies"
+                + (f" ({retyped} re-typed from the ad text)" if retyped else ""))
+
+
+def _ingest_board_row(ctx: RunContext, reg: CompanyRegistry, source: str, r: Dict[str, Any]) -> None:
+    _ingest(ctx, reg, source=source, title=r["title"], company=r["company"], location=r["location"],
+            url=r["url"], employment_raw=r["employment_raw"], posted_at=r["posted_at"], assume_ie=True,
+            company_website=r.get("company_website", ""), headcount_label=r.get("headcount_label", ""),
+            industry=r.get("industry", ""), description=r.get("description", ""),
+            company_address=r.get("company_address", ""), url_direct=r.get("url_direct", ""),
+            type_from_text=r.get("type_from_text"), agency_text=r.get("agency_text"))
 
 
 async def source_indeed(ctx: RunContext, reg: CompanyRegistry) -> None:
@@ -1305,10 +1478,22 @@ async def source_indeed(ctx: RunContext, reg: CompanyRegistry) -> None:
                                                          cancelled=lambda: ctx.cancelled or ctx.deleted))
     ctx.check_cancel()
     for r in res.rows:
-        _ingest(ctx, reg, source="Indeed", title=r["title"], company=r["company"], location=r["location"],
-                url=r["url"], employment_raw=r["employment_raw"], posted_at=r["posted_at"], assume_ie=True,
-                company_website=r["company_website"], headcount_label=r["headcount_label"], industry=r["industry"])
+        _ingest_board_row(ctx, reg, "Indeed", r)
     ctx.bump(30)
+    _record_source(ctx, res)
+
+
+async def source_glassdoor(ctx: RunContext, reg: CompanyRegistry) -> None:
+    """Glassdoor Ireland via JobSpy: website, headcount band and HQ come with every row."""
+    ctx.source_stat("Glassdoor", status="running")
+    terms = GLASSDOOR_TERMS + ctx.p.extra_keywords
+    deadline = time.monotonic() + SOURCE_TIME_BUDGET - 45
+    res = await hs.in_pool(lambda: hs.glassdoor_search_sync(terms, ctx.p.days_back, 30, hs.proxies_from_env(),
+                                                            deadline=deadline,
+                                                            cancelled=lambda: ctx.cancelled or ctx.deleted))
+    ctx.check_cancel()
+    for r in res.rows:
+        _ingest_board_row(ctx, reg, "Glassdoor", r)
     _record_source(ctx, res)
 
 
@@ -1432,11 +1617,14 @@ def _ingest(ctx: RunContext, reg: CompanyRegistry, *, source: str, title: Any, c
             url: Any, employment_raw: Any = None, type_hint: Optional[str] = None, posted_at: Any = None,
             company_linkedin: str = "", target: Optional[Company] = None, location_known_ie: bool = False,
             assume_ie: bool = False, defer_type: bool = False, company_website: str = "",
-            headcount_label: str = "", industry: str = "") -> Optional[Tuple[Company, str]]:
+            headcount_label: str = "", industry: str = "", description: str = "",
+            company_address: str = "", url_direct: str = "", type_from_text: Optional[str] = None,
+            agency_text: Optional[bool] = None) -> Optional[Tuple[Company, str]]:
     """Classify one raw posting and attach it to its company.
     Returns (company, title_key) when it qualified, else None.
     assume_ie: the source only returns Irish jobs (an empty / remote location still counts),
-    but an explicit Northern Ireland or US location is still rejected."""
+    but an explicit Northern Ireland or US location is still rejected.
+    defer_type: the type is settled later (LinkedIn job page) — only an explicit title type filters now."""
     title = clean_text(title, 200)
     category = classify_title(title)
     if not category:
@@ -1457,13 +1645,20 @@ def _ingest(ctx: RunContext, reg: CompanyRegistry, *, source: str, title: Any, c
         ctx.stats["filtered"]["older_than_window"] += 1
         return None
     etype = normalize_employment_type(employment_raw, title)
+    # board adapters compute these in their worker thread; computed here only for direct callers
+    from_text = type_from_text if type_from_text is not None else (
+        hs.employment_from_text(description) if description else None)
+    if from_text and (etype == "Unspecified"
+                      or (etype == "Permanent" and from_text == "Contract"
+                          and "permanent" not in _ascii(employment_raw).lower())):
+        etype = from_text                              # "fulltime" on Indeed is a schedule, not a contract type
     if etype == "Unspecified" and type_hint:
         etype = type_hint
-    if not defer_type and not _type_allowed(ctx, etype):
+    if (not defer_type or etype != "Unspecified") and not _type_allowed(ctx, etype):
         ctx.stats["filtered"]["employment_type"] += 1
         return None
     site_domain = clean_domain(company_website) if company_website else ""
-    if site_domain and any(x in site_domain for x in hs._SKIP_DOMAINS):
+    if site_domain and hs.host_matches(site_domain, hs._SKIP_DOMAINS):
         site_domain, company_website = "", ""          # a Facebook / LinkedIn page is not the company's site
     c = target or reg.get_or_create(clean_text(company, 160), linkedin=company_linkedin, domain=site_domain)
     if c is None:
@@ -1477,7 +1672,25 @@ def _ingest(ctx: RunContext, reg: CompanyRegistry, *, source: str, title: Any, c
     band = hs.parse_headcount_label(headcount_label) if headcount_label else None
     if band and not c.size_label:
         c.size_lo, c.size_hi = band
-        c.size_label, c.size_source = f"{clean_text(headcount_label, 40)} staff", source
+        label = re.sub(r"(?i)\s*employees?\s*$", "", clean_text(headcount_label, 40))
+        c.size_label, c.size_source = f"{label} staff", source
+    if company_address and not c.hq_text:
+        c.hq_text = clean_text(company_address, 160)
+        c.hq_ie = hq_in_ireland(company_address)
+    is_agency_text = agency_text if agency_text is not None else bool(description and hs.agency_from_text(description))
+    if is_agency_text and not c.agency_reason:
+        c.agency_reason = f"recruits on behalf of a client ({source} ad text)"
+    if url_direct:
+        for ref in find_ats_refs(url_direct):
+            if ref not in c.ats_refs:
+                c.ats_refs.append(ref)
+        if not c.apply_domain:
+            dom = hs.employer_domain_from_apply_url(url_direct)
+            stem = re.sub(r"[^a-z0-9]", "", dom.split(".")[0]) if dom else ""
+            toks = [t for t in c.key.split() if len(t) >= 3]
+            # only when the site plausibly IS this employer (Optum's ads apply on unitedhealthgroup.com)
+            if stem and toks and (toks[0] in stem or stem in c.key.replace(" ", "")):
+                c.apply_domain = dom
     if c.add_job(Job(title=title, url=str(url or ""), location=clean_text(location, 200) or "Ireland",
                      source=source, employment_type=etype, category=category, posted_at=posted)):
         ctx.source_stat(source if not source.startswith("Company") else "Company websites", jobs=1)
@@ -1514,9 +1727,19 @@ def _best_org_match(c: Company, orgs: List[Dict[str, Any]]) -> Optional[Dict[str
 
 CACHE_FIELDS = ("id", "organization_id", "name", "primary_domain", "website_url", "linkedin_url",
                 "estimated_num_employees", "country", "city", "industry", "sanitized_phone",
-                "size_status", "size_label", "size_source", "domain", "max_hc", "hq")
+                "size_status", "size_label", "size_source", "domain", "max_hc", "hq",
+                "nodomain", "min_size", "hq_out", "reason", "trusted")
 CACHE_MAX_AGE_DAYS = 21
-CACHE_MAX_ENTRIES = 1500
+NODOMAIN_MAX_AGE_DAYS = 7
+CACHE_MAX_ENTRIES = 2000              # stored as JSON on the run row — kept small on purpose
+
+
+def _age_days(entry: Dict[str, Any]) -> float:
+    try:
+        t = datetime.fromisoformat(str(entry.get("t")).replace("Z", "+00:00"))
+    except Exception:
+        return 10 ** 6
+    return (_now() - t).total_seconds() / 86400
 
 
 def _cache_put(ctx: RunContext, keys: List[str], org: Optional[Dict[str, Any]],
@@ -1568,64 +1791,182 @@ def _tokens(c: Company) -> List[str]:
     return [t for t in c.key.split() if t not in ("and", "the", "of")]
 
 
+_SLUG_NOISE = re.compile(r"(?:-(?:ltd|limited|ireland|ie|inc|llc|plc|dac|group|hq|global|official|co|uc|clg|"
+                         r"teo|europe|emea|careers|jobs))+$|-?\d+$")
+
+
+def slug_stem(linkedin_url: Any) -> str:
+    """linkedin.com/company/meilitravel -> 'meilitravel'; acme-analytics-ltd -> 'acmeanalytics'."""
+    slug = linkedin_company_slug(linkedin_url)
+    for _ in range(3):
+        slug = _SLUG_NOISE.sub("", slug)
+    return re.sub(r"[^a-z0-9]", "", slug)
+
+
+def domain_guesses(c: "Company") -> List[str]:
+    out = list(hs.domain_candidates(_tokens(c)))
+    stem = slug_stem(c.linkedin)
+    if len(stem) >= 4:
+        for tld in ("ie", "com", "io", "ai"):
+            cand = f"{stem}.{tld}"
+            if cand not in out:
+                out.insert(min(len(out), 2 + ("ie", "com", "io", "ai").index(tld)), cand)
+    return out[:10]
+
+
+def _domain_stem(dom: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", dom.split(".")[0])
+
+
 async def discover_domains(ctx: RunContext, reg: CompanyRegistry, companies: List[Company]) -> None:
-    """Find a website for companies no source gave one: cache → guessed domains → Google (Serper).
-    Every domain set here is re-indexed, so 'Acme' and 'Acme Analytics Ltd' sharing a site merge."""
+    """Find a website for companies no source gave one, most reliable first:
+         cache → 'apply on company site' link → Clearbit exact name → Wikidata exact name →
+         guessed domains (name + LinkedIn slug, page must name the company).
+    Every looked-up website must pass confirm(): the LinkedIn slug equals the domain, or the homepage
+    names the company (one-word names: and is Irish). Only a slug match or an Irish homepage makes the
+    domain TRUSTED (see Company.domain_trusted). Bounded by the caller; finish_domains() runs after."""
     todo = [c for c in companies if not c.domain]
     if not todo:
         return
-    found = 0
+    sem = asyncio.Semaphore(6)
+    lookups = httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=6.0))
 
-    def set_domain(c: Company, dom: str, source: str) -> None:
-        nonlocal found
-        c = CompanyRegistry.canon(c)
-        if c.domain:
-            return
-        c.domain, c.domain_source = dom, source
-        c.website = c.website or f"https://{dom}"
-        reg.reindex(c)
-        found += 1
-
-    async def guess(c: Company) -> None:
-        hit = _cache_get(ctx, [f"dom:{c.key}"])
-        if hit is not None:
-            if hit.get("domain"):
-                set_domain(c, hit["domain"], hit.get("size_source") or "earlier scan")
-            _cache_put(ctx, [f"dom:{c.key}"], hit, learned_at=hit.get("t"))
-            return
-        toks = _tokens(c)
-        for cand in hs.domain_candidates(toks):
+    async def one(c: Company) -> None:
+        async with sem:
             ctx.check_cancel()
-            r = await ctx.web_get(f"https://{cand}/", headers={"User-Agent": BROWSER_UA})
-            if r is None or r.status_code >= 400:
-                continue
-            final_host = clean_domain(r.url)
-            if final_host and await hs.in_pool(hs.page_matches_company, r.text, toks, final_host):
-                set_domain(c, final_host, "guessed")
-                _cache_put(ctx, [f"dom:{c.key}"], {"domain": final_host, "size_source": "guessed"})
-                break
-
-    results = await asyncio.gather(*(guess(c) for c in todo), return_exceptions=True)
-    if any(isinstance(r, RunCancelled) for r in results):
-        raise RunCancelled()
-    still = [c for c in todo if not CompanyRegistry.canon(c).domain]
-    if still and hs.serper_key():
-        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=8.0)) as client:
-            for c in still[: ctx.serper_budget()]:
-                ctx.check_cancel()
-                state, organic = await hs.serper_search(client, f'"{c.name}" Ireland', num=8)
-                ctx.stats["serper_queries"] = ctx.stats.get("serper_queries", 0) + 1
-                if state != "ok":
-                    if state in ("auth", "rate_limited"):
-                        ctx.warn(f"Google search (Serper) stopped: {state}")
-                        break
-                    continue
-                dom = hs.pick_company_domain(organic, _tokens(c))
+            hit = _cache_get(ctx, [f"dom:{c.key}"])
+            if hit is not None and hit.get("nodomain") and _age_days(hit) > NODOMAIN_MAX_AGE_DAYS:
+                hit = None                               # dead ends are retried after a week
+            if hit is not None:
+                if hit.get("domain"):
+                    _set_domain(ctx, reg, c, hit["domain"], hit.get("size_source") or "earlier scan", "cache",
+                                trusted=bool(hit.get("trusted")), learned_at=hit.get("t"))
+                else:
+                    _cache_put(ctx, [f"dom:{c.key}"], hit, learned_at=hit.get("t"))   # carry, never re-date
+                return
+            if c.apply_domain:
+                # the employer's own apply link, and its domain already matched the name at ingest
+                _set_domain(ctx, reg, c, c.apply_domain, "apply link", "apply_link", trusted=True)
+                return
+            if "clearbit" not in ctx.lookups_off:
+                state, rows = await hs.clearbit_suggest(lookups, c.name)
+                if state == "rate_limited" or state.startswith("error:HTTP 4"):
+                    ctx.lookups_off.add("clearbit")
+                dom = hs.pick_clearbit_domain(rows, company_key, c.key) if state == "ok" else ""
                 if dom:
-                    set_domain(c, dom, "Google")
-                    _cache_put(ctx, [f"dom:{c.key}"], {"domain": dom, "size_source": "Google"})
-    if found:
-        ctx.log(f"Found websites for {found} of {len(todo)} companies without one")
+                    ok, trusted = await _confirm_domain(ctx, c, dom)
+                    if ok:
+                        _set_domain(ctx, reg, c, dom, "Clearbit", "clearbit", trusted=trusted)
+                        return
+            if "wikidata" not in ctx.lookups_off:
+                state, wd = await hs.wikidata_lookup(lookups, c.name, company_key, c.key)
+                if state == "rate_limited":
+                    ctx.lookups_off.add("wikidata")
+                if wd:
+                    dom = wd.get("domain") or ""
+                    ok, trusted = await _confirm_domain(ctx, c, dom) if dom else (False, False)
+                    # a Wikidata headcount is proof only when it is clearly THIS employer
+                    tied = ok and trusted or bool(wd.get("irish")) or len(c.jobs) >= BIG_HINT_ROLES
+                    if (wd.get("employees") or 0) >= 1000 and tied:
+                        CompanyRegistry.canon(c).wikidata_employees = wd["employees"]
+                    if ok:
+                        _set_domain(ctx, reg, c, dom, "Wikidata", "wikidata", trusted=trusted)
+                        return
+                    if CompanyRegistry.canon(c).wikidata_employees:
+                        return                           # settled as too big without a website
+            for cand in domain_guesses(c):
+                ctx.check_cancel()
+                r = await ctx.web_get(f"https://{cand}/", headers={"User-Agent": BROWSER_UA})
+                if r is None or r.status_code >= 400:
+                    continue
+                final_host = clean_domain(r.url)
+                if final_host and await hs.in_pool(hs.page_matches_company, r.text, _tokens(c), final_host):
+                    irish = final_host.endswith(".ie") or bool(hs._IRISH_HINT.search(r.text[:300000]))
+                    slug_ok = slug_stem(c.linkedin) == _domain_stem(final_host)
+                    _set_domain(ctx, reg, c, final_host, "guessed", "guessed", trusted=irish or slug_ok)
+                    return
+
+    try:
+        results = await asyncio.gather(*(one(c) for c in todo), return_exceptions=True)
+    finally:
+        await lookups.aclose()
+    _raise_cancel_log_rest(ctx, results, "website lookup")
+
+
+def _set_domain(ctx: RunContext, reg: CompanyRegistry, c: Company, dom: str, source: str, stat: str, *,
+                trusted: bool, learned_at: Optional[str] = None) -> None:
+    c = CompanyRegistry.canon(c)
+    if c.domain:
+        return
+    c.domain, c.domain_source, c.domain_trusted = dom, source, trusted
+    c.website = c.website or f"https://{dom}"
+    reg.reindex(c)
+    dstats = ctx.stats["domains"]
+    dstats[stat] = dstats.get(stat, 0) + 1
+    ctx.stats["domains_found"] = ctx.stats.get("domains_found", 0) + 1
+    _cache_put(ctx, [f"dom:{c.key}"], {"domain": dom, "size_source": source, "trusted": trusted},
+               learned_at=learned_at)
+
+
+async def _confirm_domain(ctx: RunContext, c: Company, dom: str) -> Tuple[bool, bool]:
+    """(belongs to this company?, trusted?). Slug == domain is both. Otherwise the homepage must name
+    the company (page_matches_company also demands an Irish signal for one-word names); an Irish
+    homepage (.ie / Ireland / Dublin / +353) makes it trusted."""
+    stem = slug_stem(c.linkedin)
+    if stem and stem == _domain_stem(dom):
+        return True, True
+    r = await ctx.web_get(f"https://{dom}/", headers={"User-Agent": BROWSER_UA})
+    if r is None or r.status_code >= 400:
+        return False, False
+    final_host = clean_domain(r.url)
+    if not final_host or not await hs.in_pool(hs.page_matches_company, r.text, _tokens(c), final_host):
+        return False, False
+    return True, final_host.endswith(".ie") or bool(hs._IRISH_HINT.search(r.text[:300000]))
+
+
+async def finish_domains(ctx: RunContext, reg: CompanyRegistry, companies: List[Company]) -> None:
+    """Runs even when discover_domains hit its time limit: Google fallback (own budget), the 'not found'
+    count, and the one-week dead-end cache."""
+    still = [CompanyRegistry.canon(c) for c in companies]
+    still = [c for c in {id(c): c for c in still}.values() if not c.domain and c.wikidata_employees is None]
+    if still and hs.serper_key():
+        async def google() -> None:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=8.0)) as client:
+                for c in still[: ctx.serper_budget()]:
+                    ctx.check_cancel()
+                    if c.domain:
+                        continue
+                    state, organic = await hs.serper_search(client, f'"{c.name}" Ireland', num=8)
+                    ctx.stats["serper_queries"] = ctx.stats.get("serper_queries", 0) + 1
+                    if state != "ok":
+                        if state in ("auth", "rate_limited"):
+                            ctx.warn(f"Google search (Serper) stopped: {state}")
+                            return
+                        continue
+                    dom = hs.pick_company_domain(organic, _tokens(c))
+                    if dom:
+                        _set_domain(ctx, reg, c, dom, "Google", "google", trusted=dom.endswith(".ie"))
+        await _bounded(ctx, google(), SERPER_BUDGET, "Google website search")
+    for c in still:
+        if c.domain:
+            continue
+        ctx.stats["domains"]["none"] = ctx.stats["domains"].get("none", 0) + 1
+        old = _cache_get(ctx, [f"dom:{c.key}"])
+        if not (old and old.get("nodomain") and _age_days(old) <= NODOMAIN_MAX_AGE_DAYS):
+            _cache_put(ctx, [f"dom:{c.key}"], {"nodomain": True})     # fresh one-week dead end
+    if ctx.stats.get("domains_found"):
+        ctx.log(f"Found websites for {ctx.stats['domains_found']} companies that had none")
+
+
+def _raise_cancel_log_rest(ctx: RunContext, results: List[Any], what: str) -> None:
+    """gather(return_exceptions=True) helper: re-raise a cancel, LOG anything else instead of losing it."""
+    failures = [r for r in results if isinstance(r, BaseException)]
+    if any(isinstance(r, RunCancelled) for r in failures):
+        raise RunCancelled()
+    for r in failures[:3]:
+        log.warning(f"[hiring-intel] {what} failed: {type(r).__name__}: {redact(r)}")
+    if failures:
+        ctx.log(f"{what}: {len(failures)} lookup(s) failed and were skipped", "warn")
 
 
 def _total_entries(data: Optional[Dict[str, Any]]) -> Optional[int]:
@@ -1641,36 +1982,112 @@ def _total_entries(data: Optional[Dict[str, Any]]) -> Optional[int]:
     return len(people) if isinstance(people, list) else None
 
 
-def _apollo_people(data: Optional[Dict[str, Any]], c: Company) -> List[Dict[str, Any]]:
-    """People from mixed_people/api_search (free). Last names come back obfuscated until revealed."""
+_GENERIC_NAME_WORDS = {
+    "ireland", "ie", "irl", "group", "holdings", "international", "global", "europe", "emea", "uk", "hq",
+    "technologies", "technology", "tech", "software", "solutions", "labs", "lab", "ai", "analytics", "digital",
+    "systems", "io", "services", "consulting", "consultancy", "company", "workforce", "platform", "cloud",
+}
+
+
+def org_name_matches(org_name: Any, c: Company) -> bool:
+    """Is Apollo's organisation name this company? Exact key (spacing / legal suffixes ignored), or one
+    name extending the other ('Softworks' / 'Softworks Workforce Solutions', 'JPMorgan Chase & Co.')."""
+    a, b = _nospace_key(org_name), _nospace_key(c.key)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    ta = re.sub(r"(?:\s+and)+$", "", company_key(org_name)).split()
+    tb = re.sub(r"(?:\s+and)+$", "", c.key).split()
+    short, long_ = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    if not short or long_[:len(short)] != short:
+        return False                      # whole words only: 'Stripe' never extends to 'Stripes Digital'
+    extra = long_[len(short):]
+    return len(short) >= 2 or all(t in _GENERIC_NAME_WORDS for t in extra)
+
+
+def _apollo_people(data: Optional[Dict[str, Any]], c: Company, *, exact: bool = False) -> List[Dict[str, Any]]:
+    """Decision-makers from mixed_people/api_search (free) whose CURRENT organisation is this company.
+    The domain filter also matches PREVIOUS employers, so without this check an ex-employee who now
+    runs another company would show up as this company's CEO. The free search returns only the
+    organisation's name (no domain/id), so identity is by name. Surnames stay hidden until Reveal."""
+    return [p for p in _apollo_matched(data, c, exact=exact) if p.get("role")]
+
+
+def _apollo_matched(data: Optional[Dict[str, Any]], c: Company, *, exact: bool = False) -> List[Dict[str, Any]]:
+    """Everyone in the response who currently works at this company (any title)."""
     out: List[Dict[str, Any]] = []
-    toks = _tokens(c)
     for p in (data or {}).get("people") or (data or {}).get("contacts") or []:
         if not isinstance(p, dict):
             continue
-        pid = str(p.get("id") or p.get("person_id") or "")
-        org = p.get("organization") or {}
-        org_name = _ascii(org.get("name") or "").lower()
+        org = p.get("organization") if isinstance(p.get("organization"), dict) else {}
+        org_name = org.get("name") or p.get("organization_name") or ""
         org_dom = clean_domain(org.get("primary_domain") or org.get("website_url") or "")
-        if org_dom and c.domain and org_dom != c.domain:
-            continue                               # Apollo matched someone at a different company
-        if not org_dom and org_name and toks and toks[0] not in org_name:
+        if org_dom and c.domain:
+            if org_dom != c.domain:
+                continue                       # works somewhere else now (alumni match)
+        elif not org_name:
+            continue                           # can't prove where they work: never trust it
+        elif exact and raw_name_key(org_name) != raw_name_key(c.name):
+            continue
+        elif not org_name_matches(org_name, c):
+            continue
+        pid = str(p.get("id") or p.get("person_id") or "")
+        if not pid:
             continue
         role, rank = classify_icp(p.get("title"))
-        if not pid or not role:
-            continue
         first = clean_text(p.get("first_name"), 60)
         last = clean_text(p.get("last_name") or p.get("last_name_obfuscated"), 60)
         out.append({"apollo_person_id": pid, "first_name": first, "last_name": last,
                     "name": clean_text(f"{first} {last}", 120) or clean_text(p.get("name"), 120),
                     "title": clean_text(p.get("title"), 160), "role": role, "rank": rank,
                     "linkedin_url": p.get("linkedin_url") or "", "source": "Apollo",
-                    "needs_reveal": not p.get("last_name")})
+                    "needs_reveal": not p.get("last_name"), "org_name": clean_text(org_name, 160)})
     return out
 
 
+_RAW_LEGAL = {"ltd", "limited", "dac", "plc", "inc", "llc", "gmbh", "uc", "clg", "teoranta", "teo", "ulc",
+              "unlimited", "co", "corp", "corporation", "bv", "sa", "ag", "srl", "pty", "and"}
+
+
+def raw_name_key(name: Any) -> str:
+    """Like company_key but KEEPS 'Ireland', 'Group', 'International', 'Holdings', 'Europe': with no
+    website to anchor a match, 'Nimbus Data' (US, 800 staff) must not equal 'Nimbus Data Ireland'."""
+    s = _ascii(name).lower().replace("&", " and ")
+    s = re.sub(r"\(.*?\)", " ", s)
+    tokens = re.findall(r"[a-z0-9]+", s)
+    while tokens and tokens[-1] in _RAW_LEGAL:
+        tokens.pop()
+    while tokens and tokens[0] == "the":
+        tokens.pop(0)
+    return "".join(tokens)
+
+
+def _nospace_key(name: Any) -> str:
+    """'JPMorgan Chase & Co.' and 'JPMorganChase' -> 'jpmorganchase' (a trailing '& Co' leaves 'and')."""
+    return re.sub(r"(?:\s+and)+$", "", company_key(name)).replace(" ", "")
+
+
+def _add_apollo_people(c: Company, people: List[Dict[str, Any]]) -> None:
+    have = {p["apollo_person_id"] for p in c.apollo_people}
+    for p in people:
+        if p["apollo_person_id"] not in have:
+            c.apollo_people.append(p)
+            have.add(p["apollo_person_id"])
+
+
 ABOVE_RANGES = ["101,200", "201,500", "501,1000", "1001,2000", "2001,5000", "5001,10000", "10001,"]
-ICP_FILTER_SANITY = 2000      # a one-domain exec search returning more than this means Apollo ignored the filter
+
+
+def _apollo_ranges(max_hc: int) -> Tuple[List[Tuple[str, Any]], List[Tuple[str, Any]]]:
+    ranges = [("organization_num_employees_ranges[]", r) for r in APOLLO_EMPLOYEE_RANGES
+              if int(r.split(",")[0]) <= max_hc]
+    above = [("organization_num_employees_ranges[]", r) for r in ABOVE_RANGES]
+    return ranges, above
+
+
+async def _people_search(ctx: RunContext, params: List[Tuple[str, Any]]) -> Optional[Dict[str, Any]]:
+    return await ctx.apollo_call("POST", "/mixed_people/api_search", kind="people_search_calls", params=params)
 
 
 async def apollo_size_and_people(ctx: RunContext, c: Company) -> None:
@@ -1678,71 +2095,171 @@ async def apollo_size_and_people(ctx: RunContext, c: Company) -> None:
          * finds the CEO / CTO / Founder / Data head (surnames hidden until Reveal),
          * proves the company is under the headcount limit (Apollo's own employee-range filter),
          * and, with the HQ filter, that it is headquartered in Ireland.
-       A company is only REJECTED on positive proof (a search that matches it ABOVE the limit, or in
-       range but outside Ireland). A failed call, a rate limit, or missing Apollo data leaves it
-       'unverified' — never 'too big'."""
+       Only people whose CURRENT organisation is this company count (see _apollo_people) — raw totals
+       are never used, because the domain filter also matches alumni.
+       A company is only REJECTED on positive proof (its own staff found ABOVE the limit, or in range
+       but outside Ireland). A failed call, a rate limit, or missing Apollo data leaves it 'unverified'."""
     if ctx.apollo_disabled or not c.domain:
         return
     max_hc = ctx.p.max_headcount
-    base = [("q_organization_domains_list[]", c.domain), ("page", 1)]
-    ranges = [("organization_num_employees_ranges[]", r) for r in APOLLO_EMPLOYEE_RANGES
-              if int(r.split(",")[0]) <= max_hc]
-    above = [("organization_num_employees_ranges[]", r) for r in ABOVE_RANGES]
+    base = [("q_organization_domains_list[]", c.domain), ("page", 1), ("per_page", 25)]
+    ranges, above = _apollo_ranges(max_hc)
     loc = [("organization_locations[]", "Ireland")] if ctx.p.hq_ireland_only else []
     titles = [("person_titles[]", t) for t in APOLLO_ICP_TITLES]
 
-    async def search(params: List[Tuple[str, Any]]) -> Optional[Dict[str, Any]]:
-        return await ctx.apollo_call("POST", "/mixed_people/api_search", kind="people_search_calls", params=params)
+    async def staff(params: List[Tuple[str, Any]], execs_only: bool = False) -> Optional[List[Dict[str, Any]]]:
+        data = await _people_search(ctx, base + params)
+        if data is None:
+            return None
+        return _apollo_people(data, c) if execs_only else _apollo_matched(data, c)
 
-    def count(data: Optional[Dict[str, Any]]) -> Optional[int]:
-        return None if data is None else (_total_entries(data) or 0)
+    # A looked-up website may be a foreign namesake's: it may still reject a company that clearly hires
+    # like a big one (many open roles), but otherwise a domain we can't tie to this employer never rejects.
+    may_reject = c.domain_trusted or len(c.jobs) >= BIG_HINT_ROLES
+
+    async def too_big_proof() -> Optional[bool]:
+        if not may_reject:
+            return False
+        found = await staff(above)
+        if found is None:
+            return None
+        if found:
+            c.size_status, c.reject_reason = "too_big", f"over {max_hc + 1} staff (Apollo)"
+            return True
+        return False
 
     if c.size_status == "verified":                    # a job board / earlier scan already proved it's small
-        data = await search(base + loc + titles + [("per_page", 25)])
-        if data is None:
+        here = await staff(loc + titles)               # ANY current staff (titles match fuzzily)
+        if here is None:
             return
-        if (_total_entries(data) or 0) > ICP_FILTER_SANITY:
-            ctx.warn("Apollo ignored the company filter on a people search — its results were discarded.")
+        execs = [p for p in here if p.get("role")]
+        if execs:
+            _add_apollo_people(c, execs)
+        if here:
+            if loc:
+                c.hq_ie = True                         # found WITH Apollo's Irish-HQ filter
             return
-        c.apollo_people = _apollo_people(data, c)
-        if not c.apollo_people and loc:
+        if loc and c.hq_ie is not True and c.domain_trusted:
             # nobody with the Ireland filter: is that because the HQ is elsewhere?
-            elsewhere = count(await search(base + [("per_page", 1)]))
-            in_ie = count(await search(base + loc + [("per_page", 1)]))
-            if elsewhere and in_ie == 0:
+            anywhere = await staff(titles)
+            if anywhere:
                 c.size_status, c.reject_reason = "too_big", "HQ outside Ireland (Apollo)"
         return
 
-    data = await search(base + ranges + loc + titles + [("per_page", 25)])
-    if data is None:
+    above_first = len(c.jobs) >= BIG_HINT_ROLES or (c.size_lo or 0) > 50
+    if above_first and await too_big_proof():
         return
-    if (_total_entries(data) or 0) > ICP_FILTER_SANITY:
-        ctx.warn("Apollo ignored the company filter on a people search — headcount check skipped.")
-        return
-    people = _apollo_people(data, c)
-    if people:
-        c.apollo_people = people
-        _mark_verified(c, max_hc, "Apollo")
-        return
-    n_in = count(await search(base + ranges + loc + [("per_page", 1)]))
-    if n_in is None:
+    execs = await staff(ranges + loc + titles, execs_only=True)
+    if execs is None:
         return                                          # failed / rate-limited: stay unverified
-    if n_in > 0:
+    if execs:
+        _add_apollo_people(c, execs)
+        _mark_verified(c, max_hc, "Apollo")
+        c.hq_ie = True if loc else c.hq_ie
+        return
+    anyone = await staff(ranges + loc)
+    if anyone is None:
+        return
+    if anyone:
         _mark_verified(c, max_hc, "Apollo")             # small and Irish, just no exec on file
+        c.hq_ie = True if loc else c.hq_ie
         return
-    n_above = count(await search(base + above + [("per_page", 1)]))
-    if n_above:
-        c.size_status, c.reject_reason = "too_big", f"over {max_hc + 1} staff (Apollo)"
+    if not above_first and await too_big_proof():
         return
-    if loc:
-        n_range_anywhere = count(await search(base + ranges + [("per_page", 1)]))
-        if n_range_anywhere:
+    if loc and c.hq_ie is not True and c.domain_trusted:
+        elsewhere = await staff(ranges)
+        if elsewhere:
             c.size_status, c.reject_reason = "too_big", "HQ outside Ireland (Apollo)"
     # otherwise Apollo simply doesn't know the company: unverified
 
 
+async def apollo_name_check(ctx: RunContext, c: Company) -> None:
+    """No website found: free people search by keyword, kept only when Apollo's organisation name is
+    EXACTLY this company and it sits inside the size (and HQ) filters. Positive proof only — this
+    never rejects a company, because a keyword search can miss."""
+    if ctx.apollo_disabled or c.domain or c.size_status == "too_big":
+        return
+    ranges, _ = _apollo_ranges(ctx.p.max_headcount)
+    loc = [("organization_locations[]", "Ireland")] if ctx.p.hq_ireland_only else []
+    titles = [("person_titles[]", t) for t in APOLLO_ICP_TITLES]
+    base = [("q_keywords", c.name[:80]), ("page", 1), ("per_page", 25)]
+    data = await _people_search(ctx, base + ranges + loc + titles)
+    if data is None:
+        return
+    execs = _apollo_people(data, c, exact=True)
+    if execs:
+        _add_apollo_people(c, execs)
+        _mark_verified(c, ctx.p.max_headcount, NAME_MATCH_SOURCE)
+        return
+    if c.size_status == "verified":
+        return
+    data = await _people_search(ctx, base + ranges + loc)
+    if data is not None and _apollo_matched(data, c, exact=True):
+        _mark_verified(c, ctx.p.max_headcount, NAME_MATCH_SOURCE)
+
+
+NAME_MATCH_SOURCE = "Apollo (name match)"
+JOB_SIGNAL_SOURCE = "Apollo job data (name match)"
+JOB_SIGNAL_PAGES = 3
+JOB_SIGNAL_SANITY = 50_000     # more than this means Apollo ignored the job-posting filters
+
+
+async def apollo_job_signal(ctx: RunContext, companies: List[Company]) -> int:
+    """ONE free people search (≤3 pages) for decision-makers at companies Apollo itself says are
+    under the headcount limit, Irish-HQ'd, and have open Data/AI postings in Ireland. Any of our
+    companies that appears there is verified (and gets its contacts) without a per-company check."""
+    if ctx.apollo_disabled or not companies:
+        return 0
+    ranges, _ = _apollo_ranges(ctx.p.max_headcount)
+    loc = [("organization_locations[]", "Ireland")] if ctx.p.hq_ireland_only else []
+    since = (date.today() - timedelta(days=max(ctx.p.days_back, 30))).isoformat()   # Apollo's job data lags
+    params: List[Tuple[str, Any]] = ranges + loc + [("person_titles[]", t) for t in APOLLO_ICP_TITLES]
+    params += [("q_organization_job_titles[]", t) for t in APOLLO_JOB_TITLES]
+    params += [("organization_job_locations[]", "Ireland"), ("organization_job_posted_at_range[min]", since)]
+    by_name: Dict[str, List[Dict[str, Any]]] = {}
+    for page in range(1, JOB_SIGNAL_PAGES + 1):
+        ctx.check_cancel()
+        data = await _people_search(ctx, params + [("page", page), ("per_page", 100)])
+        if data is None:
+            break
+        total = _total_entries(data) or 0
+        if total > JOB_SIGNAL_SANITY:
+            ctx.log("Apollo ignored the job-posting filters on its free search — that shortcut was skipped", "warn")
+            return 0
+        people = [p for p in (data.get("people") or []) if isinstance(p, dict)]
+        for p in people:
+            org = p.get("organization") if isinstance(p.get("organization"), dict) else {}
+            name = org.get("name") or ""
+            if name:
+                by_name.setdefault(raw_name_key(name), []).append(p)
+        if len(people) < 100 or page * 100 >= total:
+            break
+    matched = 0
+    for c in companies:
+        c = CompanyRegistry.canon(c)
+        if c.size_status == "too_big" or c.domain:
+            continue        # a company with a website gets the stronger domain-anchored check instead
+        # No website anchors this search, so only an EXACT raw name counts ('Kerry Group' never matches
+        # 'Kerry Logistics'; 'Nimbus Data' never matches 'Nimbus Data Ireland').
+        rows = by_name.get(raw_name_key(c.name)) or []
+        if not rows:
+            continue
+        execs = _apollo_people({"people": rows}, c, exact=True)
+        _add_apollo_people(c, execs)
+        if c.size_status != "verified":
+            _mark_verified(c, ctx.p.max_headcount, JOB_SIGNAL_SOURCE)
+        if ctx.p.hq_ireland_only:
+            c.hq_ie = True
+        matched += 1
+    if by_name:
+        ctx.log(f"Apollo (free): {len(by_name)} small Irish companies with open Data/AI roles; "
+                f"{matched} of them are in this scan")
+    return matched
+
+
 def _mark_verified(c: Company, max_hc: int, source: str) -> None:
     c.size_status, c.size_source = "verified", c.size_source or source
+    c.reject_reason = ""
     if not c.size_label:
         c.size_label = f"under {max_hc + 1} staff"
 
@@ -1787,6 +2304,7 @@ async def apollo_paid_lookups(ctx: RunContext, reg: CompanyRegistry, companies: 
 
 
 QUALIFY_DOMAIN_BUDGET = 180       # seconds for website discovery
+SERPER_BUDGET = 60                # seconds for the optional Google fallback (after discovery)
 QUALIFY_APOLLO_BUDGET = 240       # seconds for the free Apollo checks
 
 
@@ -1815,9 +2333,60 @@ async def _bounded(ctx: RunContext, coro: Any, seconds: int, what: str) -> None:
         ctx.log(f"{what}: time limit reached — the rest stay 'headcount unverified'", "warn")
 
 
+def _agency_reason(c: Company) -> str:
+    if c.agency_reason:
+        return c.agency_reason
+    if is_agency(c.name, c.industry):
+        return f"staffing/recruitment ({'industry: ' + c.industry if c.industry and is_agency('', c.industry) else 'name'})"
+    return ""
+
+
+def _is_hq_reason(reason: str) -> bool:
+    return reason.startswith("HQ")
+
+
+def _big_cache_put(ctx: RunContext, c: Company) -> None:
+    """Remember a positive 'too big' / 'HQ abroad' proof for 3 weeks so the next scan skips it for free."""
+    reason = c.reject_reason or ""
+    if reason.endswith("earlier scan"):
+        return              # came FROM the cache: carried forward with its original date, never renewed
+    hq_out = _is_hq_reason(reason)
+    m = re.search(r"(\d[\d,]*)", reason)
+    if hq_out:
+        min_size = 0
+    elif c.size is not None and c.size > ctx.p.max_headcount:
+        min_size = c.size
+    elif c.size_lo is not None and c.size_lo > ctx.p.max_headcount:
+        min_size = c.size_lo
+    elif c.wikidata_employees:
+        min_size = c.wikidata_employees
+    elif "over" in reason and m:
+        min_size = int(m.group(1).replace(",", ""))
+    else:
+        return
+    keys = [f"big:n:{c.key}"] + ([f"big:{c.domain}"] if c.domain else [])
+    _cache_put(ctx, keys, {"min_size": min_size, "hq_out": hq_out, "reason": reason[:120]})
+
+
+def _big_cache_hit(ctx: RunContext, c: Company) -> Optional[str]:
+    hit = _cache_get(ctx, ([f"big:{c.domain}"] if c.domain else []) + [f"big:n:{c.key}"])
+    if not hit:
+        return None
+    if hit.get("hq_out"):
+        return f"{hit.get('reason') or 'HQ outside Ireland'} — earlier scan" if ctx.p.hq_ireland_only else None
+    try:
+        if int(hit.get("min_size") or 0) > ctx.p.max_headcount:
+            return f"{hit.get('reason') or 'over the staff limit'} — earlier scan"
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
 async def qualify_companies(ctx: RunContext, reg: CompanyRegistry) -> List[Company]:
     """Keep small Irish non-agency companies. Every step here is free unless the optional
-    Apollo lookup budget is set. Expensive steps are bounded in both count and time."""
+    Apollo lookup budget is set. Expensive steps are bounded in both count and time.
+    Order matters for speed: cheap proofs (job-board bands, HQ addresses, caches) first, then websites,
+    then ONE Apollo job-signal search, then per-company Apollo checks only for what is still open."""
     f = ctx.stats["filtered"]
     max_hc = ctx.p.max_headcount
     pool: List[Company] = []
@@ -1826,88 +2395,118 @@ async def qualify_companies(ctx: RunContext, reg: CompanyRegistry) -> List[Compa
             continue
         if c.key in OWN_COMPANY_KEYS:
             continue
-        if is_agency(c.name, c.industry):
+        why = _agency_reason(c)
+        if why:
             f["agency"] += 1
+            ctx.reject(c, why, "qualify")
             continue
         pool.append(c)
 
     def settle_from_known_size(c: Company) -> None:
+        if c.size_status == "too_big":
+            return
         if c.size is not None:                         # exact Apollo number (discovery / paid lookup)
             if c.size > max_hc:
                 c.size_status, c.reject_reason = "too_big", f"{c.size} staff (Apollo)"
-            else:
-                c.size_status, c.size_source = "verified", "Apollo"
-                c.size_label = c.size_label or f"{c.size} staff"
-        elif c.size_hi is not None:                     # job-board band, e.g. Indeed "11 to 50"
+                return
+            c.size_status, c.size_source = "verified", "Apollo"
+            c.size_label = c.size_label or f"{c.size} staff"
+        elif c.size_hi is not None and c.size_status != "verified":   # job-board band, e.g. "11 to 50"
             if c.size_hi <= max_hc:
                 c.size_status = "verified"
             elif c.size_lo is not None and c.size_lo > max_hc:
                 c.size_status, c.reject_reason = "too_big", f"{c.size_label} ({c.size_source})"
-        if c.size_status != "verified" and c.size_status != "too_big":
+                return
+        if c.wikidata_employees is not None and c.wikidata_employees > max_hc and c.size_status != "verified":
+            c.size_status, c.reject_reason = "too_big", f"about {c.wikidata_employees:,} staff (Wikidata)"
+            return
+        if c.size_status != "verified":
+            cached = _big_cache_hit(ctx, c)
+            if cached:
+                c.size_status, c.reject_reason = "too_big", cached
+                return
             hit = _verification_hit(ctx, c)
             if hit:
                 c.size_status = "verified"
                 c.size_label = c.size_label or hit.get("size_label") or ""
                 c.size_source = c.size_source or hit.get("size_source") or "earlier scan"
                 c.size_verified_at = hit.get("t")
-        if ctx.p.hq_ireland_only and c.country and not is_irish_country(c.country):
-            c.size_status, c.reject_reason = "too_big", f"HQ in {c.country}"
+        if ctx.p.hq_ireland_only:
+            if c.country and not is_irish_country(c.country):
+                c.size_status, c.reject_reason = "too_big", f"HQ in {c.country}"
+            elif c.hq_ie is False:
+                c.size_status, c.reject_reason = "too_big", f"HQ in {c.hq_text} (job board)"
 
     for c in pool:
         settle_from_known_size(c)
     live = [c for c in pool if c.size_status != "too_big"]
-    # Bound the expensive steps: the busiest hirers first, at most twice the company cap.
-    live.sort(key=lambda c: (c.size_status != "verified", -len(c.jobs), c.name.lower()))
+    # Bound the expensive steps: verified first, then the SMALLER hirers (fewest roles) — a company
+    # with 8 open Data/AI roles is rarely under 100 staff.
+    live.sort(key=lambda c: (c.size_status != "verified", len(c.jobs) >= BIG_HINT_ROLES, -len(c.jobs), c.name.lower()))
     work = live[: ctx.p.max_companies * 2]
-    if len(live) > len(work):
-        f["over_company_cap"] += len(live) - len(work)
+    for c in live[len(work):]:
+        f["over_company_cap"] += 1
+        ctx.reject(c, "over the company cap (raise 'Max companies' in Scan settings)", "qualify")
+    ctx.log(f"Qualifying {len(work)} companies ({len(pool) - len(live)} already ruled out by job-board data or "
+            f"earlier scans)")
+    ctx.stats["domains"]["board"] += len([c for c in work if c.domain])
     await _bounded(ctx, discover_domains(ctx, reg, work), QUALIFY_DOMAIN_BUDGET, "Website discovery")
+    await finish_domains(ctx, reg, work)
     ctx.bump(48)
     await apollo_paid_lookups(ctx, reg, work)
     work = list({id(CompanyRegistry.canon(c)): CompanyRegistry.canon(c) for c in work}.values())
     for c in work:
-        if c.size_status not in ("verified", "too_big"):
-            settle_from_known_size(c)
+        settle_from_known_size(c)
 
-    # free Apollo people search: ICP contacts + headcount/HQ proof in one go
-    checks = [c for c in work if c.size_status != "too_big" and c.domain]
-    done = 0
-
-    async def one(c: Company) -> None:
-        nonlocal done
-        await apollo_size_and_people(ctx, c)
-        done += 1
-        ctx.bump(48 + 12 * done / max(1, len(checks)))
-
-    async def all_checks() -> None:
-        results = await asyncio.gather(*(one(c) for c in checks), return_exceptions=True)
-        if any(isinstance(r, RunCancelled) for r in results):
-            raise RunCancelled()
-
-    if checks and not ctx.apollo_disabled:
+    async def apollo_stage() -> None:
+        await apollo_job_signal(ctx, [c for c in work if c.size_status != "too_big"])
+        # per-company free checks for whatever is still open (or verified but without a contact yet)
+        checks = [c for c in work if c.size_status != "too_big"
+                  and (c.size_status != "verified" or not c.apollo_people)]
+        if not checks:
+            return
         ctx.log(f"Checking headcount and decision-makers for {len(checks)} companies in Apollo (free people search)")
-        await _bounded(ctx, all_checks(), QUALIFY_APOLLO_BUDGET, "Apollo headcount checks")
+        done = 0
+
+        async def one(c: Company) -> None:
+            nonlocal done
+            if c.domain:
+                await apollo_size_and_people(ctx, c)
+            else:
+                await apollo_name_check(ctx, c)
+            done += 1
+            ctx.bump(48 + 12 * done / max(1, len(checks)))
+
+        results = await asyncio.gather(*(one(c) for c in checks), return_exceptions=True)
+        _raise_cancel_log_rest(ctx, results, "Apollo check")
+
+    if not ctx.apollo_disabled:
+        await _bounded(ctx, apollo_stage(), QUALIFY_APOLLO_BUDGET, "Apollo headcount checks")
     keep: List[Company] = []
+    survivors = {id(CompanyRegistry.canon(c)): CompanyRegistry.canon(c) for c in pool}
+    ruled_out = [c for c in survivors.values() if c.size_status == "too_big"]
+    for c in ruled_out:
+        if _is_hq_reason(c.reject_reason or ""):
+            f["hq_outside_ireland"] += 1
+        else:
+            f["headcount_too_big"] += 1
+        ctx.reject(c, c.reject_reason or "over the staff limit", "qualify")
+        _big_cache_put(ctx, c)
     for c in work:
         if c.size_status == "too_big":
-            if "HQ" in (c.reject_reason or "") and "staff" not in c.reject_reason:
-                f["hq_outside_ireland"] += 1
-            else:
-                f["headcount_too_big"] += 1
             continue
         if c.size_status != "verified":
             c.size_status = "unverified"
             f["headcount_unverified"] += 1
         keep.append(c)
-    f["headcount_too_big"] += len([c for c in pool if c.size_status == "too_big" and c not in work
-                                   and "staff" in (c.reject_reason or "")])
-    f["hq_outside_ireland"] += len([c for c in pool if c.size_status == "too_big" and c not in work
-                                    and "HQ" in (c.reject_reason or "") and "staff" not in c.reject_reason])
-    # verified first, then the busiest hirers
+    # verified first, then the busiest hirers. Up to TWICE the cap goes on: LinkedIn job pages can still
+    # remove companies (wrong employment type, agency wording); the cap is applied after that.
     keep.sort(key=lambda c: (c.size_status != "verified", -len(c.jobs), c.name.lower()))
-    if len(keep) > ctx.p.max_companies:
-        f["over_company_cap"] += len(keep) - ctx.p.max_companies
-    return keep[: ctx.p.max_companies]
+    cap = ctx.p.max_companies * 2
+    for c in keep[cap:]:
+        f["over_company_cap"] += 1
+        ctx.reject(c, "over the company cap (raise 'Max companies' in Scan settings)", "qualify")
+    return keep[:cap]
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -1956,6 +2555,15 @@ async def fetch_ats_board(ctx: RunContext, ats: str, slug: str) -> Tuple[List[Di
     if ats == "bamboohr":
         data = await _json(ctx, f"https://{slug}.bamboohr.com/careers/list")
         return parse_bamboohr(data, slug), ""
+    if ats == "smartrecruiters":
+        data = await _json(ctx, f"https://api.smartrecruiters.com/v1/companies/{slug}/postings?limit=100")
+        first = ((data or {}).get("content") or [{}])[0] if isinstance(data, dict) else {}
+        name = ((first or {}).get("company") or {}).get("name") if isinstance(first, dict) else ""
+        return parse_smartrecruiters(data, slug), str(name or "")
+    if ats == "breezy":
+        data = await _json(ctx, f"https://{slug}.breezy.hr/json")
+        first = data[0] if isinstance(data, list) and data and isinstance(data[0], dict) else {}
+        return parse_breezy(data, slug), str(((first.get("company") or {}) if isinstance(first.get("company"), dict) else {}).get("name") or "")
     return [], ""
 
 
@@ -1966,13 +2574,13 @@ def _analyse_home(html: str, url: str) -> Tuple[List[Tuple[str, str]], List[Dict
 
 
 async def scan_company_website(ctx: RunContext, reg: CompanyRegistry, c: Company) -> int:
-    if not c.domain:
+    if not c.domain and not c.ats_refs:
         return 0
     found_postings: List[Tuple[str, Dict[str, Any]]] = []
-    refs: List[Tuple[str, str]] = []
+    refs: List[Tuple[str, str]] = list(c.ats_refs)        # boards seen in Indeed / Glassdoor apply links
     team_links: List[str] = []
     pages_seen: set = set()
-    queue = [f"https://{c.domain}/", f"https://{c.domain}/careers"]
+    queue = [f"https://{c.domain}/", f"https://{c.domain}/careers"] if c.domain else []
     while queue and len(pages_seen) < 3:
         url = queue.pop(0)
         if url in pages_seen:
@@ -2004,7 +2612,7 @@ async def scan_company_website(ctx: RunContext, reg: CompanyRegistry, c: Company
         if r is not None and r.status_code < 400:
             c.site_people.extend(await hs.in_pool(hs.extract_people, r.text))
     verified_guess = False
-    if not refs and not found_postings:
+    if not refs and not found_postings and c.domain:
         # No link to an ATS on the site — try the two boards that let us verify ownership by name.
         guess = c.domain.split(".")[0]
         for ats in ("greenhouse", "workable"):
@@ -2013,7 +2621,7 @@ async def scan_company_website(ctx: RunContext, reg: CompanyRegistry, c: Company
                 found_postings += [(f"Company website ({ats.title()})", j) for j in jobs]
                 verified_guess = True
                 break
-    for ats, slug in refs[:2]:
+    for ats, slug in refs[:3]:
         jobs, _ = await fetch_ats_board(ctx, ats, slug)
         found_postings += [(f"Company website ({ats.title()})", j) for j in jobs]
     added = 0
@@ -2242,7 +2850,8 @@ def build_rows(run_id: str, companies: List[Company], contacts: Dict[str, List[D
             "company_domain": c.domain or None,
             "company_website": c.website or (f"https://{c.domain}" if c.domain else None),
             "company_linkedin": c.linkedin or None, "company_size": c.size, "company_industry": c.industry or None,
-            "company_city": c.city or None, "company_phone": c.phone or None, "apollo_org_id": c.apollo_id or None,
+            "company_city": (c.city or c.hq_text or "")[:120] or None, "company_phone": c.phone or None,
+            "apollo_org_id": c.apollo_id or None,
             "size_status": c.size_status or "unverified",
             "size_label": (f"{c.size_label} · {c.size_source}" if c.size_label and c.size_source else c.size_label) or None,
             "hiring_for": titles, "job_links": links, "employment_types": types,
@@ -2304,6 +2913,7 @@ async def prune_old_runs() -> int:
 SOURCE_RUNNERS = {
     "linkedin": source_linkedin,
     "indeed": source_indeed,
+    "glassdoor": source_glassdoor,
     "careerjet": source_careerjet,
     "jobsireland": source_jobsireland,
     "jooble": source_jooble,
@@ -2351,18 +2961,41 @@ async def pipeline(ctx: RunContext) -> Dict[str, int]:
     ctx.set_stage("qualify", 40)
     companies = await qualify_companies(ctx, reg)
     ctx.log(f"{len([c for c in companies if c.size_status == 'verified'])} companies confirmed under "
-            f"{p.max_headcount + 1} staff, {len([c for c in companies if c.size_status == 'unverified'])} unverified")
+            f"{p.max_headcount + 1} staff, {len([c for c in companies if c.size_status == 'unverified'])} not yet "
+            f"confirmed (shortlist; capped at {p.max_companies} after the job pages)")
     ctx.check_cancel()
 
-    # 3 ── COMPANY WEBSITES — careers pages (more roles) + team pages (free contacts)
+    # 3 ── COMPANY WEBSITES (careers + team pages) and LINKEDIN JOB PAGES, side by side —
+    #      different hosts, so neither slows the other down
     ctx.set_stage("websites", 60)
+    steps = [linkedin_job_pages(ctx, companies)]
     if "websites" in p.sources:
-        await stage_websites(ctx, reg, companies)
+        steps.append(stage_websites(ctx, reg, companies))
+    results = await asyncio.gather(*steps, return_exceptions=True)
+    for r in results:
+        if isinstance(r, RunCancelled):
+            raise r
+        if isinstance(r, Exception):            # one failing step never sinks the scan
+            log.warning(f"[hiring-intel] post-qualify step failed: {type(r).__name__}: {redact(r)}")
+            ctx.warn(f"A post-qualification step failed ({type(r).__name__}); results may be less complete.")
     companies = [CompanyRegistry.canon(c) for c in companies]
     companies = list({id(c): c for c in companies}.values())
-    final = [c for c in companies if c.jobs]
-    ctx.stats["filtered"]["no_qualifying_jobs"] += len(companies) - len(final)
+    final: List[Company] = []
+    for c in companies:
+        why = _agency_reason(c)                  # LinkedIn job pages can reveal an agency only now
+        if why:
+            ctx.stats["filtered"]["agency"] += 1
+            ctx.reject(c, why, "job pages")
+        elif not c.jobs:
+            ctx.stats["filtered"]["no_qualifying_jobs"] += 1
+            ctx.reject(c, "no role left after checking the employment type", "job pages")
+        else:
+            final.append(c)
     final.sort(key=lambda c: (c.size_status != "verified", -len(c.jobs), c.name.lower()))
+    for c in final[p.max_companies:]:
+        ctx.stats["filtered"]["over_company_cap"] += 1
+        ctx.reject(c, "over the company cap (raise 'Max companies' in Scan settings)", "cap")
+    final = final[: p.max_companies]
     ctx.check_cancel()
 
     # 4 ── CONTACTS — free: Apollo people search, team pages, optional Google X-ray
@@ -2399,13 +3032,14 @@ async def pipeline(ctx: RunContext) -> Dict[str, int]:
     await _insert_chunks("hiring_intel_jobs", job_rows)
     await _insert_chunks("hiring_intel_leads", lead_rows)
     for c in final:                                       # remember what we learned (free next time)
-        if c.size_status == "verified" and c.domain:
+        if c.size_status == "verified" and c.domain and c.size_source not in (NAME_MATCH_SOURCE, JOB_SIGNAL_SOURCE):
             # keyed by WEBSITE (names collide: 'Kerry Group' vs 'Kerry Ltd'), stamped with the limits it
             # was checked against, and keeping its original date so it really expires.
             _cache_put(ctx, [f"ver:{c.domain}"], {"domain": c.domain, "size_status": "verified",
                                                  "size_label": c.size_label, "size_source": c.size_source,
                                                  "max_hc": p.max_headcount,
-                                                 "hq": p.hq_ireland_only and c.size_source == "Apollo"},
+                                                 "hq": p.hq_ireland_only and (c.size_source == "Apollo"
+                                                                              or c.hq_ie is True)},
                        learned_at=c.size_verified_at)
     counts = {
         "jobs_count": len(job_rows),
@@ -2417,6 +3051,8 @@ async def pipeline(ctx: RunContext) -> Dict[str, int]:
         "new_jobs": len([j for j in job_rows if j["is_new"]]),
         "new_companies": len([c for c in final if c.key not in prev_companies]),
         "verified_companies": len([c for c in final if c.size_status == "verified"]),
+        "unverified_companies": len([c for c in final if c.size_status != "verified"]),
+        "companies_with_contact": len({r["company_key"] for r in lead_rows if r.get("person_key")}),
         **contact_summary(lead_rows),
     }
     ctx.log(f"Saved {counts['jobs_count']} roles, {counts['companies_count']} companies, "
@@ -2452,6 +3088,8 @@ async def execute_run(run_id: str, params: RunParams, user_ip: str = "", user_ag
     finally:
         if ticker:
             ticker.cancel()
+        if ctx.li_client is not None:
+            await ctx.li_client.close()
         for client in (ctx.web, ctx.apollo):
             if client is not None:
                 try:
@@ -2553,6 +3191,7 @@ async def get_config(request: Request):
         "sources": {
             "linkedin": {"configured": True, "label": "LinkedIn", "kind": "board"},
             "indeed": {"configured": True, "label": "Indeed", "kind": "board"},
+            "glassdoor": {"configured": True, "label": "Glassdoor", "kind": "board"},
             "careerjet": {"configured": bool(hs.careerjet_key()), "label": "CareerJet", "kind": "board",
                           "setup": "CAREERJET_API_KEY"},
             "jobsireland": {"configured": True, "label": "JobsIreland", "kind": "board"},
@@ -2564,6 +3203,7 @@ async def get_config(request: Request):
         "integrations": {
             "apollo": bool(apollo_key()),          # free people search + paid Reveal
             "serper": bool(hs.serper_key()),       # optional Google search
+            "website_lookup": True,                # Clearbit autocomplete + Wikidata (free, no key)
             "proxies": len(hs.proxies_from_env()),
         },
         "blocked_boards": hs.BLOCKED_BOARDS,

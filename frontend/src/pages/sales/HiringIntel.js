@@ -23,9 +23,9 @@ const Icon = ({ name, style = {}, filled = false, className = '' }) => (
 );
 
 const STAGES = [
-  { key: 'discover', label: 'Job boards',      icon: 'travel_explore', hint: 'LinkedIn · Indeed · CareerJet · JobsIreland' },
+  { key: 'discover', label: 'Job boards',      icon: 'travel_explore', hint: 'LinkedIn · Indeed · Glassdoor · JobsIreland' },
   { key: 'qualify',  label: 'Qualify',         icon: 'filter_alt',     hint: '<100 staff · Irish · free checks' },
-  { key: 'websites', label: 'Company sites',   icon: 'language',       hint: 'Careers & team pages' },
+  { key: 'websites', label: 'Company sites',   icon: 'language',       hint: 'Careers pages · LinkedIn job pages' },
   { key: 'contacts', label: 'Decision-makers', icon: 'badge',          hint: 'Found free · reveal on click' },
   { key: 'save',     label: 'Save',            icon: 'inventory_2',    hint: 'De-duplicate & store' },
 ];
@@ -50,6 +50,7 @@ const DAYS_OPTIONS = [{ v: 1, l: '24 hours' }, { v: 7, l: '7 days' }, { v: 14, l
 const SOURCE_META = {
   linkedin:         { label: 'LinkedIn', icon: 'work' },
   indeed:           { label: 'Indeed', icon: 'search' },
+  glassdoor:        { label: 'Glassdoor', icon: 'domain' },
   careerjet:        { label: 'CareerJet', icon: 'hub' },
   jobsireland:      { label: 'JobsIreland', icon: 'flag' },
   jooble:           { label: 'Jooble', icon: 'travel_explore' },
@@ -64,7 +65,9 @@ const SOURCE_STATUS = {
   not_configured: { label: 'Not set up', tone: '#6B7280' },
   running:        { label: 'Running', tone: '#4468B0' },
 };
-const PARAMS_STORAGE_KEY = 'hiringIntel.params.v2';   // v2: new boards + free-first contacts
+const PARAMS_STORAGE_KEY = 'hiringIntel.params.v3';   // v3: Glassdoor added
+const OLD_PARAMS_KEYS = ['hiringIntel.params.v2'];
+const NEW_DEFAULT_SOURCES = ['glassdoor'];             // switched on for people whose saved settings predate them
 const ACTIVE = ['queued', 'running'];
 
 // ── formatting helpers ────────────────────────────────────────
@@ -99,7 +102,19 @@ const hostOf = (url) => {
 };
 
 const readStoredParams = () => {
-  try { return JSON.parse(localStorage.getItem(PARAMS_STORAGE_KEY) || 'null'); } catch { return null; }
+  try {
+    const cur = JSON.parse(localStorage.getItem(PARAMS_STORAGE_KEY) || 'null');
+    if (cur) return cur;
+    // carry settings over from the previous version, adding the sources that are new since then
+    for (const k of OLD_PARAMS_KEYS) {
+      const old = JSON.parse(localStorage.getItem(k) || 'null');
+      if (old) {
+        const sources = Array.from(new Set([...(old.sources || []), ...NEW_DEFAULT_SOURCES]));
+        return { ...old, sources };
+      }
+    }
+  } catch { /* private mode / bad JSON */ }
+  return null;
 };
 const storeParams = (p) => {
   try { localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(p)); } catch { /* private mode */ }
@@ -131,16 +146,21 @@ const Toggle = ({ checked, onChange, label, sub, disabled }) => (
   </label>
 );
 
-const Kpi = ({ icon, label, value, sub, tone }) => (
-  <div className="hi-kpi" style={{ '--tone': tone || 'var(--primary)' }}>
-    <div className="hi-kpi-icon"><Icon name={icon} /></div>
-    <div>
-      <div className="hi-kpi-value">{value}</div>
-      <div className="hi-kpi-label">{label}</div>
-      {sub ? <div className="hi-kpi-sub">{sub}</div> : null}
-    </div>
-  </div>
-);
+const Kpi = ({ icon, label, value, sub, tone, onClick, title }) => {
+  const body = (
+    <>
+      <div className="hi-kpi-icon"><Icon name={icon} /></div>
+      <div>
+        <div className="hi-kpi-value">{value}</div>
+        <div className="hi-kpi-label">{label}</div>
+        {sub ? <div className="hi-kpi-sub">{sub}</div> : null}
+      </div>
+    </>
+  );
+  return onClick
+    ? <button type="button" className="hi-kpi is-clickable" style={{ '--tone': tone || 'var(--primary)' }} onClick={onClick} title={title}>{body}</button>
+    : <div className="hi-kpi" style={{ '--tone': tone || 'var(--primary)' }}>{body}</div>;
+};
 
 const Skeleton = ({ h = 14, w = '100%', r = 6 }) => (
   <div className="hi-skeleton" style={{ height: h, width: w, borderRadius: r }} />
@@ -225,7 +245,10 @@ export default function HiringIntel() {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [newOnly, setNewOnly] = useState(false);
   const [emailOnly, setEmailOnly] = useState(false);
-  const [showUnverified, setShowUnverified] = useState(false);
+  // Every company is shown by default (each row says whether its size is verified), so the table
+  // always matches the 'Companies hiring' tile. 'Verified size only' is an explicit filter.
+  const [verifiedOnly, setVerifiedOnly] = useState(false);
+  const [showFunnel, setShowFunnel] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
 
   const toastTimer = useRef(null);
@@ -246,12 +269,7 @@ export default function HiringIntel() {
     setDetailLoading(true);
     try {
       const { data } = await hiringIntelAPI.getRun(id);
-      if (seq === openSeq.current) {
-        setDetail(data);
-        // If nothing could be size-verified (e.g. Apollo unavailable), don't hide every company.
-        const s = data?.run?.stats?.summary;
-        if (s && s.verified_companies === 0 && (data.leads || []).length) setShowUnverified(true);
-      }
+      if (seq === openSeq.current) setDetail(data);
     } catch (e) {
       if (seq !== openSeq.current) return;
       setDetail(null);
@@ -466,7 +484,7 @@ export default function HiringIntel() {
       if (categoryFilter !== 'all' && !(l.categories || []).includes(categoryFilter)) return false;
       if (newOnly && !l.is_new_company) return false;
       if (emailOnly && !l.email) return false;
-      if (!showUnverified && l.size_status === 'unverified') return false;
+      if (verifiedOnly && l.size_status !== 'verified') return false;
       if (!q) return true;
       const hay = [l.person_name, l.person_title, l.company_name, l.email, l.company_city, ...(l.hiring_for || [])]
         .filter(Boolean).join(' ').toLowerCase();
@@ -477,23 +495,29 @@ export default function HiringIntel() {
     leads.forEach((l) => { if (!order.has(l.company_key)) order.set(l.company_key, order.size); });
     return rows.sort((a, b) => (order.get(a.company_key) - order.get(b.company_key))
       || ((ROLE_RANK[a.icp_role] || 9) - (ROLE_RANK[b.icp_role] || 9)));
-  }, [leads, typeFilter, categoryFilter, newOnly, emailOnly, showUnverified, q]);
+  }, [leads, typeFilter, categoryFilter, newOnly, emailOnly, verifiedOnly, q]);
 
-  const unverifiedCompanies = useMemo(() => {
+  const verifiedCompanies = useMemo(() => {
     const set = new Set();
-    leads.forEach((l) => { if (l.size_status === 'unverified') set.add(l.company_key); });
+    leads.forEach((l) => { if (l.size_status === 'verified') set.add(l.company_key); });
     return set;
   }, [leads]);
 
   const filteredJobs = useMemo(() => jobs.filter((j) => {
-    if (!showUnverified && unverifiedCompanies.has(j.company_key)) return false;
+    if (verifiedOnly && !verifiedCompanies.has(j.company_key)) return false;
     if (typeFilter !== 'all' && j.employment_type !== typeFilter) return false;
     if (categoryFilter !== 'all' && j.category !== categoryFilter) return false;
     if (newOnly && !j.is_new) return false;
     if (!q) return true;
     return [j.title, j.company_name, j.location].filter(Boolean).join(' ').toLowerCase().includes(q);
   }).sort((a, b) => String(b.posted_at || '').localeCompare(String(a.posted_at || ''))),
-  [jobs, typeFilter, categoryFilter, newOnly, q, showUnverified, unverifiedCompanies]);
+  [jobs, typeFilter, categoryFilter, newOnly, q, verifiedOnly, verifiedCompanies]);
+
+  // what the tabs and the "hidden by filters" notice count — always COMPANIES, like the KPI tile
+  const totalCompanies = useMemo(() => new Set(leads.map((l) => l.company_key)).size, [leads]);
+  const companiesInView = useMemo(() => new Set(filteredLeads.map((l) => l.company_key)).size, [filteredLeads]);
+  const contactsInView = useMemo(() => filteredLeads.filter((l) => l.person_key).length, [filteredLeads]);
+  const roleCompaniesInView = useMemo(() => new Set(filteredJobs.map((j) => j.company_key)).size, [filteredJobs]);
 
   const visibleCompanyKeys = useMemo(() => {
     const keys = [];
@@ -516,7 +540,7 @@ export default function HiringIntel() {
       return next.size === prev.size ? prev : next;
     });
   }, [visibleCompanyKeys]);
-  const filtersActive = typeFilter !== 'all' || categoryFilter !== 'all' || newOnly || emailOnly || !!q;
+  const filtersActive = typeFilter !== 'all' || categoryFilter !== 'all' || newOnly || emailOnly || verifiedOnly || !!q;
   const allVisibleSelected = visibleCompanyKeys.length > 0 && visibleCompanyKeys.every((k) => selected.has(k));
 
   const toggleCompany = (key) => {
@@ -566,7 +590,7 @@ export default function HiringIntel() {
 
   const resetFilters = () => {
     setSearch(''); setTypeFilter('all'); setCategoryFilter('all'); setNewOnly(false); setEmailOnly(false);
-    setShowUnverified(false);
+    setVerifiedOnly(false);
   };
 
   // credit estimate shown before a scan
@@ -872,7 +896,7 @@ export default function HiringIntel() {
               <div className="hi-empty-art"><Icon name="radar" style={{ fontSize: '2.25rem' }} /></div>
               <h3>{runs.length ? 'Pick a scan on the left' : 'Run your first scan'}</h3>
               <p>
-                We'll look across LinkedIn, Indeed, CareerJet, JobsIreland and company websites for Data &amp; AI roles
+                We'll look across LinkedIn, Indeed, Glassdoor, CareerJet, JobsIreland and company websites for Data &amp; AI roles
                 in Ireland at companies under 100 people, then find who to call — without spending Apollo credits
                 until you choose to reveal a contact.
               </p>
@@ -916,28 +940,35 @@ export default function HiringIntel() {
                 <>
                   <div className="hi-kpis">
                     <Kpi icon="apartment" label="Companies hiring" value={detailRun.companies_count}
-                         sub={summary.new_companies != null ? `${summary.new_companies} new since last scan` : null} />
+                         sub={summary.new_companies != null ? `${summary.new_companies} new since last scan` : null}
+                         onClick={() => { resetFilters(); setTab('contacts'); }} title="Show all of them in the sheet" />
                     <Kpi icon="work" label="Open Data & AI roles" value={detailRun.jobs_count} tone="#7C3AED"
                          sub={summary.new_jobs != null ? `${summary.new_jobs} new` : null} />
                     <Kpi icon="verified" label="Confirmed under 100 staff" value={summary.verified_companies ?? '—'} tone="#15803D"
-                         sub={summary.verified_companies != null ? `${detailRun.companies_count - summary.verified_companies} unverified` : null} />
+                         sub={summary.verified_companies != null ? `${detailRun.companies_count - summary.verified_companies} not yet confirmed` : null}
+                         onClick={() => { setVerifiedOnly(true); setTab('contacts'); }} title="Show only these" />
                     <Kpi icon="badge" label="Decision-makers" value={detailRun.contacts_count} tone="#006243"
-                         sub={summary.with_linkedin != null ? `${summary.with_linkedin} with LinkedIn` : null} />
+                         sub={summary.companies_with_contact != null ? `at ${summary.companies_with_contact} of ${detailRun.companies_count} companies`
+                           : summary.with_linkedin != null ? `${summary.with_linkedin} with LinkedIn` : null} />
                     <Kpi icon="mail" label="Revealed · with email" value={`${summary.revealed ?? 0} · ${summary.with_email ?? 0}`} tone="#0891B2"
                          sub={summary.to_reveal ? `${summary.to_reveal} still to reveal` : null} />
                   </div>
 
-                  <FunnelNote stats={detailRun.stats} />
+                  <FunnelNote stats={detailRun.stats} open={showFunnel} setOpen={setShowFunnel} />
 
                   <div className="hi-toolbar">
                     <div className="hi-tabs" role="tablist">
                       <button role="tab" aria-selected={tab === 'contacts'} className={tab === 'contacts' ? 'on' : ''}
                               onClick={() => setTab('contacts')}>
-                        <Icon name="contacts" style={{ fontSize: '1rem' }} /> Contacts sheet <span className="hi-count">{filteredLeads.length}</span>
+                        <Icon name="contacts" style={{ fontSize: '1rem' }} /> Contacts sheet
+                        <span className="hi-count" title={`${companiesInView} companies, ${contactsInView} decision-makers`}>
+                          {companiesInView} {companiesInView === 1 ? 'company' : 'companies'} · {contactsInView} contact{contactsInView === 1 ? '' : 's'}
+                        </span>
                       </button>
                       <button role="tab" aria-selected={tab === 'roles'} className={tab === 'roles' ? 'on' : ''}
                               onClick={() => setTab('roles')}>
-                        <Icon name="work" style={{ fontSize: '1rem' }} /> Open roles <span className="hi-count">{filteredJobs.length}</span>
+                        <Icon name="work" style={{ fontSize: '1rem' }} /> Open roles
+                        <span className="hi-count" title={`${filteredJobs.length} roles at ${roleCompaniesInView} companies`}>{filteredJobs.length}</span>
                       </button>
                     </div>
                     <div className="hi-toolbar-actions">
@@ -992,12 +1023,24 @@ export default function HiringIntel() {
                         <Icon name="alternate_email" style={{ fontSize: '1rem' }} /> Has email
                       </button>
                     )}
-                    <button className={`hi-pick${showUnverified ? ' on' : ''}`} onClick={() => setShowUnverified((v) => !v)}
-                            title="Companies whose headcount no free source could confirm">
-                      <Icon name="help" style={{ fontSize: '1rem' }} /> Include unverified size
+                    <button className={`hi-pick${verifiedOnly ? ' on' : ''}`} onClick={() => setVerifiedOnly((v) => !v)}
+                            title="Hide companies whose headcount no source could confirm yet">
+                      <Icon name="verified" style={{ fontSize: '1rem' }} /> Verified size only
                     </button>
                     {filtersActive && <button className="btn-ghost" onClick={resetFilters}>Clear</button>}
                   </div>
+
+                  {totalCompanies > 0 && (tab === 'contacts' ? companiesInView : roleCompaniesInView) < totalCompanies && (
+                    <div className="hi-hidden-note" role="status">
+                      <Icon name="filter_alt" style={{ fontSize: '1rem' }} />
+                      <span>
+                        Showing <strong>{tab === 'contacts' ? companiesInView : roleCompaniesInView}</strong> of{' '}
+                        <strong>{totalCompanies}</strong> companies — the filters above hide{' '}
+                        {totalCompanies - (tab === 'contacts' ? companiesInView : roleCompaniesInView)}.
+                      </span>
+                      <button className="btn-ghost" onClick={resetFilters}>Show all {totalCompanies}</button>
+                    </div>
+                  )}
 
                   {tab === 'contacts' ? (
                     <ContactsTable rows={filteredLeads} selected={selected} onToggle={toggleCompany}
@@ -1049,12 +1092,20 @@ export default function HiringIntel() {
 }
 
 // ── "How this scan filtered" — makes every number traceable ──
-function FunnelNote({ stats }) {
-  const [open, setOpen] = useState(false);
+const DOMAIN_SOURCE_LABELS = [
+  ['board', 'Job board'], ['apply_link', 'Apply link'], ['clearbit', 'Clearbit'], ['wikidata', 'Wikidata'],
+  ['guessed', 'Guessed & checked'], ['google', 'Google'], ['cache', 'Earlier scan'], ['none', 'Not found'],
+];
+
+function FunnelNote({ stats, open, setOpen }) {
+  const [showRejected, setShowRejected] = useState(false);
   if (!stats) return null;
   const f = stats.filtered || {};
   const a = stats.apollo || {};
   const sources = stats.sources || {};
+  const rejected = stats.rejected || [];
+  const domains = stats.domains || {};
+  const domainRows = DOMAIN_SOURCE_LABELS.filter(([k]) => domains[k]);
   const rows = [
     ['Not a Data / AI title', f.not_data_ai],
     ['Outside the Republic of Ireland', f.not_ireland],
@@ -1107,7 +1158,31 @@ function FunnelNote({ stats }) {
             <div className="hi-funnel-row"><span>Contacts already revealed earlier (free)</span><strong>{a.contacts_reused || 0}</strong></div>
             <div className="hi-funnel-row"><span>Credits spent on Reveal</span><strong>{Number(a.reveal_credits || 0).toLocaleString('en-IE')}</strong></div>
             {stats.serper_queries ? <div className="hi-funnel-row"><span>Google searches (Serper)</span><strong>{stats.serper_queries}</strong></div> : null}
+            {domainRows.length > 0 && (
+              <>
+                <div className="hi-field-label" style={{ marginTop: '.75rem' }}>Websites found via</div>
+                {domainRows.map(([k, label]) => (
+                  <div key={k} className="hi-funnel-row"><span>{label}</span><strong>{domains[k]}</strong></div>
+                ))}
+              </>
+            )}
           </div>
+          {rejected.length > 0 && (
+            <div className="hi-funnel-wide">
+              <button className="hi-funnel-toggle" onClick={() => setShowRejected((v) => !v)} aria-expanded={showRejected}>
+                <Icon name={showRejected ? 'expand_less' : 'expand_more'} /> {rejected.length} companies dropped — see which and why
+              </button>
+              {showRejected && (
+                <div className="hi-rejected hi-fade">
+                  {rejected.map((r) => (
+                    <div key={`${r.company}-${r.stage}`} className="hi-funnel-row">
+                      <span>{r.company}</span><span className="hi-muted">{r.reason}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1397,6 +1472,14 @@ const HI_CSS = `
 .hi-kpi-value { font-size:1.375rem; font-weight:800; line-height:1.1; font-variant-numeric: tabular-nums; }
 .hi-kpi-label { font-size:.72rem; color: var(--on-surface-variant); }
 .hi-kpi-sub { font-size:.6875rem; color: var(--tone); font-weight:600; margin-top:.1rem; }
+button.hi-kpi { font: inherit; color: inherit; text-align:left; cursor:pointer; transition: border-color .15s, transform .15s; }
+button.hi-kpi:hover { border-color: var(--tone); transform: translateY(-1px); }
+button.hi-kpi:focus-visible { outline: 2px solid var(--tone); outline-offset: 2px; }
+.hi-hidden-note { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; font-size:.78rem; color:#7A4A00; background:#FFF7E6; border:1px solid #F8DDA5; border-radius:.6rem; padding:.4rem .5rem .4rem .75rem; margin-bottom:.625rem; }
+.hi-hidden-note .btn-ghost { margin-left:auto; padding:.2rem .6rem; font-size:.75rem; }
+.hi-funnel-wide { grid-column: 1 / -1; }
+.hi-rejected { max-height: 260px; overflow:auto; margin-top:.35rem; padding-right:.25rem; }
+.hi-rejected .hi-funnel-row span:last-child { text-align:right; }
 .hi-funnel { margin-bottom:.875rem; }
 .hi-funnel-toggle { border:none; background:none; color: var(--on-surface-variant); font-size:.75rem; font-family: var(--font-ui); cursor:pointer; display:inline-flex; align-items:center; gap:.2rem; padding:.2rem 0; }
 .hi-funnel-toggle:hover { color: var(--primary); }

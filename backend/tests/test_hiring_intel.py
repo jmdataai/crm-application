@@ -495,9 +495,16 @@ class _FakeCtx:
     def warn(self, msg):
         self.warnings.append(msg)
 
+    def check_cancel(self):
+        pass
+
+    def log(self, msg, level="info"):
+        self.warnings.append(msg)
+
 
 def _co():
-    return hi.Company(name="Acme Analytics", key="acme analytics", domain="acme.ie")
+    # a job board gave this website, so it is known to be this employer (trusted)
+    return hi.Company(name="Acme Analytics", key="acme analytics", domain="acme.ie", domain_trusted=True)
 
 
 def test_apollo_check_rate_limit_never_rejects():
@@ -508,33 +515,103 @@ def test_apollo_check_rate_limit_never_rejects():
     assert c.size_status == "" and len(ctx.calls) == 2      # stopped at the failed call; NOT too_big
 
 
+def _person(org, title="Senior Engineer", pid="p1", first="Ann", last="By***e"):
+    """Shape of a free mixed_people/api_search row (checked against Apollo's docs, Oct 2026)."""
+    return {"id": pid, "first_name": first, "last_name_obfuscated": last, "title": title,
+            "organization": {"name": org, "has_employee_count": True}}
+
+
 def test_apollo_check_rejects_only_on_positive_proof():
     import asyncio as _a
-    c = _co()      # no execs, not in range, but found ABOVE the limit -> too big
-    ctx = _FakeCtx([{"people": []}, {"people": [], "total_entries": 0}, {"people": [], "total_entries": 12}])
+    c = _co()      # no execs, nobody in range, but its OWN staff found ABOVE the limit -> too big
+    ctx = _FakeCtx([{"people": []}, {"people": []}, {"people": [_person("Acme Analytics Ltd")]}])
     _a.run(hi.apollo_size_and_people(ctx, c))
     assert c.size_status == "too_big" and "over 100" in c.reject_reason
     assert ("organization_num_employees_ranges[]", "101,200") in ctx.calls[2]
 
     c2 = _co()     # in range anywhere, but not with the Ireland filter -> HQ outside Ireland
-    ctx2 = _FakeCtx([{"people": []}, {"total_entries": 0}, {"total_entries": 0}, {"total_entries": 9}])
+    ctx2 = _FakeCtx([{"people": []}, {"people": []}, {"people": []}, {"people": [_person("Acme Analytics")]}])
     _a.run(hi.apollo_size_and_people(ctx2, c2))
     assert c2.size_status == "too_big" and "HQ" in c2.reject_reason
 
     c3 = _co()     # Apollo simply doesn't know it -> stays unverified
-    ctx3 = _FakeCtx([{"people": []}, {"total_entries": 0}, {"total_entries": 0}, {"total_entries": 0}])
+    ctx3 = _FakeCtx([{"people": []}, {"people": []}, {"people": []}, {"people": []}])
     _a.run(hi.apollo_size_and_people(ctx3, c3))
     assert c3.size_status == ""
+
+
+def test_apollo_alumni_never_decide_size():
+    """The domain filter matches CURRENT OR PREVIOUS employers. Ex-Acme people who now work at Google
+    must not make Acme 'too big'; ex-bank founders must not make a bank 'small'."""
+    import asyncio as _a
+    c = _co()
+    big_alumni = {"people": [_person("Google", pid="g1"), _person("Meta", pid="m1")], "total_entries": 4100}
+    ctx = _FakeCtx([{"people": []}, {"people": []}, big_alumni, {"people": []}])
+    _a.run(hi.apollo_size_and_people(ctx, c))
+    assert c.size_status == "" and not c.reject_reason          # stays unverified, NOT too big
+
+    bank = hi.Company(name="JPMorganChase", key="jpmorganchase", domain="jpmorganchase.com", domain_trusted=True)
+    founders = {"people": [_person("Tiny AI Startup", title="CEO", pid="f1"),
+                           _person("Data Folk", title="Founder", pid="f2")], "total_entries": 2600}
+    ctx = _FakeCtx([founders, {"people": [_person("Tiny AI Startup", pid="f3")]},
+                    {"people": [_person("JPMorgan Chase & Co.", pid="j1")]}])
+    _a.run(hi.apollo_size_and_people(ctx, bank))
+    assert bank.size_status == "too_big" and not bank.apollo_people   # alumni-founders are not its CEOs
+
+
+def test_apollo_contacts_only_from_this_company():
+    import asyncio as _a
+    c = _co()
+    ctx = _FakeCtx([{"people": [_person("Acme Analytics", title="CTO", pid="a1"),
+                                _person("Other Co", title="CEO", pid="o1"),
+                                {"id": "x1", "title": "CEO", "first_name": "No", "organization": {}}]}])
+    _a.run(hi.apollo_size_and_people(ctx, c))
+    assert c.size_status == "verified" and [p["apollo_person_id"] for p in c.apollo_people] == ["a1"]
+    assert c.hq_ie is True                                      # found WITH the Irish-HQ filter
+
+
+def test_apollo_many_roles_checks_too_big_first():
+    import asyncio as _a
+    c = _co()
+    for i in range(hi.BIG_HINT_ROLES):
+        c.jobs[f"role {i}"] = {"title": f"role {i}"}
+    ctx = _FakeCtx([{"people": [_person("Acme Analytics")]}])
+    _a.run(hi.apollo_size_and_people(ctx, c))
+    assert c.size_status == "too_big" and len(ctx.calls) == 1     # one call settles a big hirer
 
 
 def test_apollo_check_verified_path_applies_ireland_filter():
     import asyncio as _a
     c = _co()
     c.size_status = "verified"            # e.g. Indeed said "11 to 50"
-    ctx = _FakeCtx([{"people": []}, {"total_entries": 30}, {"total_entries": 0}])
+    ctx = _FakeCtx([{"people": []}, {"people": [_person("Acme Analytics", title="CEO")]}])
     _a.run(hi.apollo_size_and_people(ctx, c))
     assert ("organization_locations[]", "Ireland") in ctx.calls[0]
     assert c.size_status == "too_big" and "HQ outside Ireland" in c.reject_reason
+
+
+def test_org_name_matches():
+    c = hi.Company(name="Softworks Workforce Solutions", key="softworks workforce solutions")
+    assert hi.org_name_matches("Softworks", c)
+    assert hi.org_name_matches("SOFTWORKS WORKFORCE SOLUTIONS LIMITED", c)
+    assert not hi.org_name_matches("Soft", c)                       # too short to extend
+    jp = hi.Company(name="JPMorganChase", key="jpmorganchase")
+    assert hi.org_name_matches("JPMorgan Chase & Co.", jp)
+    assert not hi.org_name_matches("Google", jp)
+    assert not hi.org_name_matches("", jp)
+
+
+def test_apollo_name_check_is_exact_and_positive_only():
+    import asyncio as _a
+    kerry = hi.Company(name="Kerry Group", key="kerry")
+    ctx = _FakeCtx([{"people": [_person("Kerry Logistics", title="CEO")]}, {"people": [_person("Kerry Logistics")]}])
+    _a.run(hi.apollo_name_check(ctx, kerry))
+    assert kerry.size_status == "" and not kerry.apollo_people     # a longer name is NOT an exact match
+    acme = hi.Company(name="Acme Analytics", key="acme analytics")
+    ctx = _FakeCtx([{"people": [_person("Acme Analytics Ltd", title="Founder")]}])
+    _a.run(hi.apollo_name_check(ctx, acme))
+    assert acme.size_status == "verified" and acme.apollo_people
+    assert ("q_keywords", "Acme Analytics") in ctx.calls[0]
 
 
 def test_verification_cache_rules():
@@ -550,3 +627,152 @@ def test_verification_cache_rules():
     assert hi._verification_hit(ctx, _co()) is None                     # checked against a looser limit
     ctx.company_cache_in["ver:acme.ie"].update({"max_hc": 99, "t": "2026-01-01T00:00:00+00:00"})
     assert hi._verification_hit(ctx, _co()) is None                     # expired
+
+
+# ── v3 helpers ──────────────────────────────────────────────────────────
+@pytest.mark.parametrize("addr,expected", [
+    ("Dublin 2, Ireland", True), ("Cork", True), ("London, United Kingdom", False),
+    ("San Francisco, CA 94105", False), ("Dublin, OH", False), ("Belfast, Northern Ireland", False),
+    ("", None), ("Remote", None),
+])
+def test_hq_in_ireland(addr, expected):
+    assert hi.hq_in_ireland(addr) is expected
+
+
+def test_slug_stem_and_domain_guesses():
+    assert hi.slug_stem("https://ie.linkedin.com/company/meilitravel") == "meilitravel"
+    assert hi.slug_stem("https://www.linkedin.com/company/acme-analytics-ltd") == "acmeanalytics"
+    assert hi.slug_stem("https://www.linkedin.com/company/it-search---dublin-2") == "itsearchdublin"
+    c = hi.Company(name="Meili", key="meili", linkedin="https://ie.linkedin.com/company/meilitravel")
+    g = hi.domain_guesses(c)
+    assert "meilitravel.com" in g and "meili.ie" in g and len(g) <= 10
+
+
+def test_parse_smartrecruiters_and_breezy():
+    sr = {"content": [{"id": "744", "name": "Data Engineer", "releasedDate": "2026-10-19T10:00:00.000Z",
+                       "location": {"city": "Dublin", "country": "ie", "remote": False},
+                       "typeOfEmployment": {"label": "Contract"}, "company": {"name": "Acme"}}]}
+    j = hi.parse_smartrecruiters(sr, "Acme1")[0]
+    assert j["url"] == "https://jobs.smartrecruiters.com/Acme1/744" and "Ireland" in j["location"]
+    assert hi.normalize_employment_type(j["employment_raw"], j["title"]) == "Contract" and j["posted_at"] == "2026-10-19"
+    bz = [{"name": "ML Engineer", "url": "https://acme.breezy.hr/p/1", "published_date": "2026-10-18T00:00:00Z",
+           "type": {"name": "Full-Time"}, "location": {"name": "Galway, IE", "country": {"name": "Ireland"}}}]
+    b = hi.parse_breezy(bz, "acme")[0]
+    assert b["title"] == "ML Engineer" and "Ireland" in b["location"] and hi.ireland_location(b["location"]) == "IE"
+    assert hi.find_ats_refs("https://careers.smartrecruiters.com/Acme1/x") == [("smartrecruiters", "Acme1")]
+    assert hi.find_ats_refs("https://acme.breezy.hr/p/1") == [("breezy", "acme")]
+
+
+def _ctx():
+    return hi.RunContext("00000000-0000-0000-0000-00000000000a", hi.RunParams(employment_types=["Contract"]))
+
+
+def test_ingest_reads_ad_text_hq_and_apply_link():
+    ctx, reg = _ctx(), hi.CompanyRegistry()
+    hit = hi._ingest(ctx, reg, source="Indeed", title="Data Engineer", company="Kestrel AI", location="Dublin",
+                     url="https://ie.indeed.com/viewjob?jk=1", employment_raw="fulltime", assume_ie=True,
+                     description="This is a 12 month contract.", company_address="Dublin 2, Ireland",
+                     url_direct="https://careers.kestrel.ai/jobs/1")
+    c = hit[0]
+    assert c.jobs[hit[1]]["employment_type"] == "Contract"      # 'fulltime' schedule, contract ad
+    assert c.hq_ie is True and c.apply_domain == "kestrel.ai"
+    hit2 = hi._ingest(ctx, reg, source="Indeed", title="Data Analyst", company="Optum", location="Dublin",
+                      url="u", employment_raw="contract", assume_ie=True,
+                      url_direct="https://careers.unitedhealthgroup.com/job/1")
+    assert hit2[0].apply_domain == ""                            # parent group's site is not Optum's
+    hit3 = hi._ingest(ctx, reg, source="Indeed", title="Data Scientist", company="Sabeo", location="Dublin",
+                      url="u2", employment_raw="contract", assume_ie=True,
+                      description="We are recruiting on behalf of our client, a bank.",
+                      url_direct="https://boards.greenhouse.io/sabeo/jobs/9")
+    assert "on behalf of a client" in hit3[0].agency_reason and ("greenhouse", "sabeo") in hit3[0].ats_refs
+
+
+def test_ingest_filters_explicit_title_type_even_when_deferred():
+    ctx = hi.RunContext("00000000-0000-0000-0000-00000000000b", hi.RunParams(employment_types=["Permanent"]))
+    reg = hi.CompanyRegistry()
+    assert hi._ingest(ctx, reg, source="LinkedIn", title="Contract Data Engineer", company="A", location="Dublin",
+                      url="u", defer_type=True) is None                 # title says contract: dropped now
+    assert ctx.stats["filtered"]["employment_type"] == 1
+    kept = hi._ingest(ctx, reg, source="LinkedIn", title="Data Engineer", company="C", location="Dublin", url="u",
+                      defer_type=True)
+    assert kept is not None and kept[0].jobs[kept[1]]["employment_type"] == "Unspecified"   # decided by job page
+
+
+def test_big_cache_roundtrip_respects_limits():
+    ctx = _ctx()
+    c = hi.Company(name="Bigco", key="bigco", domain="bigco.com", size_status="too_big",
+                   reject_reason="over 100 staff (Apollo)")
+    hi._big_cache_put(ctx, c)
+    ctx.company_cache_in = dict(ctx.company_cache_out)
+    assert "earlier scan" in hi._big_cache_hit(ctx, hi.Company(name="Bigco", key="bigco"))
+    ctx.p = hi.RunParams(max_headcount=99)
+    hq = hi.Company(name="Ukco", key="ukco", size_status="too_big", reject_reason="HQ in London (job board)")
+    hi._big_cache_put(ctx, hq)
+    ctx.company_cache_in = dict(ctx.company_cache_out)
+    assert hi._big_cache_hit(ctx, hi.Company(name="Ukco", key="ukco"))
+    ctx.p = hi.RunParams(hq_ireland_only=False)
+    assert hi._big_cache_hit(ctx, hi.Company(name="Ukco", key="ukco")) is None       # HQ rule off -> not a reason
+    again = hi.Company(name="Bigco", key="bigco", reject_reason="over 100 staff (Apollo) — earlier scan")
+    before = dict(ctx.company_cache_out)
+    hi._big_cache_put(ctx, again)
+    assert ctx.company_cache_out == before                    # cached proofs are never re-dated
+
+
+# ── fixes from the independent review (22 Oct 2026) ─────────────────────
+def test_verified_company_with_non_icp_irish_staff_is_not_hq_rejected():
+    """Review #1: Irish search returns a 'Head of Engineering Operations' (no ICP role) -> still Irish."""
+    import asyncio as _a
+    c = _co()
+    c.size_status = "verified"
+    ctx = _FakeCtx([{"people": [_person("Acme Analytics", title="Head of Engineering Operations")]},
+                    {"people": [_person("Acme Analytics", title="Head of Engineering Operations")]}])
+    _a.run(hi.apollo_size_and_people(ctx, c))
+    assert c.size_status == "verified" and c.hq_ie is True and len(ctx.calls) == 1
+
+
+def test_name_only_matches_keep_ireland_and_group():
+    """Review #2: no website -> 'Nimbus Data' (US) must not be verified by 'Nimbus Data Ireland'."""
+    import asyncio as _a
+    for ours, apollo in [("Nimbus Data", "Nimbus Data Ireland"), ("emagine", "Emagine Ireland Ltd"),
+                         ("Ardonagh Group", "Ardonagh Ireland")]:
+        c = hi.Company(name=ours, key=hi.company_key(ours))
+        ctx = _FakeCtx([{"people": [_person(apollo, title="CEO")]}, {"people": [_person(apollo)]}])
+        _a.run(hi.apollo_name_check(ctx, c))
+        assert c.size_status == "" and not c.apollo_people, ours
+        ctx = _FakeCtx([{"people": [_person(apollo, title="CEO")], "total_entries": 1}])
+        _a.run(hi.apollo_job_signal(ctx, [c]))
+        assert c.size_status == "" and not c.apollo_people, ours
+    assert hi.raw_name_key("Acme Analytics Ltd.") == hi.raw_name_key("ACME ANALYTICS LIMITED") == "acmeanalytics"
+
+
+def test_job_signal_leaves_companies_with_a_website_to_the_domain_check():
+    import asyncio as _a
+    c = _co()
+    ctx = _FakeCtx([{"people": [_person("Acme Analytics", title="CEO")], "total_entries": 1}])
+    _a.run(hi.apollo_job_signal(ctx, [c]))
+    assert c.size_status == "" and not c.apollo_people
+
+
+def test_untrusted_website_never_rejects_alone():
+    """Review #5: a Clearbit/Wikidata name-match site may be a foreign namesake's."""
+    import asyncio as _a
+    c = hi.Company(name="Smart Data", key="smart data", domain="smartdata.com", domain_trusted=False)
+    ctx = _FakeCtx([{"people": []}, {"people": []}, {"people": [_person("Smart Data")]}])
+    _a.run(hi.apollo_size_and_people(ctx, c))
+    assert c.size_status == "" and not c.reject_reason
+    ok = hi.Company(name="Smart Data", key="smart data", domain="smartdata.com", domain_trusted=False)
+    ctx = _FakeCtx([{"people": [_person("Smart Data", title="CTO")]}])
+    _a.run(hi.apollo_size_and_people(ctx, ok))
+    assert ok.size_status == "verified"                         # but it can still VERIFY
+
+
+def test_org_name_extensions_are_whole_generic_words():
+    """Review #6."""
+    stripe = hi.Company(name="Stripe", key="stripe")
+    kerry = hi.Company(name="Kerry Group", key="kerry")
+    assert not hi.org_name_matches("Stripes Digital", stripe)
+    assert not hi.org_name_matches("Kerry Logistics", kerry)
+    assert hi.org_name_matches("Stripe Ireland", stripe)
+    assert hi.org_name_matches("Stripe Technologies", stripe)
+    two = hi.Company(name="Acme Analytics", key="acme analytics")
+    assert hi.org_name_matches("Acme Analytics Partners", two)       # 2-word base: any extension

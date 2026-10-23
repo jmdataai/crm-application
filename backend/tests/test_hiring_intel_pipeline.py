@@ -1,29 +1,30 @@
 """
-End-to-end pipeline simulation for hiring_intel.py — no network, no database.
+End-to-end pipeline simulation for hiring_intel.py (v3) — no network, no database.
 
-Reproduces the two production failures of 12 Oct 2026:
+The fake world reproduces what the first live scans (21-22 Oct 2026) ran into:
 
-  1. "LinkedIn: 212 roles … 0 companies pass" — Apollo's /mixed_companies/search returns SLIM records
-     (no headcount, no country) and only the biggest hirers were ever looked up.
-  2. The first scan after that fix returned staffing / HR firms (Sabeo, RITTS, IT Search, Barden,
-     DOMINO HR), a namesake (LinkedIn 'emagine' = Danish consultancy, Apollo matched a small Irish
-     'Emagine'), a subsidiary of a large group (Ardonagh) and a company that matched Apollo's
-     "< 100" search filter while really having 500+ staff.
-
-The fake world below models each of those shapes.
+  * "15 companies hiring" but only 2 size-verified: most companies had no website, so no free check
+    could run. Here websites must come from Clearbit / Wikidata / the LinkedIn slug.
+  * Apollo's domain filter matches PREVIOUS employers too: JPMorgan alumni who founded startups show up
+    in a "1-100 staff" search on jpmorganchase.com. They must never make the bank look small, nor
+    appear as its CEOs.
+  * Agencies whose name and board data look innocent, caught only by the LinkedIn job page
+    (industry) or the ad text ("on behalf of our client").
+  * LinkedIn "Full-time" on a 12-month contract; a foreign HQ known only from Glassdoor;
+    a multinational Wikidata knows (no website needed); a company nothing can verify (kept, labelled).
 
 Run from the backend folder:
     python -m pytest tests/test_hiring_intel_pipeline.py -q
 """
 import asyncio
 import os
-import re
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import hiring_intel as hi  # noqa: E402
+import hiring_intel as hi      # noqa: E402
+import hiring_sources as hs    # noqa: E402
 
 
 # ── fake Supabase ───────────────────────────────────────────────────────
@@ -38,6 +39,10 @@ class _Q:
 
     def __getattr__(self, name):            # select / eq / neq / order / limit / in_ / range / update / delete
         return lambda *a, **k: self
+
+    @property
+    def not_(self):
+        return self
 
     def insert(self, rows):
         self._insert = rows
@@ -59,223 +64,213 @@ def _wire(db):
 
 
 # ── fake world ──────────────────────────────────────────────────────────
-def _slug(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+# LinkedIn search results: (company, title, slug, n_roles)
+LINKEDIN = [
+    ("Brightwave Analytics", "Senior Data Engineer", "brightwave-analytics", 1),
+    ("JPMorganChase", "Data Engineer III (Databricks)", "jpmorganchase", 5),
+    ("Workday", "Machine Learning Engineer", "workday", 2),
+    ("Hays", "Contract Data Engineer", "hays", 1),
+    ("Zenith Partners", "Data Engineer", "zenith-partners", 1),
+    ("Northstar Consulting", "Data Engineer", "northstar-consulting", 1),
+    ("Meili", "Senior Data Engineer", "meilitravel", 1),
+    ("Contractco", "Data Engineer", "contractco", 1),
+    ("Permco", "Data Analyst", "permco", 1),
+    ("Mystery Labs", "AI Engineer", "mystery-labs", 1),
+    ("Nimbus Data", "Data Engineer", "nimbus-data-global", 1),     # US, 800 staff; Apollo knows a small IE arm
+]
+# LinkedIn guest job page per company: (Employment type, Industries, description)
+JOB_PAGE = {
+    "Brightwave Analytics": ("Contract", "Software Development", "Initial 6 month contract."),
+    "Zenith Partners": ("Contract", "Staffing and Recruiting", "Great contract."),
+    "Northstar Consulting": ("Contract", "IT Services and IT Consulting",
+                             "We are recruiting on behalf of our client, a fintech. 6 month contract."),
+    "Meili": ("Contract", "Travel Arrangements", "12 month contract, hybrid in Dublin."),
+    "Contractco": ("Full-time", "Software Development", "This is a 12 month contract with a view to extend."),
+    "Permco": ("Full-time", "Software Development", "A permanent role with share options."),
+    "Mystery Labs": ("Contract", "Software Development", "Contract role, daily rate."),
+    "Nimbus Data": ("Contract", "Software Development", "6 month contract."),
+}
+# Indeed / Glassdoor rows (board data carries website, band, HQ)
+BOARD_ROWS = {
+    "Indeed": [dict(title="Data Engineer", company="Kestrel AI", location="Dublin, D, IE",
+                    url="https://ie.indeed.com/viewjob?jk=1", url_direct="https://careers.kestrel.ai/jobs/1",
+                    employment_raw="", posted_at=None, company_website="", headcount_label="11 to 50",
+                    industry="Technology", company_address="Dublin 2, Ireland",
+                    description="Job Types: Contract\nContract length: 9 months")],
+    "Glassdoor": [dict(title="Data Scientist", company="Foreignco", location="Dublin, Ireland",
+                       url="https://www.glassdoor.ie/job-listing/j?jl=7", url_direct="", employment_raw="contract",
+                       posted_at=None, company_website="https://foreignco.co.uk", headcount_label="1 to 50 Employees",
+                       industry="Information Technology", company_address="London, United Kingdom", description="")],
+}
+CLEARBIT = {
+    "Brightwave Analytics": [{"name": "Brightwave Analytics", "domain": "brightwave.ie"}],
+    "JPMorganChase": [{"name": "JPMorgan Chase & Co.", "domain": "jpmorganchase.com"}],
+    "Meili": [{"name": "Meilisearch", "domain": "meilisearch.com"}],
+}
+WIKIDATA = {"Workday": {"qid": "Q1", "label": "Workday, Inc.", "description": "software company",
+                        "domain": "workday.com", "employees": 20000, "irish": False}}   # slug 'workday' ties it
+HOMEPAGES = {"brightwave.ie": "<html><head><title>Brightwave Analytics - data consultancy</title></head></html>",
+             "meilitravel.com": "<html><head><title>Meili | Car hire made simple</title></head>"
+                                "<body>Built in Dublin, Ireland</body></html>"}
 
 
-def org(name, size, country="Ireland", slug=None, domain=None, industry="computer software", parent=None,
-        search_size=None, keywords=None, description=""):
-    s = slug or _slug(name)
-    return {"id": f"org-{s}", "name": name, "slug": s, "domain": domain or f"{s}.ie", "size": size,
-            "search_size": size if search_size is None else search_size, "country": country,
-            "industry": industry, "parent": parent, "keywords": keywords or ["saas"], "description": description}
+def P(org, size, hq, title, pid):
+    return {"org": org, "size": size, "hq": hq, "title": title, "id": pid}
 
 
-# Companies seen on LinkedIn: name -> {roles, li_slug, locale, li_industry, li_text, apollo: [records]}
-WORLD: Dict[str, Dict[str, Any]] = {}
+# People Apollo holds per domain — incl. ALUMNI (people who used to work there, now elsewhere)
+APOLLO_BY_DOMAIN: Dict[str, List[dict]] = {
+    "brightwave.ie": [P("Brightwave Analytics", 25, "IE", "CTO", "bw1"), P("Brightwave Analytics", 25, "IE", "Engineer", "bw2")],
+    "kestrel.ai": [P("Kestrel AI", 30, "IE", "Co-Founder & CEO", "ke1")],
+    "jpmorganchase.com": [P("JPMorgan Chase & Co.", 250000, "US", "Executive Director", "jp1"),
+                          P("Tiny AI", 8, "IE", "CEO", "alum1"), P("Data Folk", 20, "IE", "Founder", "alum2")],
+    "meilitravel.com": [P("Meili", 45, "IE", "Head of Data", "me1")],
+}
+# Apollo's own job-posting data: small Irish companies with open Data/AI roles
+APOLLO_JOB_SIGNAL = [P("Meili", 45, "IE", "CEO", "me2"), P("Unrelated Smallco", 12, "IE", "CEO", "un1"),
+                     P("Nimbus Data Ireland", 15, "IE", "CEO", "nb1")]          # the namesake's Irish arm
 
 
-def posting(name, roles=1, li_slug=None, locale="ie", li_industry="Software Development", li_text="",
-            apollo: Optional[List[dict]] = None, title="Data Scientist"):
-    WORLD[name] = {"roles": roles, "li_slug": li_slug or _slug(name), "locale": locale, "title": title,
-                   "li_industry": li_industry, "li_text": li_text,
-                   "apollo": apollo if apollo is not None else []}
+def _range_ok(size, params):
+    rs = [v for k, v in params if k == "organization_num_employees_ranges[]"]
+    if not rs:
+        return True
+    for r in rs:
+        lo, _, hi_ = r.partition(",")
+        if int(lo) <= size <= (int(hi_) if hi_ else 10 ** 9):
+            return True
+    return False
 
 
-BIG = [f"Bigco {i}" for i in range(15)]
-SMALL_IE = [f"Smallco {i}" for i in range(20)]
-SMALL_FOREIGN = [f"Foreignco {i}" for i in range(5)]
-AGENCIES = ["Hays", "Cpl", "Morgan McKinley", "Harvey Nash"]
-KNOWN_LARGE = ["Workday", "Accenture"]
-for n in BIG:
-    posting(n, roles=6, apollo=[org(n, 900)], title="Senior Data Engineer")
-for n in KNOWN_LARGE:
-    posting(n, roles=8, apollo=[org(n, 9000)], title="Machine Learning Engineer")
-for n in AGENCIES:
-    posting(n, roles=5, li_industry="Staffing and Recruiting", apollo=[org(n, 3000, industry="staffing & recruiting")])
-for n in SMALL_IE:
-    posting(n, apollo=[org(n, 30)])
-for n in SMALL_FOREIGN:
-    posting(n, apollo=[org(n, 40, country="United Kingdom")])
-
-# ── Vikky's findings, as the data really looked ──
-posting("Sabeo", li_slug="sabeoitresourcing", title="Artificial Intelligence Engineer",
-        apollo=[org("Sabeo", 25, slug="sabeoitresourcing", domain="sabeo.com")])
-posting("RITTS", li_slug="rittsrecruitment", title="Principal AI Platform Engineer",
-        apollo=[org("RITTS", 15, slug="rittsrecruitment", domain="rittsrecruitment.ie")])
-posting("IT Search", li_slug="it-search---dublin-2", title="Senior Data Engineer",
-        apollo=[org("IT Search", 20, slug="it-search---dublin-2", domain="itsearch.ie")])
-posting("Barden | B Corp", li_slug="barden-ie", title="Director Business Systems and AI Enablement",
-        apollo=[org("Barden", 60, slug="barden-ie", domain="barden.ie")])
-posting("DOMINO HR Ireland", li_slug="domino-hr-international-ireland", title="Data Analyst – Market Research",
-        apollo=[org("DOMINO HR Ireland", 40, slug="domino-hr-international-ireland", domain="domino-hr.ie",
-                    parent="DOMINO HR International")])
-# emagine: LinkedIn shows the Danish consultancy; Apollo's name search finds a small Irish namesake
-posting("emagine", li_slug="emagine", locale="dk", title="Data Warehouse Manager",
-        apollo=[org("Emagine", 12, slug="emagine-media-ireland", domain="emagine.ie"),
-                org("emagine", 1500, country="Denmark", slug="emagine", domain="emagine.com")])
-# same shape with a name that is on no list: only the LinkedIn-page identity check can catch it
-posting("Nimbus Data", li_slug="nimbus-data-global", locale="www",
-        apollo=[org("Nimbus Data", 15, slug="nimbusdata-ie", domain="nimbusdata.ie"),
-                org("Nimbus Data", 800, country="United States", slug="nimbus-data-global", domain="nimbusdata.com")])
-# Ardonagh-style: small Irish arm of a big group
-posting("Ardlow Analytics Lab", title="AI Engineer",
-        apollo=[org("Ardlow Analytics Lab", 30, parent="The Ardlow Group")])
-# matched Apollo's "< 100" search filter, but the enriched record says 520 staff
-posting("Stalecount", apollo=[org("Stalecount", 520, search_size=60)])
-# agencies with innocent names: caught by the LinkedIn job page
-posting("Zenith Partners", li_industry="Staffing and Recruiting", apollo=[org("Zenith Partners", 20)])
-posting("Northstar Consulting", li_industry="IT Services and IT Consulting",
-        li_text="We are delighted to be recruiting on behalf of our client, a leading fintech in Dublin.",
-        apollo=[org("Northstar Consulting", 18)])
-# agency caught only by Apollo enrichment (industry)
-posting("Bluepeak", li_industry="", apollo=[org("Bluepeak", 22, industry="staffing & recruiting")])
-# genuine prospects from the real sheet
-posting("Meili", li_slug="meilitravel", title="Senior Data Engineer",
-        apollo=[org("Meili", 45, slug="meilitravel", domain="meili.travel")])
-posting("Scurri", li_slug="scurri", locale="www", title="AI Platform Engineer",
-        apollo=[org("Scurri", 80, slug="scurri", domain="scurri.com")])
-
-BAD = (BIG + KNOWN_LARGE + AGENCIES + SMALL_FOREIGN +
-       ["Sabeo", "RITTS", "IT Search", "Barden", "Barden | B Corp", "DOMINO HR Ireland", "Emagine", "emagine", "Nimbus Data",
-        "Ardlow Analytics Lab", "Stalecount", "Zenith Partners", "Northstar Consulting", "Bluepeak"])
-
-APOLLO_ONLY = [org(f"Apollofound {i}", 30) for i in range(6)]
-ALL_RECORDS = [r for w in WORLD.values() for r in w["apollo"]] + APOLLO_ONLY
-
-RICH = {"on": False}      # True = Apollo plan that DOES include headcount / country in search results
-ENRICH = {"on": True}     # False = bulk_enrich unavailable (plan / credits)
-JOB_PAGES: Dict[str, str] = {}   # LinkedIn job id -> company name
+def _row(p):
+    return {"id": p["id"], "first_name": "Pat", "last_name_obfuscated": "Mu***y", "title": p["title"],
+            "organization": {"name": p["org"], "has_employee_count": True}}
 
 
-def _search_record(r: dict) -> dict:
-    out = {"id": r["id"], "name": r["name"], "primary_domain": r["domain"], "website_url": f"https://{r['domain']}",
-           "linkedin_url": f"http://www.linkedin.com/company/{r['slug']}"}
-    if RICH["on"]:
-        out.update(estimated_num_employees=r["search_size"], country=r["country"])
-    return out
-
-
-def _enriched_record(r: dict) -> dict:
-    out = {**_search_record(r), "estimated_num_employees": r["size"], "country": r["country"], "city": "Dublin",
-           "industry": r["industry"], "keywords": r["keywords"], "short_description": r["description"]}
-    if r["parent"]:
-        out["owned_by_organization"] = {"id": "org-parent", "name": r["parent"]}
-    return out
-
-
-def _passes(r: dict, params: List) -> bool:
-    keys = [k for k, _ in params]
-    if "organization_num_employees_ranges[]" in keys and r["search_size"] > 100:
-        return False
-    if "organization_locations[]" in keys and r["country"] != "Ireland":
-        return False
-    return True
+CALLS: List[list] = []
 
 
 async def fake_apollo_call(self, method, path, *, kind, params=None, json_body=None):
     self.stats["apollo"][kind] = self.stats["apollo"].get(kind, 0) + 1
-    if path == "/mixed_companies/search":
-        q = dict(params or []).get("q_organization_name")
-        if q is None:                                              # discovery search
-            return {"organizations": [_search_record(r) for r in APOLLO_ONLY if _passes(r, params)],
-                    "pagination": {"total_pages": 1}}
-        qk = hi.company_key(q)
-        return {"organizations": [_search_record(r) for r in ALL_RECORDS
-                                  if hi.company_key(r["name"]) == qk and _passes(r, params)]}
-    if path == "/organizations/bulk_enrich":
-        if not ENRICH["on"]:
-            return None
-        out = []
-        for d in json_body["details"]:
-            slug = hi.linkedin_company_slug(d.get("linkedin_url"))
-            rec = (next((r for r in ALL_RECORDS if d.get("domain") and r["domain"] == d["domain"]), None)
-                   or next((r for r in ALL_RECORDS if slug and r["slug"] == slug), None))
-            if rec:
-                out.append(_enriched_record(rec))
-        return {"organizations": out}
-    if path.endswith("/job_postings"):
-        return {}
-    if path == "/mixed_people/api_search":
-        oid = dict(params).get("organization_ids[]")
-        return {"people": [{"id": f"p-{oid}", "title": "CEO", "first_name": "Ann", "last_name": "Byrne",
-                            "organization_id": oid}]}
-    if path == "/people/bulk_match":
-        return {"matches": [{"id": d["id"], "name": "Ann Byrne", "email": f"ann@{d['id']}.ie"}
-                            for d in json_body["details"]]}
-    return {}
-
-
-def _job_page_html(company: str) -> str:
-    w = WORLD[company]
-    return (f'<section><a class="topcard__org-name-link" href="https://{w["locale"]}.linkedin.com/company/'
-            f'{w["li_slug"]}?trk=x">{company}</a>'
-            f'<div class="show-more-less-html__markup">{w["li_text"] or "Join our data team."}</div>'
-            f'<ul class="description__job-criteria-list">'
-            f'<li class="description__job-criteria-item"><h3 class="description__job-criteria-subheader">'
-            f'Employment type</h3><span class="description__job-criteria-text">Full-time</span></li>'
-            f'<li class="description__job-criteria-item"><h3 class="description__job-criteria-subheader">'
-            f'Industries</h3><span class="description__job-criteria-text">{w["li_industry"]}</span></li>'
-            f'</ul></section>')
+    params = params or []
+    CALLS.append(params)
+    if path != "/mixed_people/api_search":
+        raise AssertionError(f"a scan must not call paid endpoints: {path}")
+    keys = {k for k, _ in params}
+    if "q_organization_job_titles[]" in keys:
+        people = APOLLO_JOB_SIGNAL
+    elif "q_keywords" in keys:
+        people = []                                    # Apollo can't place these by keyword
+    else:
+        dom = dict(params).get("q_organization_domains_list[]")
+        people = APOLLO_BY_DOMAIN.get(dom, [])
+    people = [p for p in people if _range_ok(p["size"], params)]
+    if "organization_locations[]" in keys:
+        people = [p for p in people if p["hq"] == "IE"]
+    if "person_titles[]" in keys:
+        people = [p for p in people if hi.classify_icp(p["title"])[0]]
+    return {"people": [_row(p) for p in people], "total_entries": len(people)}
 
 
 async def fake_web_get(self, url, **kw):
-    m = re.search(r"jobPosting/(\d+)", url)
-    if m and m.group(1) in JOB_PAGES:
-        return hi.WebResponse(200, _job_page_html(JOB_PAGES[m.group(1)]).encode(), url, "utf-8")
+    host = hi.clean_domain(url)
+    if host in HOMEPAGES:
+        return hi.WebResponse(200, HOMEPAGES[host].encode(), url, "utf-8")
     return None
 
 
+async def fake_clearbit(client, name):
+    return "ok", CLEARBIT.get(name, [])
+
+
+async def fake_wikidata(client, name, key_fn, key):
+    return "ok", WIKIDATA.get(name)
+
+
+class _LiClient:
+    requests = 0
+
+    def renew_budget(self, seconds):
+        return True
+
+    async def close(self):
+        pass
+
+
+JOB_IDS: Dict[str, str] = {}
+
+
 async def fake_linkedin(ctx, reg):
-    for name, w in WORLD.items():
-        for i in range(w["roles"]):
-            jid = str(10**8 + abs(hash((name, i))) % 10**8)
-            JOB_PAGES[jid] = name
-            hi._ingest(ctx, reg, source="LinkedIn", title=f"{w['title']} {i + 1}" if w["roles"] > 1 else w["title"],
-                       company=name, location="Dublin, County Dublin, Ireland",
-                       url=f"https://www.linkedin.com/jobs/view/{jid}/", type_hint="Permanent", posted_at="2026-10-10",
-                       company_linkedin=f"https://{w['locale']}.linkedin.com/company/{w['li_slug']}")
+    ctx.li_client = _LiClient()
+    n = 0
+    for company, title, slug, roles in LINKEDIN:
+        for i in range(roles):
+            n += 1
+            jid = str(4_400_000_000 + n)
+            JOB_IDS[jid] = company
+            t = title if roles == 1 else f"{title} - {['Payments', 'Risk', 'Markets', 'Cards', 'Wealth'][i]}"
+            hit = hi._ingest(ctx, reg, source="LinkedIn", title=t, company=company,
+                             company_linkedin=f"https://ie.linkedin.com/company/{slug}",
+                             location="Dublin, County Dublin, Ireland",
+                             url=f"https://www.linkedin.com/jobs/view/{jid}/", posted_at="2026-10-20", defer_type=True)
+            if hit:
+                ctx.li_pending.append((hit[0], hit[1], jid))
     ctx.source_stat("LinkedIn", status="ok")
 
 
-async def fake_website(ctx, reg, c):
-    if c.name.startswith("Apollofound"):     # their careers page lists the role Apollo told us about
-        return int(hi._ingest(ctx, reg, source="Company website", title="Analytics Engineer", company=c.name,
-                              location="Cork, Ireland", url=f"https://{c.domain}/careers/ae", target=c))
+async def fake_linkedin_details(client, job_ids):
+    out = {}
+    for jid in job_ids:
+        company = JOB_IDS[jid]
+        if company in JOB_PAGE:
+            et, ind, desc = JOB_PAGE[company]
+            out[jid] = {"employment_type": et, "industries": ind, "description": desc}
+    return out
+
+
+def _board(source):
+    async def run(ctx, reg):
+        for r in BOARD_ROWS[source]:
+            hi._ingest_board_row(ctx, reg, source, r)
+        ctx.source_stat(source, status="ok")
+    return run
+
+
+async def no_website(ctx, reg, c):
     return 0
 
 
-def _run_pipeline(monkeypatch, **params):
+def _run(monkeypatch, **params):
     db: Dict[str, list] = {}
     _wire(db)
+    CALLS.clear()
     monkeypatch.setenv("APOLLO_API_KEY", "test-key")
+    monkeypatch.delenv("SERPER_API_KEY", raising=False)
     monkeypatch.setattr(hi.RunContext, "apollo_call", fake_apollo_call)
     monkeypatch.setattr(hi.RunContext, "web_get", fake_web_get)
     monkeypatch.setattr(hi, "source_linkedin", fake_linkedin)
-    monkeypatch.setattr(hi, "scan_company_website", fake_website)
+    monkeypatch.setitem(hi.SOURCE_RUNNERS, "linkedin", fake_linkedin)
+    monkeypatch.setitem(hi.SOURCE_RUNNERS, "indeed", _board("Indeed"))
+    monkeypatch.setitem(hi.SOURCE_RUNNERS, "glassdoor", _board("Glassdoor"))
+    monkeypatch.setattr(hi, "scan_company_website", no_website)
+    monkeypatch.setattr(hs, "clearbit_suggest", fake_clearbit)
+    monkeypatch.setattr(hs, "wikidata_lookup", fake_wikidata)
+    monkeypatch.setattr(hs, "linkedin_details", fake_linkedin_details)
+    p = hi.RunParams(sources=["linkedin", "indeed", "glassdoor", "websites"], **params)
+    ctx = hi.RunContext("00000000-0000-0000-0000-000000000003", p)
 
-    async def no_sleep(*_a, **_k):
-        return None
-    monkeypatch.setattr(hi.asyncio, "sleep", no_sleep)
-    p = hi.RunParams(sources=["linkedin", "apollo", "websites"], **params)
-    ctx = hi.RunContext("00000000-0000-0000-0000-000000000001", p)
-    counts = asyncio.run(hi.pipeline(ctx))
+    async def go():
+        ctx.web = None
+        return await hi.pipeline(ctx)
+    counts = asyncio.run(go())
     return ctx, counts, db
 
 
-def _run_pipeline_keep_apollo(monkeypatch, apollo, **params):
-    """Same as _run_pipeline but with a custom Apollo fake (e.g. a spy)."""
-    monkeypatch.setattr(hi.RunContext, "apollo_call", apollo)
-    db: Dict[str, list] = {}
-    _wire(db)
-    p = hi.RunParams(sources=["linkedin", "apollo", "websites"], **params)
-    ctx = hi.RunContext("00000000-0000-0000-0000-000000000002", p)
-    counts = asyncio.run(hi.pipeline(ctx))
-    return ctx, counts, db
-
-
-def _names(db) -> set:
-    return {r["company_name"] for r in db.get("hiring_intel_leads", [])}
+def _leads(db) -> Dict[str, List[dict]]:
+    out: Dict[str, List[dict]] = {}
+    for r in db.get("hiring_intel_leads", []):
+        out.setdefault(r["company_name"], []).append(r)
+    return out
 
 
 def _rejected(ctx) -> Dict[str, str]:
@@ -283,131 +278,95 @@ def _rejected(ctx) -> Dict[str, str]:
 
 
 # ── tests ───────────────────────────────────────────────────────────────
-def test_production_settings_return_only_genuine_small_irish_companies(monkeypatch):
-    """Max 10 companies, 1 contact each, verified headcount + Irish HQ (the settings used on 12 Oct)."""
-    ctx, counts, db = _run_pipeline(monkeypatch, days_back=14, max_companies=10, contacts_per_company=1)
-    names = _names(db)
-    assert counts["companies_count"] == 10, ctx.events
-    assert counts["contacts_count"] == 10
-    assert not names & set(BAD), names & set(BAD)
-    # every saved company carries a real, verified headcount under 100
-    assert all(r["company_size"] is not None and r["company_size"] < 100 for r in db["hiring_intel_leads"])
+def test_contract_scan_keeps_the_right_companies(monkeypatch):
+    ctx, counts, db = _run(monkeypatch, employment_types=["Contract"], include_unspecified_type=True)
+    leads = _leads(db)
+    assert set(leads) == {"Brightwave Analytics", "Kestrel AI", "Meili", "Contractco", "Mystery Labs",
+                          "Nimbus Data"}, \
+        (set(leads), ctx.events)
+    assert counts["companies_count"] == 6
+    # the US company stays visible but UNVERIFIED and never gets its Irish namesake's CEO
+    nimbus = leads["Nimbus Data"]
+    assert nimbus[0]["size_status"] == "unverified" and not any(r["person_key"] for r in nimbus)
 
 
-def test_every_bad_company_is_rejected_with_the_right_reason(monkeypatch):
-    ctx, _, db = _run_pipeline(monkeypatch, max_companies=60, contacts_per_company=1)
-    names, rej = _names(db), _rejected(ctx)
-    assert not names & set(BAD), names & set(BAD)
-    assert {"Meili", "Scurri"} <= names
-    assert all(f"Smallco {i}" in names for i in range(20))
-    for agency in ["Sabeo", "RITTS", "IT Search", "Barden | B Corp", "DOMINO HR Ireland", "Hays", "Cpl"]:
-        assert "staffing/recruitment" in rej[agency], (agency, rej.get(agency))
-    assert "LinkedIn industry" in rej["Zenith Partners"]
-    assert "on behalf of a client" in rej["Northstar Consulting"]
-    assert "staffing" in rej["Bluepeak"]
-    assert "part of The Ardlow Group" == rej["Ardlow Analytics Lab"]
-    assert rej["Stalecount"] == "520 staff (Apollo)"
-    # namesake: Apollo's small Irish "Nimbus Data" is a different LinkedIn page -> never used
-    assert "Nimbus Data" in rej and "Nimbus Data" not in names
-    # emagine: rejected, and its row never carried the Irish namesake's CEO
-    assert "emagine" in rej or "Emagine" in rej
+def test_every_dropped_company_is_listed_with_its_reason(monkeypatch):
+    ctx, _, _ = _run(monkeypatch, employment_types=["Contract"])
+    rej = _rejected(ctx)
+    assert "staffing" in rej["Hays"]
+    assert "Staffing and Recruiting" in rej["Zenith Partners"]          # LinkedIn job page industry
+    assert "on behalf of a client" in rej["Northstar Consulting"]        # ad text
+    assert "over 100 staff" in rej["JPMorganChase"]                      # Apollo, its OWN staff
+    assert "Wikidata" in rej["Workday"] and "20,000" in rej["Workday"]    # no website needed
+    assert "HQ in London" in rej["Foreignco"]                            # Glassdoor HQ address
+    assert "no role left" in rej["Permco"]                               # permanent, not contract
 
 
-def test_without_enrichment_identity_and_linkedin_checks_still_hold(monkeypatch):
-    """If bulk_enrich is unavailable (plan/credits), the free checks still catch agencies & namesakes."""
-    ENRICH["on"] = False
-    try:
-        ctx, _, db = _run_pipeline(monkeypatch, max_companies=60, contacts_per_company=1)
-    finally:
-        ENRICH["on"] = True
-    names = _names(db)
-    for n in ["Sabeo", "RITTS", "IT Search", "Barden | B Corp", "DOMINO HR Ireland", "Zenith Partners",
-              "Northstar Consulting", "Nimbus Data", "emagine", "Emagine"]:
-        assert n not in names, n
-    assert any("enrichment didn't answer" in w for w in ctx.stats["warnings"])
+def test_alumni_never_become_contacts_or_verify_a_bank(monkeypatch):
+    ctx, _, db = _run(monkeypatch, employment_types=["Contract"])
+    names = {r["person_name"] for rs in _leads(db).values() for r in rs if r["person_name"]}
+    assert not any("alum" in str(r.get("apollo_person_id")) for rs in _leads(db).values() for r in rs)
+    assert "JPMorganChase" not in _leads(db)
+    # the bank was settled by ONE call (many roles -> 'too big' check first)
+    jp_calls = [c for c in CALLS if dict(c).get("q_organization_domains_list[]") == "jpmorganchase.com"]
+    assert len(jp_calls) == 1, jp_calls
+    assert names                                                           # but real contacts exist
 
 
-def test_also_works_when_apollo_search_returns_full_records(monkeypatch):
-    RICH["on"] = True
-    try:
-        _, counts, db = _run_pipeline(monkeypatch, max_companies=10, contacts_per_company=1)
-    finally:
-        RICH["on"] = False
-    assert counts["companies_count"] == 10
-    assert not _names(db) & set(BAD)
+def test_sizes_and_contacts(monkeypatch):
+    ctx, counts, db = _run(monkeypatch, employment_types=["Contract"])
+    leads = _leads(db)
+    status = {n: rs[0]["size_status"] for n, rs in leads.items()}
+    assert status == {"Brightwave Analytics": "verified", "Kestrel AI": "verified", "Meili": "verified",
+                      "Contractco": "unverified", "Mystery Labs": "unverified", "Nimbus Data": "unverified"}, status
+    bw = leads["Brightwave Analytics"]
+    assert [r["icp_role"] for r in bw if r["person_key"]] == ["CTO"]       # the engineer is not an ICP contact
+    assert bw[0]["company_domain"] == "brightwave.ie"                      # found via Clearbit
+    assert leads["Meili"][0]["company_domain"] == "meilitravel.com"        # found via the LinkedIn slug
+    assert any(r["person_key"] for r in leads["Kestrel AI"])
+    # every kept company has a row, even without a contact — the sheet and the KPI always agree
+    assert all(len(rs) >= 1 for rs in leads.values())
+    s = ctx.stats["summary"]
+    assert s["verified_companies"] + s["unverified_companies"] == counts["companies_count"]
+    assert ctx.stats["domains"]["clearbit"] >= 1 and ctx.stats["domains"]["guessed"] >= 1
 
 
-def test_unverified_mode_keeps_unknown_but_not_big_or_agencies(monkeypatch):
-    _, counts, db = _run_pipeline(monkeypatch, max_companies=60, contacts_per_company=1,
-                                  require_verified_headcount=False, hq_ireland_only=False)
-    names = _names(db)
-    assert not names & set(KNOWN_LARGE + AGENCIES + ["Sabeo", "RITTS", "IT Search", "Zenith Partners"])
-    assert counts["companies_count"] > 20
+def test_contract_typing_from_ad_text(monkeypatch):
+    ctx, _, db = _run(monkeypatch, employment_types=["Contract"])
+    jobs = {j["company_name"]: j for j in db["hiring_intel_jobs"]}
+    assert jobs["Contractco"]["employment_type"] == "Contract"             # 'Full-time' + '12 month contract'
+    assert jobs["Kestrel AI"]["employment_type"] == "Contract"             # Indeed 'Job Types: Contract'
 
 
-def test_small_max_companies_still_yields_results(monkeypatch):
-    _, counts, db = _run_pipeline(monkeypatch, days_back=1, max_companies=5, contacts_per_company=1)
-    assert counts["companies_count"] == 5
-    assert not _names(db) & set(BAD)
+def test_permanent_scan_flips_the_picture(monkeypatch):
+    _, _, db = _run(monkeypatch, employment_types=["Permanent"], include_unspecified_type=False)
+    leads = _leads(db)
+    assert "Permco" in leads and "Contractco" not in leads and "Brightwave Analytics" not in leads
 
 
-def test_foreign_hq_dropped_only_when_irish_hq_required(monkeypatch):
-    _, _, db = _run_pipeline(monkeypatch, max_companies=60, contacts_per_company=1, hq_ireland_only=False)
-    assert any(n.startswith("Foreignco") for n in _names(db))
-    _, _, db = _run_pipeline(monkeypatch, max_companies=60, contacts_per_company=1, hq_ireland_only=True)
-    assert not any(n.startswith("Foreignco") for n in _names(db))
+def test_scan_never_spends_credits(monkeypatch):
+    ctx, _, _ = _run(monkeypatch, employment_types=["Contract"])
+    a = ctx.stats["apollo"]
+    assert a["search_calls"] == 0 and a["lookup_calls"] == 0 and a["people_search_calls"] > 0
 
 
-def test_log_explains_drops_and_lists_every_rejected_company(monkeypatch):
-    ctx, _, _ = _run_pipeline(monkeypatch, max_companies=10, contacts_per_company=1)
-    assert any(e["msg"].startswith("Dropped at qualify:") for e in ctx.events)
-    assert ctx.stats["rejected"] and all({"company", "reason", "stage"} <= set(r) for r in ctx.stats["rejected"])
-
-
-def test_repeat_scan_never_pays_twice_for_the_same_company(monkeypatch):
-    paid: List[tuple] = []
-
-    async def spy(self, method, path, **kw):
-        if path == "/organizations/bulk_enrich":
-            paid.extend(("enrich", hi.company_key(d["name"])) for d in kw["json_body"]["details"])
-        elif path == "/mixed_companies/search" and dict(kw.get("params") or []).get("q_organization_name"):
-            paid.append(("lookup", hi.company_key(dict(kw["params"])["q_organization_name"])))
-        return await fake_apollo_call(self, method, path, **kw)
-
-    _run_pipeline(monkeypatch, max_companies=10, contacts_per_company=1)          # wires the fakes
-    ctx1, _, _ = _run_pipeline_keep_apollo(monkeypatch, spy, max_companies=10, contacts_per_company=1)
-    first = list(paid)
-    paid.clear()
+def test_repeat_scan_reuses_what_it_learned(monkeypatch):
+    ctx1, _, _ = _run(monkeypatch, employment_types=["Contract"])
     cache = dict(ctx1.company_cache_out)
+    assert any(k.startswith("big:") for k in cache) and any(k.startswith("dom:") for k in cache)
 
     async def load(c):
         c.company_cache_in.update(cache)
     monkeypatch.setattr(hi, "load_company_cache", load)
-    ctx2, counts2, _ = _run_pipeline_keep_apollo(monkeypatch, spy, max_companies=10, contacts_per_company=1)
-    assert first and counts2["companies_count"] == 10
-    assert not set(first) & set(paid), set(first) & set(paid)
-    assert ctx2.stats["apollo"]["orgs_enrich_cached"] > 0
+    ctx2, counts2, _ = _run(monkeypatch, employment_types=["Contract"])
+    assert counts2["companies_count"] == 6
+    # the bank and Workday are ruled out from the cache: no Apollo call for jpmorganchase.com this time
+    assert not [c for c in CALLS if dict(c).get("q_organization_domains_list[]") == "jpmorganchase.com"]
+    assert "earlier scan" in _rejected(ctx2)["JPMorganChase"]
 
 
-def test_cache_entry_usable():
-    assert hi.cache_entry_usable({"unmatched": True, "mode": ""}, "sh")
-    assert hi.cache_entry_usable({"unmatched": True, "mode": "s"}, "sh")
-    assert not hi.cache_entry_usable({"unmatched": True, "mode": "sh"}, "")
-    assert not hi.cache_entry_usable({"name": "A"}, "s")
-    assert hi.cache_entry_usable({"name": "A", "size_ok": True, "hq_ok": True}, "sh")
-    assert hi.cache_entry_usable({"name": "A", "estimated_num_employees": 20, "country": "Ireland"}, "sh")
-    assert not hi.cache_entry_usable({"name": "A", "size_ok": True}, "sh")
-
-
-def test_lookup_budget_and_params():
-    assert hi.lookup_budget(1) == 20 and hi.lookup_budget(10) == 30 and hi.lookup_budget(150) == 60
-    assert hi.verify_budget(10) == 30 and hi.verify_budget(100) == 60
-    keys = [k for k, _ in hi.lookup_params("Acme", "sh")]
-    assert "organization_num_employees_ranges[]" in keys and "organization_locations[]" in keys
-    assert [k for k, _ in hi.lookup_params("Acme", "")] == ["q_organization_name", "page", "per_page"]
-    assert hi.lookup_mode(hi.RunParams(require_verified_headcount=False)) == ""
-    assert hi.lookup_mode(hi.RunParams(hq_ireland_only=False)) == "s"
-
-
-def test_max_companies_accepts_small_values():
-    assert hi.RunParams(max_companies=1).max_companies == 1
+def test_company_cap_applies_after_the_job_pages(monkeypatch):
+    """Review #7: LinkedIn companies that turn out permanent must not use up the contract slots."""
+    ctx, counts, db = _run(monkeypatch, employment_types=["Contract"], max_companies=5)
+    assert counts["companies_count"] == 5
+    assert "Permco" not in _leads(db) and "Contractco" in _leads(db)

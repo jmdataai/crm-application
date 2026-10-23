@@ -327,3 +327,243 @@ def test_find_team_links():
 
 def test_blocked_boards_documented():
     assert {b["name"] for b in hs.BLOCKED_BOARDS} == {"IrishJobs.ie", "Jobs.ie", "RecruitIreland"}
+
+
+# ════════════════════════════════════════════════════════════════════════
+# v3 additions (22 Oct 2026)
+# ════════════════════════════════════════════════════════════════════════
+@pytest.mark.parametrize("text,expected", [
+    ("Great role.\nJob Types: Full-time, Permanent\nPay: €60,000", "Permanent"),
+    ("Job Type: Contract\nContract length: 6 months", "Contract"),
+    ("Job Types: Full-time, Contract", "Contract"),
+    ("This is a 12 month contract based in Dublin, hybrid.", "Contract"),
+    ("Initial 6 months, daily rate €550-€650, outside IR35.", "Contract"),
+    ("We are hiring for a permanent role in our Cork office.", "Permanent"),
+    ("Fixed-term contract to cover maternity leave", "Contract"),
+    ("Join a fast-growing team building data products.", None),
+    ("Permanent or contract considered.", None),        # both -> undecided
+    # review #3: ordinary permanent ads that must NOT read as contracts
+    ("We process 2 billion events per day.", None),
+    ("There is an initial 6 month probation period.", None),
+    ("You will own our rolling 12-month data roadmap.", None),
+    ("We run a freelance marketplace for designers.", None),
+    ("Job Type: Full-time\nWe ingest 5TB per day.", None),
+    ("A 12-month contract, day rate negotiable.", "Contract"),
+    ("", None),
+])
+def test_employment_from_text(text, expected):
+    assert hs.employment_from_text(text) == expected
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("We are delighted to be recruiting on behalf of our client, a leading fintech in Dublin.", True),
+    ("My client is a fast-growing SaaS company based in Galway.", True),
+    ("Our client, a top-tier bank, is looking for a Data Engineer.", True),
+    ("Sigmar is acting as an Employment Agency in relation to this vacancy.", True),
+    ("We help our clients build modern data platforms.", False),     # consultancy, hiring for itself
+    ("You will work closely with clients across Europe.", False),
+    ("You will partner with our client-facing teams.", False),          # review #4
+    ("Reporting on behalf of a client portfolio of 40 brands.", False),
+    ("", False),
+])
+def test_agency_from_text(text, expected):
+    assert hs.agency_from_text(text) is expected
+
+
+def test_parse_linkedin_detail_keeps_description():
+    html = LI_DETAIL + '<div class="show-more-less-html__markup">This is a <b>6 month contract</b>.<br>Dublin.</div>'
+    d = hs.parse_linkedin_detail(html)
+    assert "6 month contract" in d["description"]
+    assert hs.employment_from_text(d["description"]) == "Contract"
+
+
+def test_linkedin_client_renews_budget_unless_blocked():
+    client = hs.LinkedInClient(getter=None, time_budget=0)
+    client.gave_up = True
+    assert client.renew_budget(60) and not client.gave_up
+    client.blocked = True
+    assert not client.renew_budget(60)
+
+
+def test_glassdoor_uses_jobspy_and_maps_hq_and_description():
+    frame = pd.DataFrame([{
+        "id": "gd-9", "title": "Data Engineer", "company": "Kestrel AI", "location": "Dublin, Ireland",
+        "job_url": "https://www.glassdoor.ie/job-listing/j?jl=9", "job_url_direct": None, "date_posted": "2026-10-20",
+        "job_type": "fulltime", "company_url_direct": "https://kestrel.ai", "company_num_employees": "1 to 50 Employees",
+        "company_industry": "Information Technology", "company_addresses": "Dublin, Ireland",
+        "description": "Job Types: Full-time, Permanent\n\nBuild pipelines."}])
+    seen = {}
+
+    def fake(**kw):
+        seen.update(kw)
+        return frame
+    res = hs.glassdoor_search_sync(["data engineer"], 14, scrape=fake)
+    assert res.name == "Glassdoor" and seen["site_name"] == ["glassdoor"] and seen["country_indeed"] == "ireland"
+    r = res.rows[0]
+    assert r["company_address"] == "Dublin, Ireland" and r["headcount_label"] == "1 to 50 Employees"
+    assert "Job Types" in r["description"] and "\n" in r["description"]
+    assert hs.parse_headcount_label(r["headcount_label"]) == (1, 50)
+
+
+def test_jobspy_cells_of_any_shape_become_text():
+    assert hs._text(float("nan")) == ""
+    assert hs._text({"city": "Cork", "state": None, "country": "Ireland"}) == "Cork, Ireland"
+    assert hs._text(["fulltime", "contract"]) == "fulltime, contract"
+
+
+def test_jobsireland_asks_for_paid_positions_only():
+    seen = {}
+
+    async def fetch(url, params):
+        seen.update(params)
+        return 200, ""
+    run(hs.jobsireland_search(fetch, ["data"]))
+    assert seen["VacancyTypeId"] == 0
+
+
+@pytest.mark.parametrize("host,expected", [
+    ("careers.acme.ie", "acme.ie"), ("jobs.acme.co.uk", "acme.co.uk"), ("www.acme.com", "acme.com"),
+    ("acme", ""),
+])
+def test_registrable_domain(host, expected):
+    assert hs.registrable_domain(host) == expected
+
+
+@pytest.mark.parametrize("dom,ok", [
+    ("acme.ie", True), ("acme.com", True), ("acme.io", True), ("acme.ai", True), ("acme.co.uk", True),
+    ("intercom.hu", False), ("wayflyer.com.au", False), ("softworks.com.br", False), ("meil.in", False),
+])
+def test_plausible_irish_domain(dom, ok):
+    assert hs.plausible_irish_domain(dom) is ok
+
+
+def test_host_matches_is_label_aware():
+    assert hs.host_matches("uk.indeed.com", ("indeed.",))
+    assert hs.host_matches("x.com", ("x.com",)) and hs.host_matches("jobs.x.com", ("x.com",))
+    assert not hs.host_matches("dropbox.com", ("x.com",))
+    assert not hs.host_matches("netflix.com", ("x.com",))
+
+
+def test_employer_domain_from_apply_url():
+    assert hs.employer_domain_from_apply_url("https://careers.softworks.com/job/123") == "softworks.com"
+    assert hs.employer_domain_from_apply_url("https://boards.greenhouse.io/acme/jobs/1") == ""
+    assert hs.employer_domain_from_apply_url("https://acme.wd3.myworkdayjobs.com/x") == ""
+    assert hs.employer_domain_from_apply_url("https://ie.indeed.com/viewjob?jk=1") == ""
+    assert hs.employer_domain_from_apply_url("") == ""
+
+
+# Live Clearbit answers on 22 Oct 2026 (trimmed)
+CLEARBIT = {
+    "Softworks": [{"name": "Softworks", "domain": "softworks.com"}, {"name": "SoftWorks", "domain": "softworksbd.com"},
+                  {"name": "Soft Works", "domain": "softworks.com.br"}],
+    "JPMorganChase": [{"name": "JPMorgan Chase & Co.", "domain": "jpmorganchase.com"},
+                      {"name": "J.P. Morgan", "domain": "jpmorganchasecc.com"}],
+    "Meili": [{"name": "Meilisearch", "domain": "meilisearch.com"}, {"name": "Meiling", "domain": "meiling.com"}],
+    "Acuity": [{"name": "Acuity Scheduling", "domain": "acuityscheduling.com"},
+               {"name": "Acuity Brands", "domain": "acuitybrands.com"}],
+    "Wayflyer": [{"name": "Wayflyer", "domain": "wayflyer.com.au"}, {"name": "Wayflyer", "domain": "wayflyer.com"}],
+}
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("Softworks", "softworks.com"), ("JPMorganChase", "jpmorganchase.com"), ("Meili", ""), ("Acuity", ""),
+    ("Wayflyer", "wayflyer.com"),
+])
+def test_pick_clearbit_domain_exact_names_only(name, expected):
+    assert hs.pick_clearbit_domain(CLEARBIT[name], hi.company_key, hi.company_key(name)) == expected
+
+
+def test_clearbit_suggest_handles_errors():
+    def handler(request):
+        return httpx.Response(429) if "slow" in str(request.url) else httpx.Response(200, json=CLEARBIT["Softworks"])
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+            return await hs.clearbit_suggest(c, "Softworks"), await hs.clearbit_suggest(c, "slow")
+    (s1, rows), (s2, _) = run(go())
+    assert s1 == "ok" and rows[0]["domain"] == "softworks.com" and s2 == "rate_limited"
+
+
+def _wd_entity(qid, label, desc, website=None, employees=None, country=None, aliases=()):
+    claims = {}
+    if website:
+        claims["P856"] = [{"rank": "normal", "mainsnak": {"datavalue": {"value": website}}}]
+    if employees:
+        claims["P1128"] = [{"rank": "normal", "mainsnak": {"datavalue": {"value": {"amount": f"+{e}"}}},
+                            "qualifiers": {"P585": [{"datavalue": {"value": {"time": f"+{y}-01-01T00:00:00Z"}}}]}}
+                           for y, e in employees]
+    if country:
+        claims["P17"] = [{"mainsnak": {"datavalue": {"value": {"id": country}}}}]
+    return {"id": qid, "labels": {"en": {"value": label}}, "descriptions": {"en": {"value": desc}},
+            "aliases": {"en": [{"value": a} for a in aliases]}, "claims": claims}
+
+
+def test_wikidata_pick_and_employee_count():
+    ents = {
+        "Q1": _wd_entity("Q1", "JPMorgan Chase", "American multinational banking and financial services holding company",
+                         "https://www.jpmorganchase.com/", [(2016, 243000), (2021, 271025)], "Q30"),
+        "Q2": _wd_entity("Q2", "JPMorgan Chase Tower", "skyscraper in Houston", "http://www.chasetower.com/"),
+    }
+    got = hs.wikidata_pick([{"id": "Q2"}, {"id": "Q1"}], ents, hi.company_key, hi.company_key("JPMorganChase"))
+    assert got["domain"] == "jpmorganchase.com" and got["employees"] == 271025 and not got["irish"]
+
+
+def test_wikidata_rejects_namesakes():
+    ents = {"Q3": _wd_entity("Q3", "InterCom", "Hungarian film distribution business", "https://www.intercom.hu")}
+    got = hs.wikidata_pick([{"id": "Q3"}], ents, hi.company_key, hi.company_key("Intercom"))
+    assert got is None or got["domain"] == ""               # a film distributor is not a company match;
+    ents = {"Q3": _wd_entity("Q3", "Intercom", "Hungarian software company", "https://www.intercom.hu")}
+    got = hs.wikidata_pick([{"id": "Q3"}], ents, hi.company_key, hi.company_key("Intercom"))
+    assert got is not None and got["domain"] == ""          # and a foreign site is never used as the website
+    ents = {"Q4": _wd_entity("Q4", "Soft Machine", "English musical group; rock band", "https://softmachine.org")}
+    assert hs.wikidata_pick([{"id": "Q4"}], ents, hi.company_key, hi.company_key("Softworks")) is None
+    ents = {"Q5": _wd_entity("Q5", "Acuity Brands", "electronics manufacturing company", "https://www.acuitybrands.com")}
+    assert hs.wikidata_pick([{"id": "Q5"}], ents, hi.company_key, hi.company_key("Acuity")) is None
+    ents = {"Q6": _wd_entity("Q6", "Kerry Group", "public food company headquartered in Ireland",
+                             "https://www.kerrygroup.com", [(2023, 23000)], "Q27")}
+    got = hs.wikidata_pick([{"id": "Q6"}], ents, hi.company_key, hi.company_key("Kerry Group"))
+    assert got["employees"] == 23000 and got["irish"]
+
+
+def test_wikidata_lookup_end_to_end():
+    ents = {"Q6": _wd_entity("Q6", "Stripe", "Irish-American payment technology company", "https://stripe.com",
+                             [(2023, 8000)], "Q27")}
+
+    def handler(request):
+        q = dict(request.url.params)
+        assert "NexusCRM" in request.headers["user-agent"]
+        if q["action"] == "wbsearchentities":
+            return httpx.Response(200, json={"search": [{"id": "Q6", "label": "Stripe"}, {"id": "Q9", "label": "Stripes"}]})
+        assert q["ids"] == "Q6"                                  # non-matching labels never fetched
+        return httpx.Response(200, json={"entities": ents})
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+            return await hs.wikidata_lookup(c, "Stripe", hi.company_key, hi.company_key("Stripe"))
+    state, got = run(go())
+    assert state == "ok" and got["domain"] == "stripe.com" and got["employees"] == 8000
+
+
+def test_text_regexes_stay_fast_on_hostile_input():
+    import time as _t
+    hostile = ("12" + "\n" * 5000 + " month") * 4
+    t0 = _t.monotonic()
+    hs.employment_from_text(hostile)
+    hs.agency_from_text(hostile)
+    assert _t.monotonic() - t0 < 0.2
+
+
+def test_near_deadline_pause_is_not_a_block():
+    async def getter(url, params):
+        return 429, ""
+    client = hs.LinkedInClient(getter=getter, min_delay=0, max_delay=0, backoffs=(500,), time_budget=5)
+    state, _ = run(client.get("/x", {}))
+    assert state == "blocked" and client.gave_up and not client.blocked     # review #8
+    assert client.renew_budget(60)
+
+
+def test_board_rows_carry_text_signals_from_the_worker_thread():
+    frame = pd.DataFrame([{"id": "1", "title": "Data Engineer", "company": "A", "location": "Dublin",
+                           "job_url": "u", "description": "Job Type: Contract\nWe are recruiting on behalf of our client, a bank."}])
+    r = hs.indeed_search_sync(["x"], 7, scrape=lambda **k: frame).rows[0]
+    assert r["type_from_text"] == "Contract" and r["agency_text"] is True

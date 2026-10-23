@@ -14,13 +14,23 @@ WHAT IS USED, AND WHY
                 The guest job-detail page adds the TRUE employment type and the
                 industry (used to drop recruitment agencies) at no cost.
     Indeed      via JobSpy (MIT, github.com/speedyapply/JobSpy), which talks to
-                Indeed's mobile API. Gives employer website and headcount band —
-                both free signals that replace Apollo company lookups.
+                Indeed's mobile API. Gives employer website, headcount band and HQ
+                address — free signals that replace Apollo company lookups.
+    Glassdoor   via JobSpy too (glassdoor.ie GraphQL). Same free signals: website,
+                headcount band, headquarters, industry.
     CareerJet   Official v4 API (free publisher key, CAREERJET_API_KEY). CareerJet
                 aggregates IrishJobs.ie, Jobs.ie and other Irish boards.
     JobsIreland The Department of Social Protection's board; open HTML endpoint.
     Serper      Optional (SERPER_API_KEY): Google results used to find a company's
                 website and "X-ray" LinkedIn profiles of founders / CTOs.
+    Clearbit    Free, keyless company-name autocomplete -> website domain. Only an
+                EXACT name match is used (checked live 22 Oct 2026: "Acuity" and
+                "Meili" return only other companies, so they are left alone).
+    Wikidata    Free public API: website + headcount of well-known employers
+                (Workday, Stripe, Kerry Group...). Used to rule out big companies.
+
+LinkedIn company pages are NOT used: checked live 22 Oct 2026, they answer HTTP 999
+to any request without a logged-in session (the guest job endpoints still work).
 
 NOT SCRAPED, ON PURPOSE
     IrishJobs.ie and Jobs.ie (Akamai) and RecruitIreland (Cloudflare) refuse
@@ -72,6 +82,10 @@ CAREERJET_URL = "https://search.api.careerjet.net/v4/query"
 JOBSIRELAND_URL = "https://jobsireland.ie/Jobsireland.API/JobsIreland/BrowseJobs/43"
 JOBSIRELAND_DETAIL = "https://jobsireland.ie/en-US/job-Details?id={job_id}"
 SERPER_URL = "https://google.serper.dev/search"
+CLEARBIT_SUGGEST_URL = "https://autocomplete.clearbit.com/v1/companies/suggest"
+WIKIDATA_API = "https://www.wikidata.org/w/api.php"
+# Wikimedia's API policy asks every client to identify itself.
+WIKIDATA_UA = "NexusCRM-HiringIntel/3.0 (https://jmdatatalent.com; info@jmdatatalent.com)"
 
 BLOCKED_BOARDS = [
     {"name": "IrishJobs.ie", "reason": "Akamai bot protection denies automated access", "covered_by": "CareerJet, Indeed"},
@@ -112,6 +126,65 @@ class SourceResult:
 
 
 # ════════════════════════════════════════════════════════════════════════
+# Job-description signals (free — the text already comes with the posting)
+# ════════════════════════════════════════════════════════════════════════
+# Indeed IE ends many ads with "Job Types: Full-time, Permanent" / "Job Type: Contract".
+_JOB_TYPES_LINE = re.compile(r"job\s*types?\s*[:\-]\s*([^\n\r|]{0,80})", re.I)
+_CONTRACT_TEXT = re.compile(
+    r"\b(?:contract (?:role|position|length|duration|basis|term|opportunity|assignment|until|of \d{1,2} ?(?:months?|mths?))"
+    r"|\d{1,2}\+? ?-?(?:months?|mths?) (?:initial |rolling )?(?:contract|ftc|fixed-? ?term)"
+    r"|(?:initial|rolling) \d{1,2} ?-?(?:months?|mths?) (?:contract|ftc|engagement|assignment)"
+    r"|day-? ?rate|daily rate|(?:€|eur) ?\d{3,4} ?(?:per|/|p) ?(?:day|d)\b"
+    r"|fixed-? ?term (?:contract|role|position|basis)|freelance (?:contract|role|position|basis)|contractor role"
+    r"|(?:inside|outside) ir35|b2b contract|contract to (?:hire|perm))", re.I)
+_PERMANENT_TEXT = re.compile(
+    r"\b(?:permanent (?:role|position|contract|opportunity|full-? ?time|job|basis|post)"
+    r"|(?:full-? ?time|a) permanent\b|this is a permanent)", re.I)
+
+
+def _flat(text: Any, limit: int = 20000) -> str:
+    """One line, single spaces, capped — keeps the regexes linear on hostile or huge ads."""
+    return re.sub(r"\s+", " ", _ascii(text)[:limit * 2]).strip()[:limit]
+
+
+def employment_from_text(text: Any) -> Optional[str]:
+    """'Contract' / 'Permanent' when the ad text says so plainly, else None."""
+    raw = _ascii(text)[:40000]
+    if not raw.strip():
+        return None
+    m = _JOB_TYPES_LINE.search(raw)
+    if m:
+        line = m.group(1).lower()
+        has_c = re.search(r"contract|temporary|fixed[\s-]*term|freelance", line)
+        has_p = re.search(r"permanent", line)
+        if has_c and not has_p:
+            return "Contract"
+        if has_p and not has_c:
+            return "Permanent"
+    s = _flat(raw)
+    c, p = bool(_CONTRACT_TEXT.search(s)), bool(_PERMANENT_TEXT.search(s))
+    if c and not p:
+        return "Contract"
+    if p and not c:
+        return "Permanent"
+    return None
+
+
+# "recruiting on behalf of our client" — the poster is an agency, whatever its LinkedIn industry says.
+# Singular "client" only: consultancies talk about "our clients" while hiring for themselves.
+_AGENCY_TEXT = re.compile(
+    r"\bon behalf of (?:our|a|my|their) (?:valued |key |global )?client\b(?!s|-| (?:portfolio|facing|base|side|services))"
+    r"|\b(?:our|my) client(?:, ?(?:a|an|one|the|who|which|based)\b| (?:is|are|has|have|who|based)\b)"
+    r"|\bacting as an? employment (?:agency|business)\b"
+    r"|\bwe are (?:a|an) (?:recruitment|staffing|talent) (?:agency|consultancy|firm|partner)\b"
+    r"|\b(?:recruitment|staffing) agency (?:acting|working) on\b", re.I)
+
+
+def agency_from_text(text: Any) -> bool:
+    return bool(_AGENCY_TEXT.search(_flat(text)))
+
+
+# ════════════════════════════════════════════════════════════════════════
 # LinkedIn — guest endpoints through a browser-grade TLS client
 # ════════════════════════════════════════════════════════════════════════
 def parse_linkedin_detail(html: str) -> Dict[str, Any]:
@@ -128,12 +201,17 @@ def parse_linkedin_detail(html: str) -> Dict[str, Any]:
     org = soup.select_one("a.topcard__org-name-link, .topcard__org-name-link")
     if org and org.get("href"):
         out["company_url"] = org["href"].split("?")[0]
+    desc_el = soup.select_one(".show-more-less-html__markup, .description__text")
+    description = re.sub(r"[ \t]+", " ", desc_el.get_text("\n")).strip()[:20000] if desc_el else ""
     return {
         "employment_type": out.get("employment type", ""),
         "seniority": out.get("seniority level", ""),
         "industries": out.get("industries", ""),
         "job_function": out.get("job function", ""),
         "company_url": out.get("company_url", ""),
+        "description": description,
+        "type_from_text": employment_from_text(description) if description else None,
+        "agency_text": agency_from_text(description) if description else False,
     }
 
 
@@ -157,7 +235,16 @@ class LinkedInClient:
         self.requests = 0
         self.blocks = 0
         self.gave_up = False
+        self.blocked = False          # gave up because LinkedIn refused (not just out of time)
         self.notes: List[str] = []
+
+    def renew_budget(self, seconds: float) -> bool:
+        """Fresh time budget for a later phase (job pages). Never revives a client LinkedIn blocked."""
+        if self.blocked:
+            return False
+        self.gave_up = False
+        self.deadline = time.monotonic() + seconds
+        return True
 
     async def _default_get(self, url: str, params: Dict[str, Any]) -> Tuple[int, str]:
         from curl_cffi.requests import AsyncSession          # imported lazily: optional at test time
@@ -210,12 +297,12 @@ class LinkedInClient:
             # 429 = slow down; 999 = LinkedIn's bot wall; 0 = network; 5xx = transient
             self.blocks += 1
             if attempt >= len(self.backoffs):
-                self.gave_up = True
+                self.gave_up = self.blocked = True
                 self.notes.append(f"stopped after {self.requests} requests (HTTP {status})")
                 return "blocked", ""
             pause = self.backoffs[attempt] * random.uniform(0.85, 1.25)
             if time.monotonic() + pause > self.deadline:
-                self.gave_up = True
+                self.gave_up = True        # out of TIME, not refused: a later phase may still renew
                 self.notes.append(f"rate-limited near the time budget (HTTP {status})")
                 return "blocked", ""
             self.notes.append(f"HTTP {status}: paused {int(pause)}s")
@@ -307,7 +394,42 @@ def _df_rows(df: Any) -> List[Dict[str, Any]]:
         return []
 
 
+def _text(v: Any, limit: int = 300) -> str:
+    """JobSpy cells can be str, list of enums, dict or NaN depending on version — always a clean string."""
+    if v is None or (isinstance(v, float) and v != v):
+        return ""
+    if isinstance(v, dict):
+        v = ", ".join(str(x) for x in (v.get("city"), v.get("state"), v.get("country")) if x)
+    elif isinstance(v, (list, tuple, set)):
+        v = ", ".join(str(getattr(x, "value", x)) for x in v if x is not None)
+    return _clean(getattr(v, "value", v), limit)
+
+
+def _multiline(v: Any, limit: int = 20000) -> str:
+    if not isinstance(v, str):
+        return ""
+    return re.sub(r"[ \t]+", " ", v).strip()[:limit]
+
+
 def indeed_search_sync(terms: List[str], days_back: int, results_per_term: int = 60,
+                       proxies: Optional[List[str]] = None,
+                       scrape: Optional[Callable[..., Any]] = None,
+                       deadline: Optional[float] = None,
+                       cancelled: Callable[[], bool] = lambda: False) -> SourceResult:
+    return jobspy_search_sync("indeed", "Indeed", terms, days_back, results_per_term, proxies,
+                              scrape=scrape, deadline=deadline, cancelled=cancelled)
+
+
+def glassdoor_search_sync(terms: List[str], days_back: int, results_per_term: int = 30,
+                          proxies: Optional[List[str]] = None,
+                          scrape: Optional[Callable[..., Any]] = None,
+                          deadline: Optional[float] = None,
+                          cancelled: Callable[[], bool] = lambda: False) -> SourceResult:
+    return jobspy_search_sync("glassdoor", "Glassdoor", terms, days_back, results_per_term, proxies,
+                              scrape=scrape, deadline=deadline, cancelled=cancelled)
+
+
+def jobspy_search_sync(site: str, label: str, terms: List[str], days_back: int, results_per_term: int = 60,
                        proxies: Optional[List[str]] = None,
                        scrape: Optional[Callable[..., Any]] = None,
                        deadline: Optional[float] = None,
@@ -315,7 +437,7 @@ def indeed_search_sync(terms: List[str], days_back: int, results_per_term: int =
     """Blocking (JobSpy uses curl_cffi sync sessions) — run it in a worker thread.
     Stops between search terms once `deadline` (time.monotonic()) passes or the scan is cancelled,
     returning what it has, so an abandoned thread never keeps scraping for long."""
-    res = SourceResult("Indeed")
+    res = SourceResult(label)
     if scrape is None:
         try:
             from jobspy import scrape_jobs as scrape          # MIT — github.com/speedyapply/JobSpy
@@ -333,7 +455,7 @@ def indeed_search_sync(terms: List[str], days_back: int, results_per_term: int =
             break
         try:
             # Indeed accepts only ONE of hours_old / job_type per search, so the type is read per row.
-            df = scrape(site_name=["indeed"], search_term=term, location="Ireland", country_indeed="ireland",
+            df = scrape(site_name=[site], search_term=term, location="Ireland", country_indeed="ireland",
                         hours_old=max(1, days_back) * 24, results_wanted=results_per_term,
                         description_format="markdown", verbose=0, proxies=proxies or None)
             res.requests += 1
@@ -358,18 +480,23 @@ def indeed_search_sync(terms: List[str], days_back: int, results_per_term: int =
                 continue
             seen.add(key)
             res.rows.append({
-                "title": _clean(r.get("title"), 200),
-                "company": _clean(r.get("company"), 160),
-                "location": _clean(r.get("location"), 200),
-                "url": r.get("job_url") or r.get("job_url_direct") or "",
-                "url_direct": r.get("job_url_direct") or "",
-                "posted_at": str(r.get("date_posted") or "")[:10] or None,
-                "employment_raw": r.get("job_type") or "",
-                "company_website": r.get("company_url_direct") or "",
-                "headcount_label": r.get("company_num_employees") or "",
-                "industry": r.get("company_industry") or "",
+                "title": _text(r.get("title"), 200),
+                "company": _text(r.get("company"), 160),
+                "location": _text(r.get("location"), 200),
+                "url": _text(r.get("job_url"), 600) or _text(r.get("job_url_direct"), 600),
+                "url_direct": _text(r.get("job_url_direct"), 600),
+                "posted_at": _text(r.get("date_posted"), 40)[:10] or None,
+                "employment_raw": _text(r.get("job_type"), 80),
+                "company_website": _text(r.get("company_url_direct"), 300),
+                "headcount_label": _text(r.get("company_num_employees"), 60),
+                "industry": _text(r.get("company_industry"), 120),
+                "company_address": _text(r.get("company_addresses"), 200),
+                "description": _multiline(r.get("description")),
                 "emails": r.get("emails") or "",
             })
+            desc = res.rows[-1]["description"]
+            res.rows[-1]["type_from_text"] = employment_from_text(desc) if desc else None
+            res.rows[-1]["agency_text"] = agency_from_text(desc) if desc else False
     if failures and not res.rows:
         res.status = "blocked" if re.search(r"403|429|block|captcha|forbidden", res.note, re.I) else "error"
     elif failures and res.status == "ok":
@@ -545,8 +672,10 @@ async def jobsireland_search(fetch_text: Callable[[str, Dict[str, Any]], Awaitab
     res = SourceResult("JobsIreland")
     seen: set = set()
     for term in terms:
+        # VacancyTypeId 0 = "Paid Position" (checked live 22 Oct 2026). -1 would also return Community
+        # Employment schemes, work placements and apprenticeships, which are not company hires.
         params = {"CareerlevelId": -1, "keyWord": term, "location": "", "page": 1, "pageSize": 100,
-                  "VacancyTypeId": -1, "RemoteOrBlendedJobType": -1, "NaceCode": -1}
+                  "VacancyTypeId": 0, "RemoteOrBlendedJobType": -1, "NaceCode": -1}
         try:
             status, body = await fetch_text(JOBSIRELAND_URL, params)
         except Exception as e:
@@ -570,7 +699,7 @@ async def jobsireland_search(fetch_text: Callable[[str, Dict[str, Any]], Awaitab
 _SKIP_DOMAINS = (
     "linkedin.", "indeed.", "glassdoor.", "irishjobs.", "jobs.ie", "careerjet.", "jooble.", "facebook.",
     "instagram.", "twitter.", "x.com", "youtube.", "wikipedia.", "crunchbase.", "bloomberg.", "zoominfo.",
-    "rocketreach.", "apollo.io", "dnb.com", "solocheck.", "vision-net.", "companieshouse", "cro.ie",
+    "rocketreach.", "apollo.io", "dnb.com", "solocheck.", "vision-net.", "companieshouse.", "cro.ie",
     "google.", "tiktok.", "pitchbook.", "owler.", "craft.co", "theorg.com", "signalhire.", "lusha.",
 )
 
@@ -604,12 +733,217 @@ def pick_company_domain(organic: List[Dict[str, Any]], company_tokens: List[str]
         host = (urlparse(link).hostname or "").lower()
         if host.startswith("www."):
             host = host[4:]
-        if not host or any(s in host for s in _SKIP_DOMAINS):
+        if not host or host_matches(host, _SKIP_DOMAINS):
             continue
         hay = _ascii(f"{o.get('title', '')} {host}").lower().replace("-", "")
         if all(t in hay for t in company_tokens[:2]):
             return host
     return ""
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Domain helpers + free name -> website lookups (Clearbit autocomplete, Wikidata)
+# ════════════════════════════════════════════════════════════════════════
+_SECOND_LEVEL = {"co", "com", "org", "net", "gov", "ac", "edu", "ltd", "plc"}
+# Two-letter TLDs that companies use as generic ones; any other ccTLD means a foreign namesake.
+_GENERIC_CC = {"ie", "uk", "eu", "io", "ai", "co", "me", "tv", "so", "sh", "gg", "ly", "to", "fm", "cc", "ws"}
+
+
+def registrable_domain(host: Any) -> str:
+    """careers.acme.ie -> acme.ie ; jobs.acme.co.uk -> acme.co.uk"""
+    h = str(host or "").lower().strip(".")
+    if h.startswith("www."):
+        h = h[4:]
+    labels = [x for x in h.split(".") if x]
+    if len(labels) < 2:
+        return ""
+    if len(labels) >= 3 and labels[-2] in _SECOND_LEVEL and len(labels[-1]) == 2:
+        return ".".join(labels[-3:])
+    return ".".join(labels[-2:])
+
+
+def plausible_irish_domain(host: Any) -> bool:
+    """Reject foreign country domains (.com.au, .de, .hu…) — those are namesakes, not Irish employers."""
+    labels = [x for x in str(host or "").lower().strip(".").split(".") if x]
+    if len(labels) < 2:
+        return False
+    tld = labels[-1]
+    if len(labels) >= 3 and labels[-2] in _SECOND_LEVEL and len(tld) == 2:
+        return tld == "uk"
+    return len(tld) != 2 or tld in _GENERIC_CC
+
+
+# Job-board / ATS / apply-platform hosts: an apply link there says nothing about the employer's own site.
+_PLATFORM_HOSTS = _SKIP_DOMAINS + (
+    "greenhouse.io", "lever.co", "ashbyhq.com", "workable.com", "recruitee.com", "personio.", "bamboohr.com",
+    "smartrecruiters.com", "breezy.hr", "teamtailor.com", "pinpointhq.com", "myworkdayjobs.com", "workday.com",
+    "icims.com", "taleo.net", "successfactors.", "jobvite.com", "applytojob.com", "recruiterbox.com",
+    "jazzhr.com", "rippling.com", "hibob.com", "zohorecruit.", "adzuna.", "totaljobs.", "reed.co.uk",
+    "cv-library.", "recruitireland.", "irishjobs.", "monster.", "simplyhired.", "talent.com", "jobsireland.",
+    "hirehive.", "join.com", "jobs.lever.co", "oraclecloud.com", "eightfold.ai", "phenompeople.com",
+    "cvmailuk.com", "tal.net", "efinancialcareers.", "ziprecruiter.", "ukg.", "paylocity.", "dayforcehcm.",
+)
+
+
+def host_matches(host: Any, patterns: Tuple[str, ...]) -> bool:
+    """'indeed.' matches any indeed.<tld> label; 'x.com' matches x.com / jobs.x.com but NOT dropbox.com."""
+    h = str(host or "").lower().strip(".")
+    if h.startswith("www."):
+        h = h[4:]
+    labels = h.split(".")
+    for p in patterns:
+        if p.endswith("."):
+            stem = p[:-1]
+            if any(".".join(labels[i:]).startswith(stem + ".") for i in range(len(labels))):
+                return True
+        elif h == p or h.endswith("." + p):
+            return True
+    return False
+
+
+def employer_domain_from_apply_url(url: Any) -> str:
+    """Indeed / Glassdoor 'apply on company site' links: careers.acme.ie/job/1 -> acme.ie (never an ATS)."""
+    host = (urlparse(str(url or "")).hostname or "").lower()
+    if not host or host_matches(host, _PLATFORM_HOSTS):
+        return ""
+    dom = registrable_domain(host)
+    return dom if dom and plausible_irish_domain(dom) else ""
+
+
+def _nospace(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+def _name_key(key_fn: Callable[[Any], str], name: Any) -> str:
+    """company_key without spaces and without a trailing '& Co' ('JPMorgan Chase & Co.' -> 'jpmorganchase')."""
+    return _nospace(re.sub(r"(?:\s+and)+$", "", key_fn(name) or ""))
+
+
+async def clearbit_suggest(client: httpx.AsyncClient, name: str) -> Tuple[str, List[Dict[str, Any]]]:
+    try:
+        r = await client.get(CLEARBIT_SUGGEST_URL, params={"query": name[:80]})
+    except httpx.HTTPError as e:
+        return f"error:{type(e).__name__}", []
+    if r.status_code == 429:
+        return "rate_limited", []
+    if r.status_code != 200:
+        return f"error:HTTP {r.status_code}", []
+    try:
+        data = r.json()
+    except Exception:
+        return "error:bad json", []
+    return "ok", [d for d in (data if isinstance(data, list) else []) if isinstance(d, dict)]
+
+
+def pick_clearbit_domain(results: List[Dict[str, Any]], key_fn: Callable[[Any], str], key: str) -> str:
+    """Only an exact company-name match (legal suffixes and spacing ignored) on a non-foreign domain."""
+    want = _name_key(lambda x: x, key)
+    if not want:
+        return ""
+    for d in results[:8]:
+        dom = str(d.get("domain") or "").lower().strip()
+        if dom.startswith("www."):
+            dom = dom[4:]
+        if not dom or "." not in dom or not plausible_irish_domain(dom) or host_matches(dom, _SKIP_DOMAINS):
+            continue
+        if _name_key(key_fn, d.get("name")) == want:
+            return dom
+    return ""
+
+
+_WD_COMPANY = re.compile(
+    r"\b(?:company|corporation|business|bank|firm|manufacturer|retailer|conglomerate|multinational|provider|"
+    r"developer|publisher|insurer|insurance|consultancy|consulting|enterprise|start-?up|airline|operator|"
+    r"platform|maker|supplier|software|technology|pharmaceutical|biotech\w*|telecommunications|fintech|"
+    r"subsidiary|holding)\b", re.I)
+_WD_NOT_COMPANY = re.compile(
+    r"\b(?:musical|band|album|song|journal|podcast|film|television|tv\s+series|novel|book|building|skyscraper|"
+    r"tower|team|club|football|village|town|city|river|lake|mountain|politician|person|species|genus|"
+    r"family\s+name|given\s+name|conference|festival|video\s+game|character|episode|ship|aircraft)\b", re.I)
+
+
+def _wd_claim_values(entity: Dict[str, Any], prop: str) -> List[Dict[str, Any]]:
+    return [c for c in (entity.get("claims") or {}).get(prop) or [] if isinstance(c, dict)]
+
+
+def wikidata_employees(entity: Dict[str, Any]) -> Optional[int]:
+    """Preferred-rank P1128 (employees), else the most recent dated one, else the last listed."""
+    claims = [c for c in _wd_claim_values(entity, "P1128") if c.get("rank") != "deprecated"]
+    if not claims:
+        return None
+
+    def when(c: Dict[str, Any]) -> str:
+        q = ((c.get("qualifiers") or {}).get("P585") or [{}])[0]
+        return str(((q.get("datavalue") or {}).get("value") or {}).get("time") or "")
+
+    pick = next((c for c in claims if c.get("rank") == "preferred"), None) or max(claims, key=when)
+    try:
+        return int(float(str(pick["mainsnak"]["datavalue"]["value"]["amount"]).lstrip("+")))
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def wikidata_pick(search_hits: List[Dict[str, Any]], entities: Dict[str, Any],
+                  key_fn: Callable[[Any], str], key: str) -> Optional[Dict[str, Any]]:
+    """The company whose label/alias IS this name, described as a business, with a non-foreign website."""
+    want = _name_key(lambda x: x, key)
+    if not want:
+        return None
+    for hit in search_hits:
+        ent = entities.get(str(hit.get("id"))) or {}
+        if not ent:
+            continue
+        names = [((ent.get("labels") or {}).get("en") or {}).get("value") or hit.get("label") or ""]
+        names += [a.get("value", "") for a in ((ent.get("aliases") or {}).get("en") or []) if isinstance(a, dict)]
+        if not any(_name_key(key_fn, n) == want for n in names if n):
+            continue
+        desc = ((ent.get("descriptions") or {}).get("en") or {}).get("value") or hit.get("description") or ""
+        if not _WD_COMPANY.search(desc) or _WD_NOT_COMPANY.search(desc):
+            continue
+        websites = []
+        for c in _wd_claim_values(ent, "P856"):
+            if c.get("rank") == "deprecated":
+                continue
+            host = (urlparse(str(((c.get("mainsnak") or {}).get("datavalue") or {}).get("value") or "")).hostname or "")
+            dom = registrable_domain(host)
+            if dom and plausible_irish_domain(dom):
+                websites.append(dom)
+        countries = {str((((c.get("mainsnak") or {}).get("datavalue") or {}).get("value") or {}).get("id"))
+                     for c in _wd_claim_values(ent, "P17")}
+        return {"qid": ent.get("id"), "label": names[0], "description": desc[:160],
+                "domain": websites[0] if websites else "", "employees": wikidata_employees(ent),
+                "irish": "Q27" in countries}
+    return None
+
+
+async def wikidata_lookup(client: httpx.AsyncClient, name: str, key_fn: Callable[[Any], str],
+                          key: str) -> Tuple[str, Optional[Dict[str, Any]]]:
+    hdr = {"User-Agent": WIKIDATA_UA, "Accept": "application/json"}
+    try:
+        r = await client.get(WIKIDATA_API, headers=hdr, params={
+            "action": "wbsearchentities", "search": name[:80], "language": "en", "uselang": "en",
+            "type": "item", "limit": 7, "format": "json"})
+        if r.status_code != 200:
+            return ("rate_limited" if r.status_code == 429 else f"error:HTTP {r.status_code}"), None
+        body = r.json()
+        hits = [h for h in (body.get("search") if isinstance(body, dict) else None) or [] if isinstance(h, dict)]
+        want = _name_key(lambda x: x, key)
+        hits = [h for h in hits if _name_key(key_fn, h.get("label") or "") == want
+                or _name_key(key_fn, ((h.get("match") or {}).get("text")) or "") == want]
+        if not hits:
+            return "ok", None
+        r = await client.get(WIKIDATA_API, headers=hdr, params={
+            "action": "wbgetentities", "ids": "|".join(str(h["id"]) for h in hits[:7]),
+            "props": "claims|labels|aliases|descriptions", "languages": "en", "format": "json"})
+        if r.status_code != 200:
+            return f"error:HTTP {r.status_code}", None
+        body = r.json()
+        entities = (body.get("entities") if isinstance(body, dict) else None) or {}
+    except Exception as e:                     # bad JSON shapes included: a lookup never sinks a company
+        return f"error:{type(e).__name__}", None
+    if not isinstance(entities, dict):
+        return "error:bad json", None
+    return "ok", wikidata_pick(hits, entities, key_fn, key)
 
 
 _XRAY_TITLE_RE = re.compile(r"^(?P<name>[^|\-–—]{3,60}?)\s*[-–—|]\s*(?P<rest>.+?)(?:\s*\|\s*LinkedIn.*)?$", re.I)
