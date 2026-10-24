@@ -99,6 +99,13 @@ LINKEDIN_KEYWORDS = [
     "data engineer", "data scientist", "data analyst", "machine learning", "AI engineer",
     "analytics engineer", "head of data", "business intelligence",
 ]
+# Contract scans: LinkedIn's guest search IGNORES its own job-type filter (f_JT — checked live 24 Oct 2026:
+# identical results with and without it, all full-time), but the word "contract" in the keywords does pull
+# contract ads. Most are agencies (dropped), the point is the direct employers in between.
+LINKEDIN_CONTRACT_KEYWORDS = [
+    "data engineer contract", "data analyst contract", "data scientist contract",
+    "machine learning contract", "business intelligence contract", "AI engineer contract",
+]
 LINKEDIN_TIME_BUDGET = 330          # seconds for the LinkedIn SEARCH pages, incl. back-off pauses
 LINKEDIN_DETAIL_BUDGET = 240        # seconds for job pages — read later, only for companies that qualified
 LINKEDIN_DETAIL_CAP = 60            # job pages read for the true employment type / industry / agency wording
@@ -918,6 +925,9 @@ class Company:
     # so it can VERIFY (its staff carry this exact name) but never alone REJECT a company.
     domain_trusted: bool = False
     ats_refs: List[Tuple[str, str]] = field(default_factory=list)   # (ats, slug) seen in apply links
+    # roles removed because their KNOWN type isn't wanted (title_key -> type): a careers page that lists
+    # the same role without a type must not bring it back as 'Unspecified'
+    typed_out: Dict[str, str] = field(default_factory=dict)
 
     def add_job(self, job: Job) -> bool:
         tk = title_key(job.title) or job.title.lower()
@@ -1059,6 +1069,8 @@ class CompanyRegistry:
         for ref in other.ats_refs:
             if ref not in into.ats_refs:
                 into.ats_refs.append(ref)
+        for tk, t in other.typed_out.items():
+            into.typed_out.setdefault(tk, t)
         into.resolved = into.resolved or other.resolved
         other.merged_into = into
         if other in self.items:
@@ -1389,7 +1401,12 @@ async def source_linkedin(ctx: RunContext, reg: CompanyRegistry) -> None:
     client = hs.LinkedInClient(proxies=hs.proxies_from_env(), time_budget=LINKEDIN_TIME_BUDGET,
                                cancelled=lambda: ctx.cancelled or ctx.deleted)
     ctx.li_client = client                   # closed by execute_run()
-    res = await hs.linkedin_search(client, LINKEDIN_KEYWORDS + ctx.p.extra_keywords, ctx.p.days_back,
+    keywords = LINKEDIN_KEYWORDS + ctx.p.extra_keywords
+    if "Contract" in ctx.p.employment_types:
+        contract_kw = LINKEDIN_CONTRACT_KEYWORDS
+        # contract-only: contract searches go FIRST, so a LinkedIn slow-down costs the generic ones instead
+        keywords = contract_kw + keywords if ctx.p.employment_types == ["Contract"] else keywords + contract_kw
+    res = await hs.linkedin_search(client, keywords, ctx.p.days_back,
                                    parse_cards=parse_linkedin_cards,
                                    on_progress=lambda f: ctx.bump(5 + 30 * f))
     ctx.check_cancel()
@@ -1451,6 +1468,7 @@ async def linkedin_job_pages(ctx: RunContext, companies: List[Company]) -> None:
     for comp, tk, _jid in items:
         job = comp.jobs.get(tk)
         if job is not None and job["sources"] == ["LinkedIn"] and not _type_allowed(ctx, job["employment_type"]):
+            comp.typed_out[tk] = job["employment_type"]
             del comp.jobs[tk]
             ctx.stats["filtered"]["employment_type"] += 1
             ctx.source_stat("LinkedIn", jobs=-1)
@@ -1691,6 +1709,10 @@ def _ingest(ctx: RunContext, reg: CompanyRegistry, *, source: str, title: Any, c
             # only when the site plausibly IS this employer (Optum's ads apply on unitedhealthgroup.com)
             if stem and toks and (toks[0] in stem or stem in c.key.replace(" ", "")):
                 c.apply_domain = dom
+    tk_new = title_key(title) or title.lower()
+    if etype == "Unspecified" and tk_new in c.typed_out:
+        ctx.stats["filtered"]["employment_type"] += 1      # this role's type is already known — and not wanted
+        return None
     if c.add_job(Job(title=title, url=str(url or ""), location=clean_text(location, 200) or "Ireland",
                      source=source, employment_type=etype, category=category, posted_at=posted)):
         ctx.source_stat(source if not source.startswith("Company") else "Company websites", jobs=1)
@@ -2076,6 +2098,7 @@ def _add_apollo_people(c: Company, people: List[Dict[str, Any]]) -> None:
             have.add(p["apollo_person_id"])
 
 
+IRISH_STAFF = [("person_locations[]", "Ireland")]
 ABOVE_RANGES = ["101,200", "201,500", "501,1000", "1001,2000", "2001,5000", "5001,10000", "10001,"]
 
 
@@ -2118,13 +2141,20 @@ async def apollo_size_and_people(ctx: RunContext, c: Company) -> None:
     may_reject = c.domain_trusted or len(c.jobs) >= BIG_HINT_ROLES
 
     async def too_big_proof() -> Optional[bool]:
-        if not may_reject:
-            return False
-        found = await staff(above)
+        if may_reject:
+            found = await staff(above)
+            reason = f"over {max_hc + 1} staff (Apollo)"
+        else:
+            # Website only matched by name (could be a foreign namesake's). It still proves "too big"
+            # when that big organisation has staff BASED IN IRELAND under this name — a US namesake
+            # with no Irish staff can't trigger it; EY, PwC or AIB do. (Checked: first live v3 scans
+            # shortlisted EY, PwC Ireland, AIB, Analog Devices as 'unverified'.)
+            found = await staff(above + IRISH_STAFF)
+            reason = f"over {max_hc + 1} staff, with staff in Ireland (Apollo)"
         if found is None:
             return None
         if found:
-            c.size_status, c.reject_reason = "too_big", f"over {max_hc + 1} staff (Apollo)"
+            c.size_status, c.reject_reason = "too_big", reason
             return True
         return False
 
@@ -2175,11 +2205,13 @@ async def apollo_size_and_people(ctx: RunContext, c: Company) -> None:
 
 async def apollo_name_check(ctx: RunContext, c: Company) -> None:
     """No website found: free people search by keyword, kept only when Apollo's organisation name is
-    EXACTLY this company and it sits inside the size (and HQ) filters. Positive proof only — this
-    never rejects a company, because a keyword search can miss."""
+    EXACTLY this company (raw name: 'Ireland', 'Group', 'Funds'… all must match).
+      * inside the size (and HQ) filters  -> verified
+      * above the limit WITH staff based in Ireland -> too big ('Mediolanum International Funds
+        Limited', 'Britvic Ireland'). A miss proves nothing, so a miss never rejects."""
     if ctx.apollo_disabled or c.domain or c.size_status == "too_big":
         return
-    ranges, _ = _apollo_ranges(ctx.p.max_headcount)
+    ranges, above = _apollo_ranges(ctx.p.max_headcount)
     loc = [("organization_locations[]", "Ireland")] if ctx.p.hq_ireland_only else []
     titles = [("person_titles[]", t) for t in APOLLO_ICP_TITLES]
     base = [("q_keywords", c.name[:80]), ("page", 1), ("per_page", 25)]
@@ -2194,8 +2226,15 @@ async def apollo_name_check(ctx: RunContext, c: Company) -> None:
     if c.size_status == "verified":
         return
     data = await _people_search(ctx, base + ranges + loc)
-    if data is not None and _apollo_matched(data, c, exact=True):
+    if data is None:
+        return
+    if _apollo_matched(data, c, exact=True):
         _mark_verified(c, ctx.p.max_headcount, NAME_MATCH_SOURCE)
+        return
+    data = await _people_search(ctx, base + above + IRISH_STAFF)
+    if data is not None and _apollo_matched(data, c, exact=True):
+        c.size_status = "too_big"
+        c.reject_reason = f"over {ctx.p.max_headcount + 1} staff, with staff in Ireland (Apollo, exact name)"
 
 
 NAME_MATCH_SOURCE = "Apollo (name match)"
@@ -2333,9 +2372,26 @@ async def _bounded(ctx: RunContext, coro: Any, seconds: int, what: str) -> None:
         ctx.log(f"{what}: time limit reached — the rest stay 'headcount unverified'", "warn")
 
 
+_PERSON_NAME = re.compile(r"^[A-Z][a-z]{1,14}(?:-[A-Z][a-z]+)? (?:[A-Z]{4,}|[A-Z]')[A-Za-z]*$")
+_BUSINESS_CAPS = {"DATA", "TECH", "LABS", "GROUP", "SOFT", "MEDIA", "CLOUD", "SYSTEMS", "SOLUTIONS", "DIGITAL",
+                  "CONSULTING", "PARTNERS", "HEALTH", "ENERGY", "BANK", "FINANCE", "CAPITAL", "LOGIC", "WORKS",
+                  "SOFTWARE", "ANALYTICS", "INSIGHTS", "VENTURES", "STUDIO", "STUDIOS", "GAMES", "TELECOM"}
+
+
+def looks_like_a_person(name: Any) -> bool:
+    """'Mariam ADEME' — Indeed lists some ads under the posting recruiter's own name (French style:
+    first name + SURNAME). Not a company to prospect."""
+    n = clean_text(name, 80)
+    if not _PERSON_NAME.match(n) or company_key(n) != _ascii(n).lower():
+        return False
+    return n.split()[1].upper() not in _BUSINESS_CAPS
+
+
 def _agency_reason(c: Company) -> str:
     if c.agency_reason:
         return c.agency_reason
+    if looks_like_a_person(c.name) and not c.domain:
+        return "posted under a person's name (individual recruiter), not a company"
     if is_agency(c.name, c.industry):
         return f"staffing/recruitment ({'industry: ' + c.industry if c.industry and is_agency('', c.industry) else 'name'})"
     return ""
@@ -2442,8 +2498,17 @@ async def qualify_companies(ctx: RunContext, reg: CompanyRegistry) -> List[Compa
     live = [c for c in pool if c.size_status != "too_big"]
     # Bound the expensive steps: verified first, then the SMALLER hirers (fewest roles) — a company
     # with 8 open Data/AI roles is rarely under 100 staff.
-    live.sort(key=lambda c: (c.size_status != "verified", len(c.jobs) >= BIG_HINT_ROLES, -len(c.jobs), c.name.lower()))
-    work = live[: ctx.p.max_companies * 2]
+    def has_wanted_type(c: Company) -> bool:
+        """A role whose STATED type is one the scan asked for (not just 'Unspecified')."""
+        return any(j["employment_type"] in ctx.p.employment_types for j in c.jobs.values())
+
+    # verified first, then companies already showing a role of the wanted type, then the SMALLER hirers
+    # (fewest roles — a company with 8 open Data/AI roles is rarely under 100 staff).
+    live.sort(key=lambda c: (c.size_status != "verified", not has_wanted_type(c), len(c.jobs) >= BIG_HINT_ROLES,
+                             len(c.jobs), c.name.lower()))
+    # Three times the cap is checked: LinkedIn job pages later remove many (first live contract scan:
+    # 30 shortlisted, 13 lost every role to 'Full-time', only 5 left of a cap of 15).
+    work = live[: ctx.p.max_companies * 3]
     for c in live[len(work):]:
         f["over_company_cap"] += 1
         ctx.reject(c, "over the company cap (raise 'Max companies' in Scan settings)", "qualify")
@@ -2980,6 +3045,14 @@ async def pipeline(ctx: RunContext) -> Dict[str, int]:
             ctx.warn(f"A post-qualification step failed ({type(r).__name__}); results may be less complete.")
     companies = [CompanyRegistry.canon(c) for c in companies]
     companies = list({id(c): c for c in companies}.values())
+    # Last word on employment type, for EVERY role: a role seen on LinkedIn AND a careers page was
+    # typed 'Permanent' by its LinkedIn job page after the merge and slipped into a Contract-only scan
+    # (CitySwift, 23 Oct). Nothing reaches the sheet that the scan settings didn't ask for.
+    for c in companies:
+        for tk in [tk for tk, j in c.jobs.items() if not _type_allowed(ctx, j["employment_type"])]:
+            c.typed_out[tk] = c.jobs[tk]["employment_type"]
+            del c.jobs[tk]
+            ctx.stats["filtered"]["employment_type"] += 1
     final: List[Company] = []
     for c in companies:
         why = _agency_reason(c)                  # LinkedIn job pages can reveal an agency only now

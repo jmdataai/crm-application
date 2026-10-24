@@ -101,6 +101,22 @@ const hostOf = (url) => {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
 };
 
+const SMALL_ONLY_KEY = 'hiringIntel.smallOnly';
+const readSmallOnly = () => {
+  try { const v = localStorage.getItem(SMALL_ONLY_KEY); return v === null ? true : v === '1'; } catch { return true; }
+};
+const storeSmallOnly = (v) => {
+  try { localStorage.setItem(SMALL_ONLY_KEY, v ? '1' : '0'); } catch { /* private mode */ }
+};
+
+// Roles a scan's own settings allow (Contract-only scan -> Contract, plus 'Unspecified' only if that box was ticked).
+// Applied when DISPLAYING a scan too, so scans saved before the backend fix show correctly.
+const scanAllowsType = (params, type) => {
+  const wanted = params?.employment_types || ['Permanent', 'Contract'];
+  if (wanted.includes(type)) return true;
+  return (type || 'Unspecified') === 'Unspecified' && params?.include_unspecified_type !== false;
+};
+
 const readStoredParams = () => {
   try {
     const cur = JSON.parse(localStorage.getItem(PARAMS_STORAGE_KEY) || 'null');
@@ -245,9 +261,11 @@ export default function HiringIntel() {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [newOnly, setNewOnly] = useState(false);
   const [emailOnly, setEmailOnly] = useState(false);
-  // Every company is shown by default (each row says whether its size is verified), so the table
-  // always matches the 'Companies hiring' tile. 'Verified size only' is an explicit filter.
-  const [verifiedOnly, setVerifiedOnly] = useState(false);
+  // 'Small companies only' toggle: hides companies whose headcount isn't CONFIRMED under 100 (in practice
+  // mostly large firms no free source could size). On by default, remembered per browser; whenever it
+  // hides anything, a notice says how many and offers "Show all".
+  const [smallOnly, setSmallOnlyState] = useState(readSmallOnly);
+  const setSmallOnly = useCallback((v) => { setSmallOnlyState(v); storeSmallOnly(v); }, []);
   const [showFunnel, setShowFunnel] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
 
@@ -468,8 +486,30 @@ export default function HiringIntel() {
 
   // ── derived data for the results view ──
   const detailRun = detail?.run;
-  const jobs = useMemo(() => detail?.jobs || [], [detail]);
-  const leads = useMemo(() => detail?.leads || [], [detail]);
+  const runParams = detailRun?.params;
+  // Only roles the scan's settings asked for; company rows rebuilt from those roles, and companies left
+  // with none are dropped — the sheet always matches the selected scan settings.
+  const jobs = useMemo(() => (detail?.jobs || []).filter((j) => scanAllowsType(runParams, j.employment_type)),
+    [detail, runParams]);
+  const leads = useMemo(() => {
+    const raw = detail?.leads || [];
+    if (!(detail?.jobs || []).length) return raw;
+    const byCompany = new Map();
+    jobs.forEach((j) => {
+      if (!byCompany.has(j.company_key)) byCompany.set(j.company_key, []);
+      byCompany.get(j.company_key).push(j);
+    });
+    return raw.filter((l) => byCompany.has(l.company_key)).map((l) => {
+      const own = byCompany.get(l.company_key);
+      return {
+        ...l,
+        hiring_for: own.map((j) => j.title),
+        job_links: own.map((j) => j.job_url || (j.other_urls || [])[0] || ''),
+        employment_types: Array.from(new Set(own.map((j) => j.employment_type || 'Unspecified'))),
+        categories: Array.from(new Set(own.map((j) => j.category).filter(Boolean))),
+      };
+    });
+  }, [detail, jobs]);
 
   const categories = useMemo(() => {
     const set = new Set();
@@ -484,7 +524,7 @@ export default function HiringIntel() {
       if (categoryFilter !== 'all' && !(l.categories || []).includes(categoryFilter)) return false;
       if (newOnly && !l.is_new_company) return false;
       if (emailOnly && !l.email) return false;
-      if (verifiedOnly && l.size_status !== 'verified') return false;
+      if (smallOnly && l.size_status !== 'verified') return false;
       if (!q) return true;
       const hay = [l.person_name, l.person_title, l.company_name, l.email, l.company_city, ...(l.hiring_for || [])]
         .filter(Boolean).join(' ').toLowerCase();
@@ -495,7 +535,7 @@ export default function HiringIntel() {
     leads.forEach((l) => { if (!order.has(l.company_key)) order.set(l.company_key, order.size); });
     return rows.sort((a, b) => (order.get(a.company_key) - order.get(b.company_key))
       || ((ROLE_RANK[a.icp_role] || 9) - (ROLE_RANK[b.icp_role] || 9)));
-  }, [leads, typeFilter, categoryFilter, newOnly, emailOnly, verifiedOnly, q]);
+  }, [leads, typeFilter, categoryFilter, newOnly, emailOnly, smallOnly, q]);
 
   const verifiedCompanies = useMemo(() => {
     const set = new Set();
@@ -504,20 +544,24 @@ export default function HiringIntel() {
   }, [leads]);
 
   const filteredJobs = useMemo(() => jobs.filter((j) => {
-    if (verifiedOnly && !verifiedCompanies.has(j.company_key)) return false;
+    if (smallOnly && !verifiedCompanies.has(j.company_key)) return false;
     if (typeFilter !== 'all' && j.employment_type !== typeFilter) return false;
     if (categoryFilter !== 'all' && j.category !== categoryFilter) return false;
     if (newOnly && !j.is_new) return false;
     if (!q) return true;
     return [j.title, j.company_name, j.location].filter(Boolean).join(' ').toLowerCase().includes(q);
   }).sort((a, b) => String(b.posted_at || '').localeCompare(String(a.posted_at || ''))),
-  [jobs, typeFilter, categoryFilter, newOnly, q, verifiedOnly, verifiedCompanies]);
+  [jobs, typeFilter, categoryFilter, newOnly, q, smallOnly, verifiedCompanies]);
 
   // what the tabs and the "hidden by filters" notice count — always COMPANIES, like the KPI tile
   const totalCompanies = useMemo(() => new Set(leads.map((l) => l.company_key)).size, [leads]);
+  const unconfirmedCompanies = useMemo(
+    () => new Set(leads.filter((l) => l.size_status !== 'verified').map((l) => l.company_key)).size, [leads]);
+  const confirmedCompanies = totalCompanies - unconfirmedCompanies;
   const companiesInView = useMemo(() => new Set(filteredLeads.map((l) => l.company_key)).size, [filteredLeads]);
   const contactsInView = useMemo(() => filteredLeads.filter((l) => l.person_key).length, [filteredLeads]);
   const roleCompaniesInView = useMemo(() => new Set(filteredJobs.map((j) => j.company_key)).size, [filteredJobs]);
+  const inView = tab === 'contacts' ? companiesInView : roleCompaniesInView;
 
   const visibleCompanyKeys = useMemo(() => {
     const keys = [];
@@ -540,7 +584,8 @@ export default function HiringIntel() {
       return next.size === prev.size ? prev : next;
     });
   }, [visibleCompanyKeys]);
-  const filtersActive = typeFilter !== 'all' || categoryFilter !== 'all' || newOnly || emailOnly || verifiedOnly || !!q;
+  // the size toggle is a standing preference, so it isn't counted as a 'filter' for the Clear button
+  const filtersActive = typeFilter !== 'all' || categoryFilter !== 'all' || newOnly || emailOnly || !!q;
   const allVisibleSelected = visibleCompanyKeys.length > 0 && visibleCompanyKeys.every((k) => selected.has(k));
 
   const toggleCompany = (key) => {
@@ -590,7 +635,6 @@ export default function HiringIntel() {
 
   const resetFilters = () => {
     setSearch(''); setTypeFilter('all'); setCategoryFilter('all'); setNewOnly(false); setEmailOnly(false);
-    setVerifiedOnly(false);
   };
 
   // credit estimate shown before a scan
@@ -919,6 +963,7 @@ export default function HiringIntel() {
                   <div className="hi-h3" style={{ margin: 0 }}>Scan of {fmtWhen(detailRun.created_at)}</div>
                   <div className="hi-muted">
                     Last {detailRun.params?.days_back} day(s) · {(detailRun.params?.employment_types || []).join(' & ')}
+                    {detailRun.params?.include_unspecified_type !== false ? ' (+ roles with no stated type)' : ''}
                     {detailRun.params?.hq_ireland_only ? ' · Irish HQ' : ''} · &lt;{(detailRun.params?.max_headcount || 99) + 1} staff
                     {runDuration(detailRun) ? ` · took ${runDuration(detailRun)}` : ''}
                   </div>
@@ -939,17 +984,17 @@ export default function HiringIntel() {
               {detailRun.status === 'completed' && (
                 <>
                   <div className="hi-kpis">
-                    <Kpi icon="apartment" label="Companies hiring" value={detailRun.companies_count}
-                         sub={summary.new_companies != null ? `${summary.new_companies} new since last scan` : null}
-                         onClick={() => { resetFilters(); setTab('contacts'); }} title="Show all of them in the sheet" />
-                    <Kpi icon="work" label="Open Data & AI roles" value={detailRun.jobs_count} tone="#7C3AED"
-                         sub={summary.new_jobs != null ? `${summary.new_jobs} new` : null} />
-                    <Kpi icon="verified" label="Confirmed under 100 staff" value={summary.verified_companies ?? '—'} tone="#15803D"
-                         sub={summary.verified_companies != null ? `${detailRun.companies_count - summary.verified_companies} not yet confirmed` : null}
-                         onClick={() => { setVerifiedOnly(true); setTab('contacts'); }} title="Show only these" />
-                    <Kpi icon="badge" label="Decision-makers" value={detailRun.contacts_count} tone="#006243"
-                         sub={summary.companies_with_contact != null ? `at ${summary.companies_with_contact} of ${detailRun.companies_count} companies`
-                           : summary.with_linkedin != null ? `${summary.with_linkedin} with LinkedIn` : null} />
+                    <Kpi icon="apartment" label="Companies hiring" value={totalCompanies}
+                         sub={`${confirmedCompanies} confirmed small · ${unconfirmedCompanies} size unconfirmed`}
+                         onClick={() => { resetFilters(); setSmallOnly(false); setTab('contacts'); }}
+                         title="Show all of them, including unconfirmed sizes" />
+                    <Kpi icon="work" label="Open Data & AI roles" value={jobs.length} tone="#7C3AED"
+                         sub={`${jobs.filter((j) => j.is_new).length} new`} />
+                    <Kpi icon="verified" label="Confirmed under 100 staff" value={confirmedCompanies} tone="#15803D"
+                         sub={`${unconfirmedCompanies} not yet confirmed`}
+                         onClick={() => { setSmallOnly(true); setTab('contacts'); }} title="Show only these" />
+                    <Kpi icon="badge" label="Decision-makers" value={leads.filter((l) => l.person_key).length} tone="#006243"
+                         sub={`at ${new Set(leads.filter((l) => l.person_key).map((l) => l.company_key)).size} of ${totalCompanies} companies`} />
                     <Kpi icon="mail" label="Revealed · with email" value={`${summary.revealed ?? 0} · ${summary.with_email ?? 0}`} tone="#0891B2"
                          sub={summary.to_reveal ? `${summary.to_reveal} still to reveal` : null} />
                   </div>
@@ -998,6 +1043,10 @@ export default function HiringIntel() {
                   </div>
 
                   <div className="hi-filters">
+                    <div className="hi-filter-toggle" title="Hide companies whose headcount isn't confirmed under 100 — in practice mostly larger firms that no free source could size">
+                      <Toggle checked={smallOnly} onChange={setSmallOnly}
+                              label="Small companies only" sub={`confirmed under 100 staff · ${confirmedCompanies} of ${totalCompanies}`} />
+                    </div>
                     <div className="hi-search">
                       <Icon name="search" style={{ fontSize: '1rem', color: 'var(--on-surface-variant)' }} />
                       <input placeholder={tab === 'contacts' ? 'Search name, company, role, email…' : 'Search role, company, location…'}
@@ -1023,22 +1072,19 @@ export default function HiringIntel() {
                         <Icon name="alternate_email" style={{ fontSize: '1rem' }} /> Has email
                       </button>
                     )}
-                    <button className={`hi-pick${verifiedOnly ? ' on' : ''}`} onClick={() => setVerifiedOnly((v) => !v)}
-                            title="Hide companies whose headcount no source could confirm yet">
-                      <Icon name="verified" style={{ fontSize: '1rem' }} /> Verified size only
-                    </button>
                     {filtersActive && <button className="btn-ghost" onClick={resetFilters}>Clear</button>}
                   </div>
 
-                  {totalCompanies > 0 && (tab === 'contacts' ? companiesInView : roleCompaniesInView) < totalCompanies && (
+                  {totalCompanies > 0 && inView < totalCompanies && (
                     <div className="hi-hidden-note" role="status">
-                      <Icon name="filter_alt" style={{ fontSize: '1rem' }} />
+                      <Icon name={smallOnly && !filtersActive ? 'visibility_off' : 'filter_alt'} style={{ fontSize: '1rem' }} />
                       <span>
-                        Showing <strong>{tab === 'contacts' ? companiesInView : roleCompaniesInView}</strong> of{' '}
-                        <strong>{totalCompanies}</strong> companies — the filters above hide{' '}
-                        {totalCompanies - (tab === 'contacts' ? companiesInView : roleCompaniesInView)}.
+                        Showing <strong>{inView}</strong> of <strong>{totalCompanies}</strong> companies —{' '}
+                        {smallOnly && !filtersActive
+                          ? <>{totalCompanies - inView} hidden because their size isn't confirmed under 100 staff (usually larger firms).</>
+                          : <>the filters above hide {totalCompanies - inView}.</>}
                       </span>
-                      <button className="btn-ghost" onClick={resetFilters}>Show all {totalCompanies}</button>
+                      <button className="btn-ghost" onClick={() => { resetFilters(); setSmallOnly(false); }}>Show all {totalCompanies}</button>
                     </div>
                   )}
 
@@ -1478,6 +1524,8 @@ button.hi-kpi:focus-visible { outline: 2px solid var(--tone); outline-offset: 2p
 .hi-hidden-note { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; font-size:.78rem; color:#7A4A00; background:#FFF7E6; border:1px solid #F8DDA5; border-radius:.6rem; padding:.4rem .5rem .4rem .75rem; margin-bottom:.625rem; }
 .hi-hidden-note .btn-ghost { margin-left:auto; padding:.2rem .6rem; font-size:.75rem; }
 .hi-funnel-wide { grid-column: 1 / -1; }
+.hi-filter-toggle { display:flex; align-items:center; padding:.15rem .75rem .15rem .25rem; margin-right:.25rem; border-right:1px solid var(--outline-variant); }
+.hi-filter-toggle .hi-toggle { margin-top:0; }
 .hi-rejected { max-height: 260px; overflow:auto; margin-top:.35rem; padding-right:.25rem; }
 .hi-rejected .hi-funnel-row span:last-child { text-align:right; }
 .hi-funnel { margin-bottom:.875rem; }

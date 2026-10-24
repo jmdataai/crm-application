@@ -757,13 +757,46 @@ def test_untrusted_website_never_rejects_alone():
     """Review #5: a Clearbit/Wikidata name-match site may be a foreign namesake's."""
     import asyncio as _a
     c = hi.Company(name="Smart Data", key="smart data", domain="smartdata.com", domain_trusted=False)
-    ctx = _FakeCtx([{"people": []}, {"people": []}, {"people": [_person("Smart Data")]}])
+    # US namesake: big, but nobody based in Ireland -> the Irish-staff search comes back empty
+    ctx = _FakeCtx([{"people": []}, {"people": []}, {"people": []}])
     _a.run(hi.apollo_size_and_people(ctx, c))
     assert c.size_status == "" and not c.reject_reason
+    assert ("person_locations[]", "Ireland") in ctx.calls[2]             # the rejection needs Irish staff
     ok = hi.Company(name="Smart Data", key="smart data", domain="smartdata.com", domain_trusted=False)
     ctx = _FakeCtx([{"people": [_person("Smart Data", title="CTO")]}])
     _a.run(hi.apollo_size_and_people(ctx, ok))
     assert ok.size_status == "verified"                         # but it can still VERIFY
+
+
+def test_untrusted_website_rejects_big_firm_with_irish_staff():
+    """24 Oct live scan: EY, PwC Ireland, AIB, Analog Devices were left 'unverified'."""
+    import asyncio as _a
+    ey = hi.Company(name="EY", key="ey", domain="ey.com", domain_trusted=False)
+    ctx = _FakeCtx([{"people": []}, {"people": []}, {"people": [_person("EY", title="Manager")]}])
+    _a.run(hi.apollo_size_and_people(ctx, ey))
+    assert ey.size_status == "too_big" and "staff in Ireland" in ey.reject_reason
+
+
+def test_name_check_rejects_exact_name_big_firm_with_irish_staff():
+    import asyncio as _a
+    m = hi.Company(name="Mediolanum International Funds Limited", key=hi.company_key("Mediolanum International Funds Limited"))
+    ctx = _FakeCtx([{"people": []}, {"people": []},
+                    {"people": [_person("Mediolanum International Funds Ltd", title="Analyst")]}])
+    _a.run(hi.apollo_name_check(ctx, m))
+    assert m.size_status == "too_big" and "exact name" in m.reject_reason
+    assert ("person_locations[]", "Ireland") in ctx.calls[2]
+    b = hi.Company(name="Britvic Ireland", key=hi.company_key("Britvic Ireland"))
+    ctx = _FakeCtx([{"people": []}, {"people": []}, {"people": [_person("Britvic", title="Analyst")]}])
+    _a.run(hi.apollo_name_check(ctx, b))
+    assert b.size_status == ""                                  # 'Britvic' is not exactly 'Britvic Ireland'
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("Mariam ADEME", True), ("Anna ZHAO", True), ("Kestrel AI", False), ("Smart DATA", False),
+    ("CitySwift", False), ("Acme Analytics", False), ("John O'Brien", False), ("Mediolanum International Funds Limited", False),
+])
+def test_looks_like_a_person(name, expected):
+    assert hi.looks_like_a_person(name) is expected
 
 
 def test_org_name_extensions_are_whole_generic_words():

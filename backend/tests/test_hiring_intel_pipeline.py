@@ -19,7 +19,7 @@ Run from the backend folder:
 import asyncio
 import os
 import sys
-from typing import Any, Dict, List
+from typing import Dict, List
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -370,3 +370,56 @@ def test_company_cap_applies_after_the_job_pages(monkeypatch):
     ctx, counts, db = _run(monkeypatch, employment_types=["Contract"], max_companies=5)
     assert counts["companies_count"] == 5
     assert "Permco" not in _leads(db) and "Contractco" in _leads(db)
+
+
+def test_merged_role_respects_contract_only_settings(monkeypatch):
+    """23 Oct live scan: CitySwift's PERMANENT roles (seen on LinkedIn AND its Greenhouse board) showed in a
+    Contract-only scan. The final type pass removes any role the settings didn't ask for."""
+    async def greenhouse_too(ctx, reg, c):
+        if c.name == "Permco":                    # the careers page lists the SAME role, no type stated
+            hi._ingest(ctx, reg, source="Company website (Greenhouse)", title="Data Analyst", company=c.name,
+                       location="Dublin, Ireland", url="https://boards.greenhouse.io/permco/jobs/1", target=c)
+        return 0
+    monkeypatch.setattr(hi, "scan_company_website", greenhouse_too)
+    ctx, counts, db = _run_keep_website(monkeypatch, employment_types=["Contract"], include_unspecified_type=True)
+    jobs = db.get("hiring_intel_jobs", [])
+    assert not [j for j in jobs if j["employment_type"] == "Permanent"], jobs
+    assert "Permco" not in _leads(db)
+
+
+def _run_keep_website(monkeypatch, **params):
+    """_run(), but keeps whatever scan_company_website the test installed."""
+    site = hi.scan_company_website
+    db: Dict[str, list] = {}
+    _wire(db)
+    CALLS.clear()
+    monkeypatch.setenv("APOLLO_API_KEY", "test-key")
+    monkeypatch.delenv("SERPER_API_KEY", raising=False)
+    monkeypatch.setattr(hi.RunContext, "apollo_call", fake_apollo_call)
+    monkeypatch.setattr(hi.RunContext, "web_get", fake_web_get)
+    monkeypatch.setitem(hi.SOURCE_RUNNERS, "linkedin", fake_linkedin)
+    monkeypatch.setitem(hi.SOURCE_RUNNERS, "indeed", _board("Indeed"))
+    monkeypatch.setitem(hi.SOURCE_RUNNERS, "glassdoor", _board("Glassdoor"))
+    monkeypatch.setattr(hi, "scan_company_website", site)
+    monkeypatch.setattr(hs, "clearbit_suggest", fake_clearbit)
+    monkeypatch.setattr(hs, "wikidata_lookup", fake_wikidata)
+    monkeypatch.setattr(hs, "linkedin_details", fake_linkedin_details)
+    p = hi.RunParams(sources=["linkedin", "indeed", "glassdoor", "websites"], **params)
+    ctx = hi.RunContext("00000000-0000-0000-0000-000000000004", p)
+    counts = asyncio.run(hi.pipeline(ctx))
+    return ctx, counts, db
+
+
+def test_contract_scans_add_contract_keywords_on_linkedin(monkeypatch):
+    seen = {}
+
+    async def fake_search(client, keywords, days_back, **kw):
+        seen["kw"] = list(keywords)
+        return hs.SourceResult("LinkedIn")
+    monkeypatch.setattr(hs, "linkedin_search", fake_search)
+    ctx = hi.RunContext("00000000-0000-0000-0000-000000000005", hi.RunParams(employment_types=["Contract"]))
+    asyncio.run(hi.source_linkedin(ctx, hi.CompanyRegistry()))
+    assert seen["kw"][0] == "data engineer contract"            # contract-only: contract searches first
+    ctx = hi.RunContext("00000000-0000-0000-0000-000000000006", hi.RunParams(employment_types=["Permanent"]))
+    asyncio.run(hi.source_linkedin(ctx, hi.CompanyRegistry()))
+    assert not any("contract" in k for k in seen["kw"])
